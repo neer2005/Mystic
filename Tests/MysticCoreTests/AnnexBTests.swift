@@ -141,7 +141,7 @@ struct AnnexBTests {
     @Test("the same bytes are read correctly as H.264 and as HEVC")
     func codecAffectsType() {
         // 0x42: H.264 -> type 2 (slice data); HEVC -> type 33 (SPS).
-        let data = annexB([[0x42, 0x01], [0x44, 0x01]])
+        let data = annexB([[0x40, 0x01], [0x42, 0x01], [0x44, 0x01]])
 
         #expect(ParameterSets.extract(from: data, codec: .h264) == nil)
         #expect(ParameterSets.extract(from: data, codec: .hevc) != nil)

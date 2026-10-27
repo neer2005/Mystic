@@ -19,20 +19,23 @@
 //! Panics: the crate is built with `panic = "abort"` in release, so no unwinding ever
 //! crosses the C boundary; a bug aborts rather than corrupting the caller.
 
+mod host;
+mod audio;
+
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::Arc;
 
 use nightjar_core::input::{InputError, InputQueue};
 use nightjar_core::sdp::{AudioConfiguration, StreamConfig, StreamLocation};
 use nightjar_core::session::{
-    AudioRenderer, AudioSetup, DecodeStatus, HostInfo, Interrupt, Listener, Session,
-    SessionConfig, Stage, VideoDecoder, VideoSetup,
+    AudioRenderer, AudioSetup, DecodeStatus, HostInfo, Interrupt, Listener, Session, SessionConfig,
+    Stage, VideoDecoder, VideoSetup,
 };
 use nightjar_core::video::{Frame, FrameType};
 
 /// Bumped whenever a struct layout or function signature changes. The Swift side refuses
 /// to run against a mismatch rather than misreading memory.
-pub const MYSTIC_ABI_VERSION: u32 = 1;
+pub const MYSTIC_ABI_VERSION: u32 = 2;
 
 // ---------------------------------------------------------------------------
 // Result codes
@@ -72,6 +75,10 @@ pub struct MysticAudioSetup {
     pub channel_mask: u16,
     pub packet_duration_ms: u32,
     pub samples_per_frame: u32,
+    pub sample_rate: u32,
+    pub streams: u8,
+    pub coupled_streams: u8,
+    pub mapping: [u8; 8],
 }
 
 /// Borrowed view of one completed frame. `data` points into engine memory and is valid
@@ -216,15 +223,18 @@ pub struct MysticCallbacks {
     pub user: *mut c_void,
 
     /// Return 0 to proceed, non-zero to fail the video stage with that code.
-    pub video_setup: Option<unsafe extern "C" fn(user: *mut c_void, setup: *const MysticVideoSetup) -> i32>,
+    pub video_setup:
+        Option<unsafe extern "C" fn(user: *mut c_void, setup: *const MysticVideoSetup) -> i32>,
     pub video_start: Option<unsafe extern "C" fn(user: *mut c_void)>,
     /// Return 0 for `Ok`, 1 for `NeedIdr`.
-    pub video_submit: Option<unsafe extern "C" fn(user: *mut c_void, frame: *const MysticFrame) -> i32>,
+    pub video_submit:
+        Option<unsafe extern "C" fn(user: *mut c_void, frame: *const MysticFrame) -> i32>,
     pub video_stop: Option<unsafe extern "C" fn(user: *mut c_void)>,
     pub video_cleanup: Option<unsafe extern "C" fn(user: *mut c_void)>,
 
     /// Return 0 to proceed, non-zero to fail the audio stage with that code.
-    pub audio_init: Option<unsafe extern "C" fn(user: *mut c_void, setup: *const MysticAudioSetup) -> i32>,
+    pub audio_init:
+        Option<unsafe extern "C" fn(user: *mut c_void, setup: *const MysticAudioSetup) -> i32>,
     pub audio_start: Option<unsafe extern "C" fn(user: *mut c_void)>,
     /// `packet` is null for a lost packet: run packet loss concealment.
     pub audio_play: Option<unsafe extern "C" fn(user: *mut c_void, packet: *const u8, len: usize)>,
@@ -334,6 +344,10 @@ impl AudioRenderer for AudioAdapter {
             channel_mask: setup.configuration.channel_mask,
             packet_duration_ms: setup.packet_duration_ms,
             samples_per_frame: setup.samples_per_frame,
+            sample_rate: setup.opus.sample_rate,
+            streams: setup.opus.streams,
+            coupled_streams: setup.opus.coupled_streams,
+            mapping: setup.opus.mapping,
         };
         match self.callbacks.audio_init {
             Some(f) => match unsafe { f(self.callbacks.user, &plain) } {
@@ -351,7 +365,9 @@ impl AudioRenderer for AudioAdapter {
     }
 
     fn play(&mut self, packet: Option<&[u8]>) {
-        let Some(f) = self.callbacks.audio_play else { return };
+        let Some(f) = self.callbacks.audio_play else {
+            return;
+        };
         match packet {
             Some(bytes) => unsafe { f(self.callbacks.user, bytes.as_ptr(), bytes.len()) },
             None => unsafe { f(self.callbacks.user, std::ptr::null(), 0) },
@@ -534,7 +550,11 @@ pub unsafe extern "C" fn mystic_session_start(
         return MYSTIC_ERR_INVALID_ARGUMENT;
     };
     if address.is_null() || app_version.is_null() || config.is_null() {
-        write_error(error_buffer, error_capacity, "address, app_version and config are required");
+        write_error(
+            error_buffer,
+            error_capacity,
+            "address, app_version and config are required",
+        );
         return MYSTIC_ERR_INVALID_ARGUMENT;
     }
     if handle.session.is_some() {
@@ -548,7 +568,11 @@ pub unsafe extern "C" fn mystic_session_start(
         rtsp_session_url: if rtsp_session_url.is_null() {
             None
         } else {
-            Some(CStr::from_ptr(rtsp_session_url).to_string_lossy().into_owned())
+            Some(
+                CStr::from_ptr(rtsp_session_url)
+                    .to_string_lossy()
+                    .into_owned(),
+            )
         },
         server_codec_mode_support,
     };
@@ -635,7 +659,10 @@ pub unsafe extern "C" fn mystic_frame_buffers(
 ///
 /// Calls are cheap and non-blocking: they enqueue into the engine's input queue, which
 /// batches and paces delivery itself.
-fn with_input(handle: *mut MysticSession, f: impl FnOnce(&mut InputQueue) -> Result<(), InputError>) -> i32 {
+fn with_input(
+    handle: *mut MysticSession,
+    f: impl FnOnce(&mut InputQueue) -> Result<(), InputError>,
+) -> i32 {
     // SAFETY: the handle contract is documented on every exported input function; a null
     // handle is handled here rather than dereferenced.
     let Some(handle) = (unsafe { handle.as_ref() }) else {
@@ -704,7 +731,9 @@ pub unsafe extern "C" fn mystic_session_keyboard(
     modifiers: u8,
     flags: u8,
 ) -> i32 {
-    with_input(handle, |q| q.send_keyboard(key_code, down, modifiers, flags))
+    with_input(handle, |q| {
+        q.send_keyboard(key_code, down, modifiers, flags)
+    })
 }
 
 /// Vertical scroll in whole clicks (positive = up).
@@ -749,8 +778,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn audio_adapter_preserves_negotiated_opus_configuration() {
+        unsafe extern "C" fn capture(user: *mut c_void, setup: *const MysticAudioSetup) -> i32 {
+            *(user as *mut MysticAudioSetup) = *setup;
+            0
+        }
+        let mut captured = MysticAudioSetup::default();
+        let callbacks = MysticCallbacks {
+            user: (&mut captured as *mut MysticAudioSetup).cast(),
+            audio_init: Some(capture),
+            ..Default::default()
+        };
+        let mut adapter = AudioAdapter { callbacks };
+        let setup = AudioSetup {
+            configuration: AudioConfiguration { channel_count: 6, channel_mask: 0x3f },
+            opus: nightjar_core::rtsp::OpusConfig { sample_rate: 48000, channel_count: 6,
+                streams: 4, coupled_streams: 2, mapping: [0,4,1,5,2,3,6,7] },
+            packet_duration_ms: 10, samples_per_frame: 480,
+        };
+        assert_eq!(adapter.init(&setup), Ok(()));
+        assert_eq!(captured.channel_count, 6); assert_eq!(captured.channel_mask, 0x3f);
+        assert_eq!(captured.packet_duration_ms, 10); assert_eq!(captured.samples_per_frame, 480);
+        assert_eq!(captured.sample_rate, 48000); assert_eq!(captured.streams, 4);
+        assert_eq!(captured.coupled_streams, 2); assert_eq!(captured.mapping, [0,4,1,5,2,3,6,7]);
+    }
+
+    #[test]
     fn abi_version_is_stable() {
-        assert_eq!(mystic_abi_version(), 1);
+        assert_eq!(mystic_abi_version(), 2);
     }
 
     #[test]
@@ -801,8 +856,13 @@ mod tests {
                 buffer.len(),
             );
             assert_eq!(code, MYSTIC_ERR_INVALID_ARGUMENT);
-            let message = CStr::from_ptr(buffer.as_ptr()).to_string_lossy().into_owned();
-            assert!(message.len() <= 7, "message longer than the buffer: {message}");
+            let message = CStr::from_ptr(buffer.as_ptr())
+                .to_string_lossy()
+                .into_owned();
+            assert!(
+                message.len() <= 7,
+                "message longer than the buffer: {message}"
+            );
         }
     }
 
@@ -810,15 +870,27 @@ mod tests {
     fn input_before_start_reports_not_started() {
         unsafe {
             let handle = mystic_session_new();
-            assert_eq!(mystic_session_mouse_move(handle, 4, -3), MYSTIC_ERR_NOT_STARTED);
+            assert_eq!(
+                mystic_session_mouse_move(handle, 4, -3),
+                MYSTIC_ERR_NOT_STARTED
+            );
             assert_eq!(
                 mystic_session_mouse_position(handle, 10, 20, 1920, 1080),
                 MYSTIC_ERR_NOT_STARTED
             );
-            assert_eq!(mystic_session_mouse_button(handle, 1, true), MYSTIC_ERR_NOT_STARTED);
-            assert_eq!(mystic_session_keyboard(handle, 0x41, true, 0, 0), MYSTIC_ERR_NOT_STARTED);
+            assert_eq!(
+                mystic_session_mouse_button(handle, 1, true),
+                MYSTIC_ERR_NOT_STARTED
+            );
+            assert_eq!(
+                mystic_session_keyboard(handle, 0x41, true, 0, 0),
+                MYSTIC_ERR_NOT_STARTED
+            );
             assert_eq!(mystic_session_scroll(handle, 1), MYSTIC_ERR_NOT_STARTED);
-            assert_eq!(mystic_session_high_res_scroll(handle, 120), MYSTIC_ERR_NOT_STARTED);
+            assert_eq!(
+                mystic_session_high_res_scroll(handle, 120),
+                MYSTIC_ERR_NOT_STARTED
+            );
             assert_eq!(mystic_session_request_idr(handle), MYSTIC_ERR_NOT_STARTED);
 
             // A null handle is rejected rather than dereferenced.
@@ -860,7 +932,9 @@ mod tests {
             // Nothing is listening on that port, so the handshake must fail rather than
             // hang or abort.
             assert_eq!(code, MYSTIC_ERR_START_FAILED);
-            let message = CStr::from_ptr(buffer.as_ptr()).to_string_lossy().into_owned();
+            let message = CStr::from_ptr(buffer.as_ptr())
+                .to_string_lossy()
+                .into_owned();
             assert!(!message.is_empty(), "no error text was written");
             // A failed start leaves the handle reusable.
             assert_eq!(mystic_session_stop(handle), MYSTIC_ERR_NOT_STARTED);

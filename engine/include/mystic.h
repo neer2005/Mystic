@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 /* Bump-matched with MYSTIC_ABI_VERSION in lib.rs. The Swift side must refuse a mismatch. */
-#define MYSTIC_ABI_VERSION 1
+#define MYSTIC_ABI_VERSION 2
 
 /* Result codes. */
 #define MYSTIC_OK 0
@@ -63,6 +63,10 @@ typedef struct {
     uint16_t channel_mask;
     uint32_t packet_duration_ms;
     uint32_t samples_per_frame;
+    uint32_t sample_rate;
+    uint8_t streams;
+    uint8_t coupled_streams;
+    uint8_t mapping[8];
 } MysticAudioSetup;
 
 /* Borrowed view of a frame. `data` is valid only during the submit callback. */
@@ -191,7 +195,46 @@ int32_t mystic_session_scroll(MysticSession *handle, int8_t clicks);
 int32_t mystic_session_high_res_scroll(MysticSession *handle, int16_t amount);
 int32_t mystic_session_request_idr(MysticSession *handle);
 
-/* Reserved for ABI v2; returns MYSTIC_ERR_UNIMPLEMENTED in v1. */
+/* Additive host-control API. Calls block; serialize requests off the UI thread.
+ * JSON results are {"ok":true,"value":...} or {"ok":false,"error":"..."}.
+ * Free all returned strings with mystic_string_free; never log identity/launch JSON.
+ * cancel may run concurrently with a request. Free only after all requests complete.
+ */
+typedef struct MysticHost MysticHost;
+char *mystic_identity_create(void);
+void mystic_string_free(char *value);
+MysticHost *mystic_host_new(const char *address, uint16_t http_port,
+                          const char *identity_json, const char *server_certificate_pem,
+                          char *error_buffer, size_t error_capacity);
+char *mystic_host_request(const MysticHost *host, const char *operation, const char *request_json);
+void mystic_host_cancel(const MysticHost *host);
+void mystic_host_free(MysticHost *host);
+
+/* Opus and real-time stereo PCM. Decoder calls must be serialized. No decoder call
+ * retains packet or output pointers. Returns decoded frames, or a negative error.
+ * A NULL packet means loss concealment; non-NULL empty packets are invalid.
+ * The ring has exactly one producer and one consumer. Read allocates/locks nothing;
+ * it zero-fills underruns and discards stale backlog above max_queued_frames.
+ */
+typedef struct MysticOpus MysticOpus;
+MysticOpus *mystic_opus_new(const MysticAudioSetup *setup);
+int32_t mystic_opus_decode(MysticOpus *decoder, const uint8_t *packet, size_t length,
+                          float *pcm, size_t sample_capacity, uint32_t frame_capacity);
+void mystic_opus_free(MysticOpus *decoder);
+typedef struct MysticPCMRing MysticPCMRing;
+typedef struct {
+    uint64_t written_frames, rendered_frames, dropped_frames, underrun_frames;
+    uint32_t queued_frames;
+} MysticPCMStats;
+MysticPCMRing *mystic_pcm_ring_new(uint32_t capacity_frames, uint32_t max_queued_frames);
+uint32_t mystic_pcm_ring_write(MysticPCMRing *ring, const float *interleaved_stereo, uint32_t frames);
+uint32_t mystic_pcm_ring_read(MysticPCMRing *ring, float *left, float *right, uint32_t frames);
+void mystic_pcm_ring_set_gain(MysticPCMRing *ring, float gain);
+MysticPCMStats mystic_pcm_ring_stats(const MysticPCMRing *ring);
+/* Free only after both producer and audio render callback have stopped. */
+void mystic_pcm_ring_free(MysticPCMRing *ring);
+
+/* Reserved for a future ABI; returns MYSTIC_ERR_UNIMPLEMENTED in v1. */
 int32_t mystic_frame_buffers(const MysticFrame *frame, MysticFrameBuffer *out, size_t capacity);
 
 #ifdef __cplusplus

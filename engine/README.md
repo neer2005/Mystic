@@ -85,3 +85,12 @@ Layouts as compiled on aarch64 Linux (byte-identical on Apple silicon, verified)
   mismatch.
 - Never reorder or resize a struct in place — add fields at the end of a new version.
 - `panic = "abort"`: nothing unwinds across the boundary.
+
+## Audio (ABI 2)
+
+The audio setup callback now carries the negotiated Opus stream count, coupling,
+sample rate, and channel mapping. Build the archive and Swift wrapper together.
+The engine statically links bundled libopus through the pinned `opus`/`opusic-sys`
+crates. CMake and Rust 1.82+ are required; no system libopus install is needed.
+The PCM ring reader is allocation/lock free and is called by the AVAudioEngine
+source node. See `docs/AUDIO.md` from the repository root for lifecycle details.

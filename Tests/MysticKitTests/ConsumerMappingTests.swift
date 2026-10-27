@@ -41,6 +41,10 @@ struct ConsumerMappingTests {
         c.channel_mask = 0x3F
         c.packet_duration_ms = 10
         c.samples_per_frame = 480
+        c.sample_rate = 48000
+        c.streams = 4
+        c.coupled_streams = 2
+        c.mapping = (0,4,1,5,2,3,6,7)
 
         let info = AudioSetupInfo(c)
 
@@ -48,6 +52,10 @@ struct ConsumerMappingTests {
         #expect(info.channelMask == 0x3F)
         #expect(info.packetDurationMs == 10)
         #expect(info.samplesPerFrame == 480)
+        #expect(info.sampleRate == 48000)
+        #expect(info.streams == 4)
+        #expect(info.coupledStreams == 2)
+        #expect(info.mapping == [0,4,1,5,2,3])
     }
 
     @Test("frame type becomes isKeyFrame")

@@ -8,6 +8,24 @@ import PackageDescription
 let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let engineLibraryPath = "\(packageRoot)/engine/target/release"
 
+// Apple framework targets are intentionally absent from Linux package graphs.
+#if os(macOS)
+let streamProducts: [Product] = [.library(name: "MysticStream", targets: ["MysticStream"]),
+                                 .executable(name: "MysticApp", targets: ["MysticApp"])]
+let streamTargets: [Target] = [
+    .target(name: "MysticDesktop", dependencies: ["MysticStream", "MysticKit"]),
+    .executableTarget(name: "MysticApp", dependencies: ["MysticDesktop"]),
+    .testTarget(name: "MysticDesktopTests", dependencies: ["MysticDesktop"]),
+    .target(name: "MysticStream", dependencies: ["MysticCore", "MysticKit"],
+            resources: [.copy("Fixtures")]),
+    .testTarget(name: "MysticStreamTests", dependencies: ["MysticStream"],
+                resources: [.copy("Fixtures")]),
+]
+#else
+let streamProducts: [Product] = []
+let streamTargets: [Target] = []
+#endif
+
 let package = Package(
     name: "Mystic",
     platforms: [
@@ -17,7 +35,7 @@ let package = Package(
     products: [
         .library(name: "MysticCore", targets: ["MysticCore"]),
         .library(name: "MysticKit", targets: ["MysticKit"]),
-    ],
+    ] + streamProducts,
     targets: [
         // Platform-neutral protocol logic. Builds and tests on Linux and macOS,
         // so the protocol surface can be developed without an Apple toolchain.
@@ -38,7 +56,7 @@ let package = Package(
         ),
 
         // The Swift wrapper over the C ABI. Deliberately free of Apple frameworks so it
-        // compiles and tests on Linux; video, audio and SwiftUI live in the app target.
+        // compiles and tests on Linux; Apple decoding lives in MysticStream.
         .target(
             name: "MysticKit",
             dependencies: ["CMystic"],
@@ -50,5 +68,5 @@ let package = Package(
 
         .testTarget(name: "MysticCoreTests", dependencies: ["MysticCore"]),
         .testTarget(name: "MysticKitTests", dependencies: ["MysticKit"]),
-    ]
+    ] + streamTargets
 )

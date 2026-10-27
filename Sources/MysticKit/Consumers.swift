@@ -105,12 +105,23 @@ public struct AudioSetupInfo: Sendable, Equatable {
     public var channelMask: UInt16
     public var packetDurationMs: UInt32
     public var samplesPerFrame: UInt32
+    public var sampleRate: UInt32
+    public var streams: UInt8
+    public var coupledStreams: UInt8
+    /// Opus coded-stream to output-channel map, in engine channel-mask order.
+    public var mapping: [UInt8]
 
-    public init(channelCount: UInt8, channelMask: UInt16, packetDurationMs: UInt32, samplesPerFrame: UInt32) {
+    public init(channelCount: UInt8, channelMask: UInt16, packetDurationMs: UInt32, samplesPerFrame: UInt32,
+                sampleRate: UInt32 = 48000, streams: UInt8 = 1, coupledStreams: UInt8 = 1,
+                mapping: [UInt8] = [0, 1]) {
         self.channelCount = channelCount
         self.channelMask = channelMask
         self.packetDurationMs = packetDurationMs
         self.samplesPerFrame = samplesPerFrame
+        self.sampleRate = sampleRate
+        self.streams = streams
+        self.coupledStreams = coupledStreams
+        self.mapping = mapping
     }
 }
 
@@ -151,7 +162,11 @@ extension AudioSetupInfo {
             channelCount: cValue.channel_count,
             channelMask: cValue.channel_mask,
             packetDurationMs: cValue.packet_duration_ms,
-            samplesPerFrame: cValue.samples_per_frame
+            samplesPerFrame: cValue.samples_per_frame,
+            sampleRate: cValue.sample_rate,
+            streams: cValue.streams,
+            coupledStreams: cValue.coupled_streams,
+            mapping: withUnsafeBytes(of: cValue.mapping) { Array($0.prefix(Int(cValue.channel_count))) }
         )
     }
 }

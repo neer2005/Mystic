@@ -94,8 +94,8 @@ public enum AnnexB {
         return out
     }
 
-    /// Removes emulation prevention bytes (`00 00 03` → `00 00`) so the parameter set matches
-    /// the raw RBSP VideoToolbox expects.
+    /// Removes emulation prevention bytes (`00 00 03` → `00 00`) for bitstream syntax inspection.
+    /// Do not use this on NAL units passed to VideoToolbox.
     public static func stripEmulationPrevention(_ nal: Data) -> Data {
         var out = Data(capacity: nal.count)
         var zeros = 0
@@ -132,14 +132,14 @@ public struct ParameterSets: Sendable, Equatable {
             let type = codec.nalUnitType(header)
 
             switch (codec, type) {
-            case (.hevc, 32): if vps == nil { vps = AnnexB.stripEmulationPrevention(nal) }
-            case (.h264, 7), (.hevc, 33): if sps == nil { sps = AnnexB.stripEmulationPrevention(nal) }
-            case (.h264, 8), (.hevc, 34): if pps == nil { pps = AnnexB.stripEmulationPrevention(nal) }
+            case (.hevc, 32): if vps == nil { vps = Data(nal) }
+            case (.h264, 7), (.hevc, 33): if sps == nil { sps = Data(nal) }
+            case (.h264, 8), (.hevc, 34): if pps == nil { pps = Data(nal) }
             default: continue
             }
         }
 
-        guard let sps, let pps else { return nil }
+        guard let sps, let pps, codec != .hevc || vps != nil else { return nil }
         return ParameterSets(vps: vps, sps: sps, pps: pps)
     }
 

@@ -5,25 +5,34 @@ rather than rewritten.
 
 ## Phase 0 — foundations (done)
 
-- [x] Swift package with a Linux-testable core (`swift test`, 16 tests)
+- [x] Swift package with a Linux-testable core (platform-neutral parsers and timing tests)
 - [x] `StreamDescription`: SDP/`x-ss-*` capability parsing
 - [x] `LatencyStats`/`SessionLatency`: per-stage histograms, nearest-rank percentiles
 - [x] Architecture and UI design docs
 
 ## Phase 1 — engine linkage (1–2 weeks)
 
-- [ ] Build Nightjar `protocol/` as a static archive for macOS arm64
-- [ ] Wrap `ffi` in an `xcframework`; Swift `NightjarEngine` façade over the C ABI
-- [ ] Host discovery (mDNS) and pairing against a real host
+- [x] Build Nightjar as a static archive for macOS arm64
+- [x] C ABI and Swift `StreamingEngine` façade, with video/audio consumer seams
+- [ ] Package the engine as an `xcframework`
+- [x] PIN pairing, pinned HTTPS host control, app list, launch/resume, Keychain credentials
+- [x] Validate pairing and launch against a real host (Rubylight, Desktop)
+- [ ] Host discovery (mDNS)
 - [ ] CI: core tests on Linux, engine build on macOS
 
 ## Phase 2 — first playable (6–10 weeks)
 
-- [ ] Xcode app target, three-pane SwiftUI shell, Settings scene, menu bar commands
-- [ ] RTSP session lifecycle: DESCRIBE → SETUP → ANNOUNCE → PLAY via the engine
-- [ ] VideoToolbox decode (H.264, HEVC, AV1) into IOSurface-backed buffers
-- [ ] `AVSampleBufferDisplayLayer` presentation in a full-screen space
-- [ ] AVAudioEngine audio (Opus via libopus), multichannel downmix
+- [x] Minimal SwiftPM macOS app target: manual host, library, stream window, connect/disconnect commands
+- [ ] Full three-pane shell and Settings scene
+- [x] Wire host launch credentials and RTSP session lifecycle through engine to decoder
+- [x] VideoToolbox H.264/HEVC/AV1 implementation with per-profile hardware probes
+- [x] Display-layer presenter and native fullscreen control
+- [x] Live Desktop video, disconnect/resume, saved pairing across app restart, native fullscreen, 1080p → 720p session change
+- [ ] Live packet-loss/IDR recovery and visual HDR validation
+- [ ] AV1 hardware validation on a supported Mac (current Mac reports no hardware decoder)
+- [x] AVAudioEngine audio (bundled libopus), concealment, stereo/surround downmix, volume/mute
+- [x] Live stereo listening confirmed on Desktop
+- [ ] Output-device switch and live surround validation
 - [ ] GameController input: keyboard, mouse, DualSense/Xbox
 - [ ] Latency HUD wired to the engine's timestamps
 

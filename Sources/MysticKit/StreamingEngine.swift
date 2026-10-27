@@ -42,6 +42,10 @@ public struct StreamConfiguration: Sendable, Equatable {
     public var supportedVideoFormats: UInt32 = 1 // H.264 until the decoder says otherwise
     public var videoCapabilities: UInt32 = 0
     public var audioCapabilities: UInt32 = 0
+    public var encryptionFlags: UInt32 = 0
+    /// Launch credentials. Both are exactly 16 bytes and must match the host's launch request.
+    public var remoteInputAESKey: [UInt8] = Array(repeating: 0, count: 16)
+    public var remoteInputAESIV: [UInt8] = Array(repeating: 0, count: 16)
     public var colorSpace: Int32 = 1
     public var colorRange: Int32 = 1
     public var clientRefreshRateX100: Int32 = 0
@@ -103,7 +107,7 @@ public enum EngineEvent: Sendable, Equatable {
 /// ``start(host:configuration:onEvent:)``.
 public final class StreamingEngine {
     /// The ABI this Swift layer was written against.
-    public static let expectedABI: UInt32 = 1
+    public static let expectedABI: UInt32 = 2
 
     private var handle: OpaquePointer?
     private let eventLock = NSLock()
@@ -156,22 +160,7 @@ public final class StreamingEngine {
         eventSink = onEvent
         eventLock.unlock()
 
-        var config = MysticStreamConfig()
-        config.width = configuration.width
-        config.height = configuration.height
-        config.fps = configuration.fps
-        config.bitrate_kbps = configuration.bitrateKbps
-        config.packet_size = configuration.packetSize
-        config.supported_video_formats = configuration.supportedVideoFormats
-        config.video_capabilities = configuration.videoCapabilities
-        config.audio_capabilities = configuration.audioCapabilities
-        config.color_space = configuration.colorSpace
-        config.color_range = configuration.colorRange
-        config.client_refresh_rate_x100 = configuration.clientRefreshRateX100
-        config.channel_count = configuration.channelCount
-        config.channel_mask = configuration.channelMask
-        config.microphone = configuration.microphone
-        config.haptics_pcm = configuration.hapticsPCM
+        var config = try configuration.cConfiguration()
 
         var callbacks = MysticCallbacks()
         // The user pointer carries this instance so the C callbacks can find the sink. The
@@ -390,4 +379,34 @@ public final class StreamingEngine {
 }
 
 private extension NSLock {
+}
+
+
+extension StreamConfiguration {
+    func cConfiguration() throws -> MysticStreamConfig {
+        guard self.remoteInputAESKey.count == 16, self.remoteInputAESIV.count == 16 else {
+            throw EngineError.invalidArgument("launch AES key and IV must each contain 16 bytes")
+        }
+        var config = MysticStreamConfig()
+        config.encryption_flags = self.encryptionFlags
+        withUnsafeMutableBytes(of: &config.remote_input_aes_key) { $0.copyBytes(from: self.remoteInputAESKey) }
+        withUnsafeMutableBytes(of: &config.remote_input_aes_iv) { $0.copyBytes(from: self.remoteInputAESIV) }
+        config.width = self.width
+        config.height = self.height
+        config.fps = self.fps
+        config.bitrate_kbps = self.bitrateKbps
+        config.packet_size = self.packetSize
+        config.supported_video_formats = self.supportedVideoFormats
+        config.video_capabilities = self.videoCapabilities
+        config.audio_capabilities = self.audioCapabilities
+        config.color_space = self.colorSpace
+        config.color_range = self.colorRange
+        config.client_refresh_rate_x100 = self.clientRefreshRateX100
+        config.channel_count = self.channelCount
+        config.channel_mask = self.channelMask
+        config.microphone = self.microphone
+        config.haptics_pcm = self.hapticsPCM
+
+        return config
+    }
 }

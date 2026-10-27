@@ -97,6 +97,51 @@ int main(void) {
 
     CHECK(mystic_session_stop(handle) == MYSTIC_ERR_NOT_STARTED, "a failed start leaves the handle reusable");
 
+    /* New host-control symbols share the same C ownership contract. */
+    char *identity = mystic_identity_create();
+    CHECK(identity != NULL, "host identity result is allocated");
+    CHECK(identity && strstr(identity, "\"ok\":true"), "host identity generation succeeds");
+    mystic_string_free(identity);
+    mystic_string_free(NULL);
+    char *host_error = mystic_host_request(NULL, NULL, NULL);
+    CHECK(host_error && strstr(host_error, "\"ok\":false"), "null host request returns structured error");
+    mystic_string_free(host_error);
+    mystic_host_cancel(NULL);
+    mystic_host_free(NULL);
+
+    MysticAudioSetup audio_setup;
+    memset(&audio_setup, 0, sizeof audio_setup);
+    audio_setup.channel_count = 2;
+    audio_setup.channel_mask = 3;
+    audio_setup.sample_rate = 48000;
+    audio_setup.samples_per_frame = 240;
+    audio_setup.packet_duration_ms = 5;
+    audio_setup.streams = 1;
+    audio_setup.coupled_streams = 1;
+    audio_setup.mapping[0] = 0;
+    audio_setup.mapping[1] = 1;
+    MysticOpus *opus = mystic_opus_new(&audio_setup);
+    CHECK(opus != NULL, "Opus stereo decoder is created through C");
+    float pcm[480];
+    CHECK(mystic_opus_decode(opus, NULL, 0, pcm, 480, 240) == 240, "Opus conceals a missing packet");
+    CHECK(mystic_opus_decode(opus, NULL, 0, pcm, 10, 240) < 0, "Opus rejects undersized output storage");
+    mystic_opus_free(opus);
+    mystic_opus_free(NULL);
+    MysticPCMRing *ring = mystic_pcm_ring_new(128, 64);
+    const float stereo[] = {1, 2, 3, 4, 5, 6, 7, 8};
+    float left[8], right[8];
+    CHECK(ring != NULL, "PCM ring is created through C");
+    CHECK(mystic_pcm_ring_write(ring, stereo, 4) == 4, "PCM ring accepts stereo frames");
+    CHECK(mystic_pcm_ring_read(ring, left, right, 8) == 4, "PCM ring returns actual available frames");
+    CHECK(left[0] == 1 && right[0] == 2 && left[3] == 7 && right[3] == 8 && left[7] == 0,
+          "PCM ring preserves channel order and zero-fills underruns");
+    MysticPCMStats stats = mystic_pcm_ring_stats(ring);
+    CHECK(stats.rendered_frames == 4 && stats.underrun_frames == 4 && stats.queued_frames == 0,
+          "PCM statistics cross the ABI correctly");
+    mystic_pcm_ring_set_gain(ring, 0);
+    mystic_pcm_ring_free(ring);
+    mystic_pcm_ring_free(NULL);
+
     mystic_session_free(handle);
     mystic_session_free(NULL); /* documented no-op */
     printf("  ok: free(NULL) is a no-op\n");

@@ -4,7 +4,7 @@ description = "C ABI over Nightjar's streaming engine for Mystic"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-only"
-rust-version = "1.80"
+rust-version = "1.82"
 publish = false
 
 [lib]
@@ -15,6 +15,10 @@ crate-type = ["staticlib", "rlib"]
 [dependencies]
 # Pinned engine revision. Bump deliberately and re-run the ABI tests.
 nightjar-core = { git = "https://github.com/RamazanKara/nightjar", rev = "f449b5d56e3402237e2121229a487de96f4de82a", package = "nightjar-core" }
+
+serde_json = "1"
+opus = "=0.4.0"
+rand_core = { version = "0.6", features = ["getrandom"] }
 
 [profile.release]
 lto = true

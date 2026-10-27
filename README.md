@@ -8,8 +8,10 @@ streaming engine. It exists because the Mac has no client that treats the platfo
 seriously: everything on macOS today is a Qt or Java port that inherits the lowest
 common denominator of its other platforms.
 
-**Status: pre-alpha.** Nothing streams yet. The protocol core and its tests are the
-first pieces; see `docs/ROADMAP.md`.
+**Status: pre-alpha.** The native app, pairing/launch flow, engine bridge, and video
+decoder are wired. Desktop streaming, saved pairing, and reconnect have been verified
+against a Rubylight host. Opus audio playback is implemented; remote input is next. See
+`docs/FIRST-VIDEO.md` to run it and `docs/ROADMAP.md` for remaining work.
 
 ## Targets
 
@@ -35,8 +37,9 @@ Sources/MysticCore/      platform-neutral Swift: SDP parsing, latency accounting
 Tests/MysticCoreTests/   runs on Linux and macOS
 ```
 
-The app target and the Metal/VideoToolbox modules are added once the Xcode project
-exists; they cannot build on Linux and are deliberately kept out of the core package.
+The macOS-only `MysticStream` product implements VideoToolbox decoding and display-layer
+presentation. See `docs/VIDEOTOOLBOX.md` for capabilities, ownership, and fixture tests.
+A minimal native app is available; the Metal decoder remains future work.
 
 ## Building
 
@@ -46,7 +49,8 @@ Protocol core (any platform):
 swift test
 ```
 
-macOS app: see `docs/ARCHITECTURE.md`. The app requires Xcode 27 and the Nightjar
+macOS app: run `scripts/build-macos-app.sh`, then open `.build/Mystic.app`.
+See `docs/FIRST-VIDEO.md` for the host flow and validation checklist. The app requires Xcode 27 and the Nightjar
 engine built for macOS arm64.
 
 ## Licence
