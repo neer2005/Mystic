@@ -1,0 +1,24 @@
+[package]
+name = "mystic-ffi"
+description = "C ABI over Nightjar's streaming engine for Mystic"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+rust-version = "1.80"
+publish = false
+
+[lib]
+name = "mystic_ffi"
+# staticlib for the Swift app; rlib so the ABI can be exercised by Rust tests.
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+# Pinned engine revision. Bump deliberately and re-run the ABI tests.
+nightjar-core = { git = "https://github.com/RamazanKara/nightjar", rev = "f449b5d56e3402237e2121229a487de96f4de82a", package = "nightjar-core" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+# Matches the engine workspace: a panic aborts like a C assert, so no unwinding
+# ever crosses the C boundary.
+panic = "abort"
