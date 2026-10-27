@@ -22,6 +22,7 @@
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::Arc;
 
+use nightjar_core::input::{InputError, InputQueue};
 use nightjar_core::sdp::{AudioConfiguration, StreamConfig, StreamLocation};
 use nightjar_core::session::{
     AudioRenderer, AudioSetup, DecodeStatus, HostInfo, Interrupt, Listener, Session,
@@ -43,6 +44,7 @@ pub const MYSTIC_ERR_START_FAILED: i32 = -2;
 pub const MYSTIC_ERR_NOT_STARTED: i32 = -3;
 pub const MYSTIC_ERR_BUFFER_TOO_SMALL: i32 = -4;
 pub const MYSTIC_ERR_UNIMPLEMENTED: i32 = -5;
+pub const MYSTIC_ERR_INPUT_FAILED: i32 = -6;
 
 // ---------------------------------------------------------------------------
 // Plain data mirroring the engine's types
@@ -628,6 +630,120 @@ pub unsafe extern "C" fn mystic_frame_buffers(
     MYSTIC_ERR_UNIMPLEMENTED
 }
 
+/// Input injection. All of these require a started session and return
+/// `MYSTIC_ERR_NOT_STARTED` otherwise.
+///
+/// Calls are cheap and non-blocking: they enqueue into the engine's input queue, which
+/// batches and paces delivery itself.
+fn with_input(handle: *mut MysticSession, f: impl FnOnce(&mut InputQueue) -> Result<(), InputError>) -> i32 {
+    // SAFETY: the handle contract is documented on every exported input function; a null
+    // handle is handled here rather than dereferenced.
+    let Some(handle) = (unsafe { handle.as_ref() }) else {
+        return MYSTIC_ERR_INVALID_ARGUMENT;
+    };
+    let Some(session) = handle.session.as_ref() else {
+        return MYSTIC_ERR_NOT_STARTED;
+    };
+    match session.input(f) {
+        Ok(()) => MYSTIC_OK,
+        Err(_) => MYSTIC_ERR_INPUT_FAILED,
+    }
+}
+
+/// Relative mouse motion.
+///
+/// # Safety
+/// `handle` must be a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_mouse_move(
+    handle: *mut MysticSession,
+    dx: i16,
+    dy: i16,
+) -> i32 {
+    with_input(handle, |q| q.send_mouse_move(dx, dy))
+}
+
+/// Absolute mouse position in host coordinates (`0..width`, `0..height`).
+///
+/// # Safety
+/// `handle` must be a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_mouse_position(
+    handle: *mut MysticSession,
+    x: i16,
+    y: i16,
+    width: i16,
+    height: i16,
+) -> i32 {
+    with_input(handle, |q| q.send_mouse_position(x, y, width, height))
+}
+
+/// Mouse button state. Button numbering follows the host's HID buttons.
+///
+/// # Safety
+/// `handle` must be a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_mouse_button(
+    handle: *mut MysticSession,
+    button: u8,
+    down: bool,
+) -> i32 {
+    with_input(handle, |q| q.send_mouse_button(button, down))
+}
+
+/// Keyboard event. `key_code` is a Windows virtual-key code; `modifiers` and `flags` are the
+/// engine's modifier bits and event flags.
+///
+/// # Safety
+/// `handle` must be a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_keyboard(
+    handle: *mut MysticSession,
+    key_code: u16,
+    down: bool,
+    modifiers: u8,
+    flags: u8,
+) -> i32 {
+    with_input(handle, |q| q.send_keyboard(key_code, down, modifiers, flags))
+}
+
+/// Vertical scroll in whole clicks (positive = up).
+///
+/// # Safety
+/// `handle` must be a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_scroll(handle: *mut MysticSession, clicks: i8) -> i32 {
+    with_input(handle, |q| q.send_scroll(clicks))
+}
+
+/// Vertical scroll in 1/120 of a click, for trackpads and smooth wheels.
+///
+/// # Safety
+/// `handle` must be a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_high_res_scroll(
+    handle: *mut MysticSession,
+    amount: i16,
+) -> i32 {
+    with_input(handle, |q| q.send_high_res_scroll(amount))
+}
+
+/// Asks the host for a key frame, e.g. after the decoder reported `NeedIdr`.
+///
+/// # Safety
+/// `handle` must be a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_request_idr(handle: *mut MysticSession) -> i32 {
+    let Some(handle) = handle.as_ref() else {
+        return MYSTIC_ERR_INVALID_ARGUMENT;
+    };
+    let Some(session) = handle.session.as_ref() else {
+        return MYSTIC_ERR_NOT_STARTED;
+    };
+    session.request_idr_frame();
+    MYSTIC_OK
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -687,6 +803,35 @@ mod tests {
             assert_eq!(code, MYSTIC_ERR_INVALID_ARGUMENT);
             let message = CStr::from_ptr(buffer.as_ptr()).to_string_lossy().into_owned();
             assert!(message.len() <= 7, "message longer than the buffer: {message}");
+        }
+    }
+
+    #[test]
+    fn input_before_start_reports_not_started() {
+        unsafe {
+            let handle = mystic_session_new();
+            assert_eq!(mystic_session_mouse_move(handle, 4, -3), MYSTIC_ERR_NOT_STARTED);
+            assert_eq!(
+                mystic_session_mouse_position(handle, 10, 20, 1920, 1080),
+                MYSTIC_ERR_NOT_STARTED
+            );
+            assert_eq!(mystic_session_mouse_button(handle, 1, true), MYSTIC_ERR_NOT_STARTED);
+            assert_eq!(mystic_session_keyboard(handle, 0x41, true, 0, 0), MYSTIC_ERR_NOT_STARTED);
+            assert_eq!(mystic_session_scroll(handle, 1), MYSTIC_ERR_NOT_STARTED);
+            assert_eq!(mystic_session_high_res_scroll(handle, 120), MYSTIC_ERR_NOT_STARTED);
+            assert_eq!(mystic_session_request_idr(handle), MYSTIC_ERR_NOT_STARTED);
+
+            // A null handle is rejected rather than dereferenced.
+            assert_eq!(
+                mystic_session_mouse_button(std::ptr::null_mut(), 1, true),
+                MYSTIC_ERR_INVALID_ARGUMENT
+            );
+            assert_eq!(
+                mystic_session_request_idr(std::ptr::null_mut()),
+                MYSTIC_ERR_INVALID_ARGUMENT
+            );
+
+            mystic_session_free(handle);
         }
     }
 

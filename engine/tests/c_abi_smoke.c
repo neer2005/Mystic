@@ -50,6 +50,24 @@ int main(void) {
 
     CHECK(mystic_session_stop(handle) == MYSTIC_ERR_NOT_STARTED, "stop before start reports NOT_STARTED");
 
+    /* Input before a session exists must be refused, not queued or crashed. */
+    CHECK(mystic_session_mouse_move(handle, 4, -3) == MYSTIC_ERR_NOT_STARTED,
+          "mouse move before start is refused");
+    CHECK(mystic_session_mouse_position(handle, 10, 20, 1920, 1080) == MYSTIC_ERR_NOT_STARTED,
+          "absolute mouse position before start is refused");
+    CHECK(mystic_session_mouse_button(handle, 1, true) == MYSTIC_ERR_NOT_STARTED,
+          "mouse button before start is refused");
+    CHECK(mystic_session_keyboard(handle, 0x41, true, 0, 0) == MYSTIC_ERR_NOT_STARTED,
+          "keyboard before start is refused");
+    CHECK(mystic_session_scroll(handle, 1) == MYSTIC_ERR_NOT_STARTED,
+          "scroll before start is refused");
+    CHECK(mystic_session_high_res_scroll(handle, 120) == MYSTIC_ERR_NOT_STARTED,
+          "high-resolution scroll before start is refused");
+    CHECK(mystic_session_request_idr(handle) == MYSTIC_ERR_NOT_STARTED,
+          "IDR request before start is refused");
+    CHECK(mystic_session_mouse_button(NULL, 1, true) == MYSTIC_ERR_INVALID_ARGUMENT,
+          "input on a null handle is rejected");
+
     /* The path that matters: a full start attempt with every struct populated. Nothing is
      * listening, so it must fail rather than hang or abort. */
     MysticStreamConfig config;

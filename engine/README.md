@@ -17,15 +17,17 @@ ABI v1 covers:
 - video callbacks: setup, start, submit, stop, cleanup
 - audio callbacks: init, start, play, stop, cleanup
 - listener callbacks: stage events, connection started/terminated, log
+- input injection: relative and absolute mouse, buttons, keyboard, wheel and high-resolution
+  scroll, plus IDR requests
 - `mystic_struct_sizes` so C and Swift can prove the layout matches what Rust compiled
 
 **Not in v1** (deliberate, next iterations):
 
-- input injection (`Session::input`) — required before anything is playable
 - microphone sending (`send_microphone`)
-- statistics (`Session::stats`), IDR requests, host control messages
+- controllers, touch and pen (`send_controller`, `send_touch`, `send_pen`)
+- statistics (`Session::stats`) and host control messages
 - per-buffer frame descriptors (`mystic_frame_buffers` returns `MYSTIC_ERR_UNIMPLEMENTED`)
-- controller haptics and rumble events
+- Rubylight `0x55xx` control messages (`Session::send`)
 
 ## Threading contract
 
@@ -67,12 +69,14 @@ ABI test.
 ## Verified
 
 ```
-rust tests     5 passed
-C ABI smoke    PASS  (all six struct layouts match; start reaches RtspHandshake and
-                     reports "Connection refused" against a dead address)
+rust tests     6 passed
+C ABI smoke    PASS  (all six struct layouts match; input refused before start;
+                     start reaches RtspHandshake and reports "Connection refused"
+                     against a dead address)
 ```
 
-Layouts as compiled on aarch64 Linux (identical field order on Apple silicon):
+Layouts as compiled on aarch64 Linux (byte-identical on Apple silicon, verified):
+
 `video_setup=36 audio_setup=12 frame=64 frame_buffer=24 stream_config=92 callbacks=120`.
 
 ## ABI rules

@@ -175,6 +175,21 @@ int32_t mystic_session_start(MysticSession *handle,
 /* Stops every stream. Idempotent; returns MYSTIC_ERR_NOT_STARTED when nothing ran. */
 int32_t mystic_session_stop(MysticSession *handle);
 
+/*
+ * Input injection. Non-blocking: events are enqueued and the engine batches delivery.
+ * All return MYSTIC_ERR_NOT_STARTED until a session is running.
+ * key_code is a Windows virtual-key code.
+ */
+int32_t mystic_session_mouse_move(MysticSession *handle, int16_t dx, int16_t dy);
+int32_t mystic_session_mouse_position(MysticSession *handle, int16_t x, int16_t y,
+                                      int16_t width, int16_t height);
+int32_t mystic_session_mouse_button(MysticSession *handle, uint8_t button, bool down);
+int32_t mystic_session_keyboard(MysticSession *handle, uint16_t key_code, bool down,
+                                uint8_t modifiers, uint8_t flags);
+int32_t mystic_session_scroll(MysticSession *handle, int8_t clicks);
+int32_t mystic_session_high_res_scroll(MysticSession *handle, int16_t amount);
+int32_t mystic_session_request_idr(MysticSession *handle);
+
 /* Reserved for ABI v2; returns MYSTIC_ERR_UNIMPLEMENTED in v1. */
 int32_t mystic_frame_buffers(const MysticFrame *frame, MysticFrameBuffer *out, size_t capacity);
 
