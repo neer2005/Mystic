@@ -108,6 +108,10 @@ public final class StreamingEngine {
     private var handle: OpaquePointer?
     private let eventLock = NSLock()
     private var eventSink: (@Sendable (EngineEvent) -> Void)?
+    /// Sinks are set before `start` and read from engine threads afterwards; they are never
+    /// reassigned while a session runs.
+    private(set) var videoConsumer: VideoConsumer?
+    private(set) var audioConsumer: AudioConsumer?
 
     /// Creates a handle. Fails only if the linked library was built for another ABI.
     public init() throws {
@@ -139,9 +143,14 @@ public final class StreamingEngine {
         rtspSessionURL: String? = nil,
         serverCodecModeSupport: UInt32 = 1,
         configuration: StreamConfiguration = .init(),
+        video: VideoConsumer? = nil,
+        audio: AudioConsumer? = nil,
         onEvent: @escaping @Sendable (EngineEvent) -> Void
     ) throws {
         guard let handle else { throw EngineError.notStarted }
+
+        videoConsumer = video
+        audioConsumer = audio
 
         eventLock.lock()
         eventSink = onEvent
@@ -194,6 +203,91 @@ public final class StreamingEngine {
             guard let user, let message else { return }
             let text = String(cString: message)
             Unmanaged<StreamingEngine>.fromOpaque(user).takeUnretainedValue().emit(.log(text))
+        }
+
+        callbacks.video_setup = { user, setup in
+            guard let user, let setup else { return 0 }
+            let engine = Unmanaged<StreamingEngine>.fromOpaque(user).takeUnretainedValue()
+            guard let consumer = engine.videoConsumer else { return 0 }
+            let info = VideoSetupInfo(setup.pointee)
+            do {
+                try consumer.setup(info)
+                return 0
+            } catch {
+                // Failing here aborts the connection with a reason, which beats a black window.
+                engine.emit(.log("video decoder rejected \(info.width)x\(info.height): \(error)"))
+                return 1
+            }
+        }
+
+        callbacks.video_start = { user in
+            guard let user else { return }
+            Unmanaged<StreamingEngine>.fromOpaque(user).takeUnretainedValue()
+                .videoConsumer?.start()
+        }
+
+        callbacks.video_submit = { user, frame in
+            guard let user, let frame else { return 0 }
+            let engine = Unmanaged<StreamingEngine>.fromOpaque(user).takeUnretainedValue()
+            guard let consumer = engine.videoConsumer, frame.pointee.data != nil else { return 0 }
+            // The frame borrows engine memory; it must be consumed before this returns.
+            return consumer.submit(VideoFrameInfo(frame.pointee)).callbackCode
+        }
+
+        callbacks.video_stop = { user in
+            guard let user else { return }
+            Unmanaged<StreamingEngine>.fromOpaque(user).takeUnretainedValue()
+                .videoConsumer?.stop()
+        }
+
+        callbacks.video_cleanup = { user in
+            guard let user else { return }
+            Unmanaged<StreamingEngine>.fromOpaque(user).takeUnretainedValue()
+                .videoConsumer?.cleanup()
+        }
+
+        callbacks.audio_init = { user, setup in
+            guard let user, let setup else { return 0 }
+            let engine = Unmanaged<StreamingEngine>.fromOpaque(user).takeUnretainedValue()
+            guard let consumer = engine.audioConsumer else { return 0 }
+            let info = AudioSetupInfo(setup.pointee)
+            do {
+                try consumer.setup(info)
+                return 0
+            } catch {
+                engine.emit(.log("audio renderer rejected the stream: \(error)"))
+                return 1
+            }
+        }
+
+        callbacks.audio_start = { user in
+            guard let user else { return }
+            Unmanaged<StreamingEngine>.fromOpaque(user).takeUnretainedValue()
+                .audioConsumer?.start()
+        }
+
+        callbacks.audio_play = { user, packet, length in
+            guard let user else { return }
+            let consumer = Unmanaged<StreamingEngine>.fromOpaque(user)
+                .takeUnretainedValue().audioConsumer
+            // A null packet (or zero length) means "lost": conceal rather than decode.
+            guard let packet, length > 0 else {
+                consumer?.play(nil)
+                return
+            }
+            consumer?.play(UnsafeRawBufferPointer(start: packet, count: length))
+        }
+
+        callbacks.audio_stop = { user in
+            guard let user else { return }
+            Unmanaged<StreamingEngine>.fromOpaque(user).takeUnretainedValue()
+                .audioConsumer?.stop()
+        }
+
+        callbacks.audio_cleanup = { user in
+            guard let user else { return }
+            Unmanaged<StreamingEngine>.fromOpaque(user).takeUnretainedValue()
+                .audioConsumer?.cleanup()
         }
 
         var errorBuffer = [CChar](repeating: 0, count: 512)
