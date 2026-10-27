@@ -37,6 +37,7 @@ extern "C" {
 #define MYSTIC_ERR_NOT_STARTED (-3)
 #define MYSTIC_ERR_BUFFER_TOO_SMALL (-4)
 #define MYSTIC_ERR_UNIMPLEMENTED (-5)
+#define MYSTIC_ERR_INPUT_FAILED (-6)
 
 /* Stage event kinds passed to MysticCallbacks::stage. */
 #define MYSTIC_STAGE_STARTING 0

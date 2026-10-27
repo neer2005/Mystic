@@ -1,0 +1,8 @@
+// Module map for the mystic-ffi C ABI. The header is a symlink to
+// engine/include/mystic.h so there is exactly one copy of the ABI surface and the Swift
+// side can never drift from the Rust definitions.
+module CMystic {
+    header "mystic.h"
+    link "mystic_ffi"
+    export *
+}

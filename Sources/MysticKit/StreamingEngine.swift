@@ -1,0 +1,299 @@
+import CMystic
+import Foundation
+
+/// Errors surfaced by the streaming engine, carrying the engine's own message where it has
+/// one.
+public enum EngineError: Error, Equatable, CustomStringConvertible {
+    /// The linked library was built for a different ABI than this Swift layer expects.
+    case abiMismatch(linked: UInt32, expected: UInt32)
+    case invalidArgument(String)
+    /// `start` failed; the message names the stage and code the engine reported.
+    case startFailed(String)
+    case notStarted
+    case inputFailed
+
+    public var description: String {
+        switch self {
+        case let .abiMismatch(linked, expected):
+            return "mystic ABI \(linked) does not match the expected \(expected); rebuild engine/"
+        case let .invalidArgument(message):
+            return "invalid argument: \(message)"
+        case let .startFailed(message):
+            return "start failed: \(message)"
+        case .notStarted:
+            return "no session is running"
+        case .inputFailed:
+            return "the engine rejected the input event"
+        }
+    }
+}
+
+/// The stream configuration, in Swift terms.
+///
+/// Values follow the header's defaults for anything not set here. `supportedVideoFormats`
+/// and the capability fields use the engine's own bit constants (`VIDEO_FORMAT_*`,
+/// `CAPABILITY_*`); they are not redefined here on purpose — one source of truth.
+public struct StreamConfiguration: Sendable, Equatable {
+    public var width: Int32 = 1920
+    public var height: Int32 = 1080
+    public var fps: Int32 = 60
+    public var bitrateKbps: Int32 = 20000
+    public var packetSize: Int32 = 1392
+    public var supportedVideoFormats: UInt32 = 1 // H.264 until the decoder says otherwise
+    public var videoCapabilities: UInt32 = 0
+    public var audioCapabilities: UInt32 = 0
+    public var colorSpace: Int32 = 1
+    public var colorRange: Int32 = 1
+    public var clientRefreshRateX100: Int32 = 0
+    public var channelCount: UInt8 = 2
+    public var channelMask: UInt16 = 0x3
+    public var microphone = false
+    public var hapticsPCM = false
+
+    public init() {}
+}
+
+/// Stage numbers the engine reports, mirroring `MysticCallbacks::stage`.
+public enum Stage: Int32, Sendable, CaseIterable {
+    case platformInit = 1
+    case nameResolution = 2
+    case audioStreamInit = 3
+    case rtspHandshake = 4
+    case controlStreamInit = 5
+    case videoStreamInit = 6
+    case inputStreamInit = 7
+    case controlStreamStart = 8
+    case videoStreamStart = 9
+    case audioStreamStart = 10
+    case inputStreamStart = 11
+
+    public var name: String {
+        switch self {
+        case .platformInit: "platform init"
+        case .nameResolution: "name resolution"
+        case .audioStreamInit: "audio stream init"
+        case .rtspHandshake: "RTSP handshake"
+        case .controlStreamInit: "control stream init"
+        case .videoStreamInit: "video stream init"
+        case .inputStreamInit: "input stream init"
+        case .controlStreamStart: "control stream start"
+        case .videoStreamStart: "video stream start"
+        case .audioStreamStart: "audio stream start"
+        case .inputStreamStart: "input stream start"
+        }
+    }
+}
+
+/// What the engine reports as it connects.
+public enum EngineEvent: Sendable, Equatable {
+    case stageStarting(Stage)
+    case stageComplete(Stage)
+    case stageFailed(Stage, code: Int32)
+    case connected
+    case terminated(code: Int32)
+    case log(String)
+}
+
+/// Owns one engine session.
+///
+/// `start` blocks until the stream is running or a stage fails, so call it from a
+/// background task — never from the main actor. Input calls are cheap and non-blocking.
+///
+/// The type is not `Sendable`: keep one instance per task and hand events out through
+/// ``start(host:configuration:onEvent:)``.
+public final class StreamingEngine {
+    /// The ABI this Swift layer was written against.
+    public static let expectedABI: UInt32 = 1
+
+    private var handle: OpaquePointer?
+    private let eventLock = NSLock()
+    private var eventSink: (@Sendable (EngineEvent) -> Void)?
+
+    /// Creates a handle. Fails only if the linked library was built for another ABI.
+    public init() throws {
+        let linked = mystic_abi_version()
+        guard linked == Self.expectedABI else {
+            throw EngineError.abiMismatch(linked: linked, expected: Self.expectedABI)
+        }
+        guard let handle = mystic_session_new() else {
+            throw EngineError.invalidArgument("the engine refused to allocate a session")
+        }
+        self.handle = handle
+    }
+
+    deinit {
+        if let handle {
+            // Stop first: free() must not race with a running callback.
+            _ = mystic_session_stop(handle)
+            mystic_session_free(handle)
+        }
+    }
+
+    /// Connects to `host` and blocks until the stream runs or a stage fails.
+    ///
+    /// - Parameter onEvent: called from engine threads; must be safe to call concurrently
+    ///   and must not assume the main thread.
+    public func start(
+        host: String,
+        appVersion: String,
+        rtspSessionURL: String? = nil,
+        serverCodecModeSupport: UInt32 = 1,
+        configuration: StreamConfiguration = .init(),
+        onEvent: @escaping @Sendable (EngineEvent) -> Void
+    ) throws {
+        guard let handle else { throw EngineError.notStarted }
+
+        eventLock.lock()
+        eventSink = onEvent
+        eventLock.unlock()
+
+        var config = MysticStreamConfig()
+        config.width = configuration.width
+        config.height = configuration.height
+        config.fps = configuration.fps
+        config.bitrate_kbps = configuration.bitrateKbps
+        config.packet_size = configuration.packetSize
+        config.supported_video_formats = configuration.supportedVideoFormats
+        config.video_capabilities = configuration.videoCapabilities
+        config.audio_capabilities = configuration.audioCapabilities
+        config.color_space = configuration.colorSpace
+        config.color_range = configuration.colorRange
+        config.client_refresh_rate_x100 = configuration.clientRefreshRateX100
+        config.channel_count = configuration.channelCount
+        config.channel_mask = configuration.channelMask
+        config.microphone = configuration.microphone
+        config.haptics_pcm = configuration.hapticsPCM
+
+        var callbacks = MysticCallbacks()
+        // The user pointer carries this instance so the C callbacks can find the sink. The
+        // engine only hands it back; it never dereferences it.
+        callbacks.user = Unmanaged.passUnretained(self).toOpaque()
+        callbacks.stage = { user, stage, event, error in
+            guard let user else { return }
+            let engine = Unmanaged<StreamingEngine>.fromOpaque(user).takeUnretainedValue()
+            guard let kind = Stage(rawValue: stage) else { return }
+            let mapped: EngineEvent
+            switch event {
+            case MYSTIC_STAGE_STARTING: mapped = .stageStarting(kind)
+            case MYSTIC_STAGE_COMPLETE: mapped = .stageComplete(kind)
+            case MYSTIC_STAGE_FAILED: mapped = .stageFailed(kind, code: error)
+            default: return
+            }
+            engine.emit(mapped)
+        }
+        callbacks.connection_started = { user in
+            guard let user else { return }
+            Unmanaged<StreamingEngine>.fromOpaque(user).takeUnretainedValue().emit(.connected)
+        }
+        callbacks.connection_terminated = { user, code in
+            guard let user else { return }
+            Unmanaged<StreamingEngine>.fromOpaque(user).takeUnretainedValue()
+                .emit(.terminated(code: code))
+        }
+        callbacks.log = { user, message in
+            guard let user, let message else { return }
+            let text = String(cString: message)
+            Unmanaged<StreamingEngine>.fromOpaque(user).takeUnretainedValue().emit(.log(text))
+        }
+
+        var errorBuffer = [CChar](repeating: 0, count: 512)
+        let code = mystic_session_start(
+            handle,
+            host,
+            appVersion,
+            rtspSessionURL,
+            serverCodecModeSupport,
+            &config,
+            &callbacks,
+            &errorBuffer,
+            errorBuffer.count
+        )
+
+        guard code == MYSTIC_OK else {
+            let bytes = errorBuffer.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
+            let message = String(decoding: bytes, as: UTF8.self)
+            switch code {
+            case MYSTIC_ERR_START_FAILED:
+                throw EngineError.startFailed(message)
+            default:
+                throw EngineError.invalidArgument(message)
+            }
+        }
+    }
+
+    /// Stops every stream. Safe to call more than once.
+    public func stop() {
+        guard let handle else { return }
+        _ = mystic_session_stop(handle)
+    }
+
+    /// Cancels a `start` that is still blocking. Safe from any thread.
+    public func interrupt() {
+        guard let handle else { return }
+        mystic_session_interrupt(handle)
+    }
+
+    // MARK: - Input
+
+    public func mouseMove(dx: Int16, dy: Int16) throws {
+        try check(mystic_session_mouse_move(requireHandle(), dx, dy))
+    }
+
+    public func mousePosition(x: Int16, y: Int16, width: Int16, height: Int16) throws {
+        try check(mystic_session_mouse_position(requireHandle(), x, y, width, height))
+    }
+
+    public func mouseButton(_ button: UInt8, down: Bool) throws {
+        try check(mystic_session_mouse_button(requireHandle(), button, down))
+    }
+
+    public func keyboard(keyCode: UInt16, down: Bool, modifiers: UInt8, flags: UInt8) throws {
+        try check(mystic_session_keyboard(requireHandle(), keyCode, down, modifiers, flags))
+    }
+
+    public func scroll(clicks: Int8) throws {
+        try check(mystic_session_scroll(requireHandle(), clicks))
+    }
+
+    public func scrollHighResolution(amount: Int16) throws {
+        try check(mystic_session_high_res_scroll(requireHandle(), amount))
+    }
+
+    public func requestIDR() throws {
+        try check(mystic_session_request_idr(requireHandle()))
+    }
+
+    // MARK: - Internals
+
+    private func requireHandle() -> OpaquePointer {
+        guard let handle else { throwEngineError(.notStarted) }
+        return handle
+    }
+
+    /// `requireHandle` cannot throw from a non-throwing context, so it traps instead: a
+    /// handle is only nil after a failed init, which throws before this is reachable.
+    private func throwEngineError(_ error: EngineError) -> Never {
+        // Reaching here means the invariant above was broken by a refactor; failing loudly
+        // in development beats sending input to a freed session.
+        preconditionFailure("StreamingEngine used after the handle was released: \(error)")
+    }
+
+    private func check(_ code: Int32) throws {
+        switch code {
+        case MYSTIC_OK: return
+        case MYSTIC_ERR_NOT_STARTED: throw EngineError.notStarted
+        case MYSTIC_ERR_INPUT_FAILED: throw EngineError.inputFailed
+        default: throw EngineError.invalidArgument("engine returned \(code)")
+        }
+    }
+
+    private func emit(_ event: EngineEvent) {
+        eventLock.lock()
+        let sink = eventSink
+        eventLock.unlock()
+        sink?(event)
+    }
+}
+
+private extension NSLock {
+}
