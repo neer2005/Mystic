@@ -39,6 +39,19 @@ struct RemoteInputTests {
         #expect({ state.key(0,down:false).isEmpty }())
         #expect({ state.modifier(56,rawFlags:0,capsLock:false).isEmpty }())
     }
+    @Test func synthesizedShortcutWithoutModifierEvents() {
+        var state=RemoteInputState()
+        let flags=state.synchronizeModifiers(rawFlags:0x40000)
+        let key=state.key(3,down:true)
+        let again=state.synchronizeModifiers(rawFlags:0x40000)
+        let release=state.synchronizeModifiers(rawFlags:0)
+        #expect(flags == [.key(code:0x80A2,down:true,modifiers:2,flags:0)])
+        #expect(key == [.key(code:0x8046,down:true,modifiers:2,flags:0)])
+        #expect(again.isEmpty)
+        #expect(release == [.key(code:0x80A2,down:false,modifiers:0,flags:0)])
+        let right=state.synchronizeModifiers(rawFlags:0x42000)
+        #expect(right == [.key(code:0x80A3,down:true,modifiers:0x12,flags:0)])
+    }
     @Test func capsAndMouseButtons() {
         var state=RemoteInputState()
         #expect({ state.modifier(57,rawFlags:0,capsLock:true).count == 2 }())

@@ -70,6 +70,7 @@ Against a Rubylight 3.0.0-rc.3 host, using Desktop:
 - Restarting Mystic preserved pairing; Desktop resumed again without entering a PIN.
 - The final build’s fullscreen button entered a native fullscreen space while video remained visible.
 - The subsequent audio build played Desktop sound through the Mac; the user confirmed listening successfully.
+- The input build forwarded Control+F to the host browser; the user confirmed mouse clicking/scrolling, relative capture, and release to the Mac.
 
 These are live startup/reconnect observations, not sustained performance results.
 Codec profile/color metadata checks, keyframe recovery state, queue bounds, and

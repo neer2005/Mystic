@@ -6,6 +6,8 @@ final class RemoteVideoView: NSView {
     var presenter: DisplayLayerPresenter
     private weak var capture: StreamInputCapture?
     private var tracking: NSTrackingArea?
+    private weak var movementWindow: NSWindow?
+    private var previousAcceptsMouseMoved = false
     init(presenter: DisplayLayerPresenter,capture: StreamInputCapture?) {
         self.presenter = presenter;self.capture = capture
         super.init(frame:.zero)
@@ -20,6 +22,15 @@ final class RemoteVideoView: NSView {
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func resignFirstResponder() -> Bool { capture?.release();return true }
+    override func viewWillMove(toWindow next: NSWindow?) {
+        if next !== movementWindow {
+            capture?.release()
+            movementWindow?.acceptsMouseMovedEvents = previousAcceptsMouseMoved
+            movementWindow = next
+            if let next { previousAcceptsMouseMoved = next.acceptsMouseMovedEvents;next.acceptsMouseMovedEvents = true }
+        }
+        super.viewWillMove(toWindow:next)
+    }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil { capture?.attach(self) } else { capture?.detach(self) }

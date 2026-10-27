@@ -75,7 +75,7 @@ public final class ConnectionModel {
         self.endpoint = "\(address.lowercased()):\(port)"
         connectedAddress = address
         let endpoint = self.endpoint, vault = vault, factory = makeHost
-        phase = .connecting; status = "Connecting to \(address)…"; errorMessage = nil
+        phase = .connecting; status = "Loading client identity from Keychain…"; errorMessage = nil
         host = nil; apps = []; selectedAppID = nil; pairingPIN = nil; diagnostics = []
         if rememberHost {
             UserDefaults.standard.set(address, forKey: "lastHost")
@@ -88,6 +88,7 @@ public final class ConnectionModel {
                 }.value
                 guard let self, self.generation == token else { connection.cancel(); return }
                 self.connection = connection
+                self.status = "Connecting to \(address)…"
                 let info = try await connection.serverInfo()
                 guard self.generation == token else { return }
                 self.host = info

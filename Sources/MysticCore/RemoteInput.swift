@@ -101,6 +101,26 @@ public struct RemoteInputState: Sendable {
         else { guard keys.removeValue(forKey: physical) != nil else { return [] } }
         return [.key(code:key.wireCode,down:down,modifiers:modifiers | (key.extended ? 0x10 : 0),flags:0)]
     }
+    /// Reconcile a key event's aggregate flags when an accessibility source omits flagsChanged events.
+    public mutating func synchronizeModifiers(rawFlags: UInt64) -> [RemoteInputEvent] {
+        let groups: [(UInt16,UInt16,UInt64,UInt64)] = [
+            (56,60,0x6,0x20000),(59,62,0x2001,0x40000),
+            (58,61,0x60,0x80000),(55,54,0x18,0x100000),
+        ]
+        var result: [RemoteInputEvent] = []
+        for (left,right,devices,aggregate) in groups {
+            if rawFlags & devices != 0 {
+                result += modifier(left,rawFlags:rawFlags,capsLock:capsLock)
+                result += modifier(right,rawFlags:rawFlags,capsLock:capsLock)
+            } else if rawFlags & aggregate == 0 {
+                result += modifier(left,rawFlags:0,capsLock:capsLock)
+                result += modifier(right,rawFlags:0,capsLock:capsLock)
+            } else if keys[left] == nil && keys[right] == nil {
+                result += modifier(left,rawFlags:rawFlags,capsLock:capsLock)
+            }
+        }
+        return result
+    }
     public mutating func button(_ macButton: Int, down: Bool) -> [RemoteInputEvent] {
         let number: UInt8
         switch macButton { case 0: number=1;case 1: number=3;case 2: number=2;case 3: number=4;case 4: number=5;default:return [] }

@@ -42,6 +42,17 @@ final class StreamInputTests: XCTestCase {
         XCTAssertEqual(mailbox.take().events,[.releaseAll])
         XCTAssertFalse(mailbox.finish())
     }
+    func testMouseMovedDeliveryIsEnabledAndRestored() {
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:100,height:100),styleMask:.borderless,backing:.buffered,defer:false)
+        window.isReleasedWhenClosed=false
+        window.acceptsMouseMovedEvents=false
+        let view=RemoteVideoView(presenter:DisplayLayerPresenter(),capture:nil)
+        window.contentView=view
+        XCTAssertTrue(window.acceptsMouseMovedEvents)
+        window.contentView=nil
+        XCTAssertFalse(window.acceptsMouseMovedEvents)
+        window.close()
+    }
     func testCaptureNeverStartsWithoutConnectionOrVideo() {
         var events:[RemoteInputEvent]=[]
         let capture=StreamInputCapture(send:{ events.append($0);return true },failure:{ _ in })

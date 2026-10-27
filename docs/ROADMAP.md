@@ -34,7 +34,7 @@ rather than rewritten.
 - [x] Live stereo listening confirmed on Desktop
 - [ ] Output-device switch and live surround validation
 - [x] Keyboard/mouse mapping, window capture/release, and bounded engine delivery
-- [ ] Live keyboard/mouse acceptance and relative capture
+- [x] Live keyboard shortcut, pointer clicking/scrolling, relative capture, and release chord verified on Desktop
 - [ ] GameController input: DualSense/Xbox
 - [ ] Latency HUD wired to the engine's timestamps
 

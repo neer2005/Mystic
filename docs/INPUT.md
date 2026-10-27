@@ -59,13 +59,27 @@ rather than leaving an unresponsive captured window. No keystroke content is log
 ## Checks
 
 Core tests cover physical key rows and wire flags, two-sided/synthetic modifiers,
+including shortcuts that carry modifier flags without separate modifier events,
 Caps Lock, repeat suppression, button numbering, letterboxing, flipped coordinates,
 fractional/clamped movement, coalescing, overflow, and release retry behavior.
-Desktop tests cover scheduling, batch invalidation, closed-mailbox rejection, and
-refusing capture without a connection/image. The C smoke test covers the additive
+Desktop tests cover scheduling, batch invalidation, closed-mailbox rejection,
+refusing capture without a connection/image, and enabling/restoring window mouse-move
+delivery. Key events without a window identifier are accepted only while the stream
+window is key and its video view is first responder. The C smoke test covers the additive
 horizontal scroll entry point.
 
 Live Desktop keyboard/mouse, relative capture, focus loss, and release-chord checks
 are performed after building with `scripts/build-macos-app.sh`. A visible host
 window is required to verify that input reached the host; a successful enqueue is
 not proof of delivery.
+
+## Live result — 2026-10-27
+
+On the paired Rubylight host's Desktop, the user confirmed that physical Control+F
+opened the Windows browser's Find box. The user also confirmed pointer clicking,
+scrolling, relative Capture Mouse, and Control–Option–Shift–Escape returning
+control to the Mac. These checks used the existing Desktop stream.
+
+Development rebuilds are ad-hoc signed; macOS may ask again before allowing the
+rebuilt app to read its existing Keychain identity. The connection UI identifies
+that stage separately from host networking. No trust/pinning checks are bypassed.

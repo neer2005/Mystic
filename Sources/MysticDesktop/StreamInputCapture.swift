@@ -107,16 +107,24 @@ public final class StreamInputCapture {
     }
     @discardableResult
     func handleKey(_ event: NSEvent) -> Bool {
-        guard mode != .released, let view, event.window === view.window,
+        guard mode != .released, let view,
+              event.window == nil || event.window === view.window,
               view.window?.isKeyWindow == true, view.window?.firstResponder === view else { return false }
         let releaseFlags: NSEvent.ModifierFlags = [.control,.option,.shift]
         if event.type == .keyDown, event.keyCode == 53, event.modifierFlags.intersection(releaseFlags) == releaseFlags {
             release();return true
         }
         let events: [RemoteInputEvent]
+        if MacKeyboard.modifierDeviceMask(event.keyCode) != nil {
+            // Accessibility/synthetic input can deliver a modifier as keyDown/keyUp rather than flagsChanged.
+            events = state.modifier(event.keyCode,rawFlags:UInt64(event.modifierFlags.rawValue),capsLock:event.modifierFlags.contains(.capsLock))
+            emit(events);return true
+        }
         switch event.type {
-        case .keyDown: events = state.key(event.keyCode,down:true,repeatEvent:event.isARepeat)
-        case .keyUp: events = state.key(event.keyCode,down:false)
+        case .keyDown:
+            events = state.synchronizeModifiers(rawFlags:UInt64(event.modifierFlags.rawValue)) + state.key(event.keyCode,down:true,repeatEvent:event.isARepeat)
+        case .keyUp:
+            events = state.synchronizeModifiers(rawFlags:UInt64(event.modifierFlags.rawValue)) + state.key(event.keyCode,down:false)
         case .flagsChanged: events = state.modifier(event.keyCode,rawFlags:UInt64(event.modifierFlags.rawValue),capsLock:event.modifierFlags.contains(.capsLock))
         default:return false
         }

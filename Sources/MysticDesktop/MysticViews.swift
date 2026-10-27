@@ -147,7 +147,7 @@ public struct StreamingView: View {
         .toolbar {
             ToolbarItem { Text(model.status).font(.caption).lineLimit(1) }
             if let capture = model.inputCapture {
-                ToolbarItem { Text(capture.status).font(.caption).help("Control–Option–Shift–Escape always releases input.") }
+                ToolbarItem { Text(capture.status).font(.caption).help("Control–Option–Shift–Escape releases input. Switching apps also releases it.") }
                 ToolbarItem { Button("Control Desktop",systemImage:"cursorarrow") { capture.controlDesktop() }.disabled(!capture.available) }
                 ToolbarItem { Button("Capture Mouse",systemImage:"computermouse") { capture.captureMouse() }.disabled(!capture.available) }
                 ToolbarItem { Button("Release Input",systemImage:"escape") { capture.release() }.disabled(capture.mode == .released) }
