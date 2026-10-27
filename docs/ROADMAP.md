@@ -33,7 +33,9 @@ rather than rewritten.
 - [x] AVAudioEngine audio (bundled libopus), concealment, stereo/surround downmix, volume/mute
 - [x] Live stereo listening confirmed on Desktop
 - [ ] Output-device switch and live surround validation
-- [ ] GameController input: keyboard, mouse, DualSense/Xbox
+- [x] Keyboard/mouse mapping, window capture/release, and bounded engine delivery
+- [ ] Live keyboard/mouse acceptance and relative capture
+- [ ] GameController input: DualSense/Xbox
 - [ ] Latency HUD wired to the engine's timestamps
 
 ## Phase 3 — PyroWave and platform polish (2–4 months)

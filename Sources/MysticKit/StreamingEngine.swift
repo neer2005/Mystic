@@ -342,6 +342,10 @@ public final class StreamingEngine {
         try check(mystic_session_high_res_scroll(requireHandle(), amount))
     }
 
+    public func scrollHorizontal(amount: Int16) throws {
+        try check(mystic_session_horizontal_scroll(requireHandle(), amount))
+    }
+
     public func requestIDR() throws {
         try check(mystic_session_request_idr(requireHandle()))
     }

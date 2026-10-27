@@ -100,7 +100,7 @@ public struct HostLibraryView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.canPlay)
-                    Text("Audio plays on this Mac. Remote keyboard, mouse, and controller input are not connected yet.").font(.caption).foregroundStyle(.secondary)
+                    Text("Audio plays on this Mac. Click video to control the host. Controllers are not connected yet.").font(.caption).foregroundStyle(.secondary)
                 }
                 DisclosureGroup("Decoder capabilities") {
                     if let capabilities = model.capabilities {
@@ -134,7 +134,7 @@ public struct StreamingView: View {
     public init(model: ConnectionModel) { self.model = model }
     public var body: some View {
         VStack(spacing: 0) {
-            if let presenter = model.presenter { VideoSurface(presenter: presenter) }
+            if let presenter = model.presenter { VideoSurface(presenter: presenter,capture:model.inputCapture) }
             else {
                 ZStack {
                     Color.black
@@ -146,6 +146,12 @@ public struct StreamingView: View {
         .frame(minWidth: 640, minHeight: 360)
         .toolbar {
             ToolbarItem { Text(model.status).font(.caption).lineLimit(1) }
+            if let capture = model.inputCapture {
+                ToolbarItem { Text(capture.status).font(.caption).help("Control–Option–Shift–Escape always releases input.") }
+                ToolbarItem { Button("Control Desktop",systemImage:"cursorarrow") { capture.controlDesktop() }.disabled(!capture.available) }
+                ToolbarItem { Button("Capture Mouse",systemImage:"computermouse") { capture.captureMouse() }.disabled(!capture.available) }
+                ToolbarItem { Button("Release Input",systemImage:"escape") { capture.release() }.disabled(capture.mode == .released) }
+            }
             ToolbarItem { Button("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right") { streamWindow?.toggleFullScreen(nil) } }
             ToolbarItem { Button(model.muted ? "Unmute" : "Mute", systemImage: model.muted ? "speaker.slash" : "speaker.wave.2") { model.muted.toggle() } }
             ToolbarItem { Button("Disconnect", systemImage: "xmark.circle") { model.disconnect() } }
@@ -157,25 +163,10 @@ public struct StreamingView: View {
 
 private struct VideoSurface: NSViewRepresentable {
     let presenter: DisplayLayerPresenter
-    func makeNSView(context: Context) -> SurfaceView { SurfaceView(presenter: presenter) }
-    func updateNSView(_ view: SurfaceView, context: Context) {
-        if view.presenter !== presenter { view.install(presenter) }
-    }
-}
-private final class SurfaceView: NSView {
-    var presenter: DisplayLayerPresenter
-    init(presenter: DisplayLayerPresenter) {
-        self.presenter = presenter
-        super.init(frame: .zero)
-        wantsLayer = true; layer?.backgroundColor = NSColor.black.cgColor
-        layer?.addSublayer(presenter.layer)
-    }
-    required init?(coder: NSCoder) { nil }
-    func install(_ presenter: DisplayLayerPresenter) {
-        self.presenter.layer.removeFromSuperlayer()
-        self.presenter = presenter; layer?.addSublayer(presenter.layer); needsLayout = true
-    }
-    override func layout() { super.layout(); presenter.layer.frame = bounds }
+    let capture: StreamInputCapture?
+    func makeNSView(context: Context) -> RemoteVideoView { RemoteVideoView(presenter:presenter,capture:capture) }
+    func updateNSView(_ view: RemoteVideoView,context: Context) { view.install(presenter,capture:capture) }
+    static func dismantleNSView(_ view: RemoteVideoView,coordinator: ()) { view.disconnectInput() }
 }
 
 private struct WindowReader: NSViewRepresentable {

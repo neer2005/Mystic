@@ -13,9 +13,9 @@ let engineLibraryPath = "\(packageRoot)/engine/target/release"
 let streamProducts: [Product] = [.library(name: "MysticStream", targets: ["MysticStream"]),
                                  .executable(name: "MysticApp", targets: ["MysticApp"])]
 let streamTargets: [Target] = [
-    .target(name: "MysticDesktop", dependencies: ["MysticStream", "MysticKit"]),
+    .target(name: "MysticDesktop", dependencies: ["MysticStream", "MysticKit", "MysticCore"]),
     .executableTarget(name: "MysticApp", dependencies: ["MysticDesktop"]),
-    .testTarget(name: "MysticDesktopTests", dependencies: ["MysticDesktop"]),
+    .testTarget(name: "MysticDesktopTests", dependencies: ["MysticDesktop", "MysticCore"]),
     .target(name: "MysticStream", dependencies: ["MysticCore", "MysticKit"],
             resources: [.copy("Fixtures")]),
     .testTarget(name: "MysticStreamTests", dependencies: ["MysticStream"],

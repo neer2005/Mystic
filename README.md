@@ -10,7 +10,8 @@ common denominator of its other platforms.
 
 **Status: pre-alpha.** The native app, pairing/launch flow, engine bridge, and video
 decoder are wired. Desktop streaming, saved pairing, and reconnect have been verified
-against a Rubylight host. Opus audio playback is implemented; remote input is next. See
+against a Rubylight host. Opus audio playback and keyboard/mouse forwarding are implemented; see
+`docs/AUDIO.md` and `docs/INPUT.md` for controls and remaining validation. See
 `docs/FIRST-VIDEO.md` to run it and `docs/ROADMAP.md` for remaining work.
 
 ## Targets

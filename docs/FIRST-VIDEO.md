@@ -46,7 +46,7 @@ protocol logs are excluded from the UI because they can contain credentials.
 ## Current limits
 
 Opus audio playback is connected; see AUDIO.md for controls and stereo/surround
-downmix behavior. Keyboard/mouse capture and controllers are not yet connected. Codec/HDR options are restricted by the decoder probe results;
+downmix behavior. Keyboard/mouse control is available in the stream window (see INPUT.md); controllers are not yet connected. Codec/HDR options are restricted by the decoder probe results;
 PyroWave is unadvertised. Some host app catalog control tiles are intentionally
 excluded so a click cannot terminate a host session. A different running app is
 not replaced automatically. No host quit/cancel endpoint is called on disconnect.

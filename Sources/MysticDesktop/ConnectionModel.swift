@@ -3,6 +3,7 @@ import Foundation
 import Observation
 import MysticKit
 import MysticStream
+import MysticCore
 
 @MainActor @Observable
 public final class ConnectionModel {
@@ -28,6 +29,7 @@ public final class ConnectionModel {
     public private(set) var pairingPIN: String?
     public private(set) var capabilities: VideoCapabilities?
     public private(set) var presenter: DisplayLayerPresenter?
+    public private(set) var inputCapture: StreamInputCapture?
     public private(set) var diagnostics: [String] = []
     public var selectedApp: HostApp? { apps.first { $0.id == selectedAppID } }
     public var isBusy: Bool { [.connecting, .pairing, .launching, .disconnecting].contains(phase) }
@@ -167,7 +169,10 @@ public final class ConnectionModel {
                     })
                     audio.setVolume(self.volume, muted: self.muted)
                     self.audioPlayer = audio
-                    let session = try StreamSession()
+                    let session = try StreamSession(inputFailure: { [weak self] in
+                        Task { @MainActor in self?.streamFailed("Remote input delivery failed. The stream was stopped to release held keys.",token:token) }
+                    })
+                    self.inputCapture = StreamInputCapture(send: { [weak session] in session?.send($0) ?? false },failure: { [weak self] message in self?.record(message,token:token) })
                     self.presenter = presenter; self.decoder = decoder; self.session = session
                     self.status = "Starting video connection…"
                     session.start(host: address, launch: launch, configuration: config, decoder: decoder, audio: audio,
@@ -179,6 +184,7 @@ public final class ConnectionModel {
         } catch { fail(error.localizedDescription) }
     }
     public func disconnect() {
+        inputCapture?.setAvailable(false);inputCapture = nil
         generation = UUID(); let token = generation
         audioMonitor?.cancel(); audioMonitor = nil; audioStatus = "Audio stopped"
         operation?.cancel(); connection?.cancel(); connection = nil; pairingPIN = nil
@@ -210,7 +216,7 @@ public final class ConnectionModel {
     private func handle(_ event: EngineEvent, token: UUID) {
         guard generation == token else { return }
         switch event {
-        case .connected: phase = .streaming; status = "Streaming \(selectedApp?.name ?? "video")."
+        case .connected: inputCapture?.setAvailable(true);phase = .streaming; status = "Streaming \(selectedApp?.name ?? "video")."
         case .stageStarting(let stage): status = "Starting \(stage.name)…"
         case .stageComplete: break
         case .stageFailed(let stage, let code): record("\(stage.name) failed (\(code)).", token: token)

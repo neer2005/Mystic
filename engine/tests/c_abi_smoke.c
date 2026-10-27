@@ -63,6 +63,8 @@ int main(void) {
           "scroll before start is refused");
     CHECK(mystic_session_high_res_scroll(handle, 120) == MYSTIC_ERR_NOT_STARTED,
           "high-resolution scroll before start is refused");
+    CHECK(mystic_session_horizontal_scroll(handle, 120) == MYSTIC_ERR_NOT_STARTED,
+          "horizontal scroll before start is refused");
     CHECK(mystic_session_request_idr(handle) == MYSTIC_ERR_NOT_STARTED,
           "IDR request before start is refused");
     CHECK(mystic_session_mouse_button(NULL, 1, true) == MYSTIC_ERR_INVALID_ARGUMENT,

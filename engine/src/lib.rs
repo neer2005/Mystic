@@ -773,6 +773,12 @@ pub unsafe extern "C" fn mystic_session_request_idr(handle: *mut MysticSession) 
     MYSTIC_OK
 }
 
+/// Horizontal scroll in 1/120 of a click. The caller must hold a live session handle.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_horizontal_scroll(handle: *mut MysticSession, amount: i16) -> i32 {
+    with_input(handle, |q| q.send_high_res_hscroll(amount))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -887,6 +893,7 @@ mod tests {
                 MYSTIC_ERR_NOT_STARTED
             );
             assert_eq!(mystic_session_scroll(handle, 1), MYSTIC_ERR_NOT_STARTED);
+            assert_eq!(mystic_session_horizontal_scroll(handle, 120), MYSTIC_ERR_NOT_STARTED);
             assert_eq!(
                 mystic_session_high_res_scroll(handle, 120),
                 MYSTIC_ERR_NOT_STARTED

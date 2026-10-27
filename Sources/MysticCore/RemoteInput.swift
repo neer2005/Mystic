@@ -87,7 +87,16 @@ public struct RemoteInputState: Sendable {
             return [.key(code:0x8014,down:true,modifiers:modifiers,flags:0),.key(code:0x8014,down:false,modifiers:modifiers,flags:0)]
         }
         guard let mask = MacKeyboard.modifierDeviceMask(physical), let key = MacKeyboard.key(physical) else { return [] }
-        let down = rawFlags & mask != 0
+        let group: (device:UInt64,aggregate:UInt64)
+        switch MacKeyboard.modifierBit(for:key.virtualCode) {
+        case 1: group=(0x6,0x20000)
+        case 2: group=(0x2001,0x40000)
+        case 4: group=(0x60,0x80000)
+        default: group=(0x18,0x100000)
+        }
+        // Synthesized/accessibility events may omit device-side bits. Real hardware uses exact sides.
+        let down = rawFlags & group.device != 0 ? rawFlags & mask != 0 :
+            (rawFlags & group.aggregate != 0 && keys[physical] == nil)
         if down { guard keys[physical] == nil else { return [] }; keys[physical] = key }
         else { guard keys.removeValue(forKey: physical) != nil else { return [] } }
         return [.key(code:key.wireCode,down:down,modifiers:modifiers | (key.extended ? 0x10 : 0),flags:0)]

@@ -193,6 +193,7 @@ int32_t mystic_session_keyboard(MysticSession *handle, uint16_t key_code, bool d
                                 uint8_t modifiers, uint8_t flags);
 int32_t mystic_session_scroll(MysticSession *handle, int8_t clicks);
 int32_t mystic_session_high_res_scroll(MysticSession *handle, int16_t amount);
+int32_t mystic_session_horizontal_scroll(MysticSession *handle, int16_t amount);
 int32_t mystic_session_request_idr(MysticSession *handle);
 
 /* Additive host-control API. Calls block; serialize requests off the UI thread.

@@ -12,6 +12,21 @@ struct RemoteInputTests {
         #expect(MacKeyboard.key(123)?.extended == true)
         #expect(MacKeyboard.key(63) == nil) // Fn stays local.
     }
+    @Test func alphabetDigitsAndFunctionRows() {
+        let letters:[UInt16]=[0,11,8,2,14,3,5,4,34,38,40,37,46,45,31,35,12,15,1,17,32,9,13,7,16,6]
+        for (n,key) in letters.enumerated() { #expect(MacKeyboard.key(key)?.virtualCode == UInt16(0x41+n)) }
+        let digits:[UInt16]=[29,18,19,20,21,23,22,26,28,25]
+        for (n,key) in digits.enumerated() { #expect(MacKeyboard.key(key)?.virtualCode == UInt16(0x30+n)) }
+        let functions:[UInt16]=[122,120,99,118,96,97,98,100,101,109,103,111,105,107,113,106,64,79,80,90]
+        for (n,key) in functions.enumerated() { #expect(MacKeyboard.key(key)?.virtualCode == UInt16(0x70+n)) }
+        var state=RemoteInputState()
+        let down=state.modifier(59,rawFlags:0x40000,capsLock:false)
+        let key=state.key(3,down:true)
+        let up=state.modifier(59,rawFlags:0,capsLock:false)
+        #expect(down == [.key(code:0x80A2,down:true,modifiers:2,flags:0)])
+        #expect(key == [.key(code:0x8046,down:true,modifiers:2,flags:0)])
+        #expect(up == [.key(code:0x80A2,down:false,modifiers:0,flags:0)])
+    }
     @Test func heldKeysAndTwoSidedModifiers() {
         var state=RemoteInputState()
         #expect({ state.modifier(56,rawFlags:2,capsLock:false) == [.key(code:0x80A0,down:true,modifiers:1,flags:0)] }())

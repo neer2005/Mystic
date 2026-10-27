@@ -6,6 +6,12 @@ import Foundation
 @MainActor
 public final class DisplayLayerPresenter {
     public let layer: AVSampleBufferDisplayLayer
+    public private(set) var videoSize: CGSize = .zero
+    /// The aspect-fit image rectangle, including clean aperture and pixel aspect ratio.
+    public var videoRect: CGRect {
+        guard videoSize.width > 0, videoSize.height > 0 else { return .zero }
+        return AVMakeRect(aspectRatio: videoSize, insideRect: layer.bounds)
+    }
     private let synchronizer = AVSampleBufferRenderSynchronizer()
     private let receiver: AVSampleBufferVideoRenderer.Receiver
     private nonisolated let mailbox = PresentationMailbox()
@@ -52,7 +58,7 @@ public final class DisplayLayerPresenter {
             await receiver.flush(removingDisplayedImage: true)
             guard mailbox.isCurrent(work.generation) else { return }
             displayedGeneration = work.generation
-            lastPTS = nil; anchored = false
+            lastPTS = nil; anchored = false; videoSize = .zero
             synchronizer.setRate(0, time: .zero)
         }
         guard let frame = work.frame else { return }
@@ -66,6 +72,9 @@ public final class DisplayLayerPresenter {
             let delta = CMTimeGetSeconds(CMTimeSubtract(frame.presentationTime, synchronizer.currentTime()))
             guard delta >= -0.1, delta <= 0.1 else { return }
             let sample = try frame.sampleBuffer()
+            if let description = CMSampleBufferGetFormatDescription(sample) {
+                videoSize = CMVideoFormatDescriptionGetPresentationDimensions(description,usePixelAspectRatio:true,useCleanAperture:true)
+            }
             guard mailbox.isCurrent(frame.generation) else { return }
             let result = try await receiver.enqueue(CMReadySampleBuffer(unsafeBuffer: sample))
             guard mailbox.isCurrent(frame.generation) else { return }
