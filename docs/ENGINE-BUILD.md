@@ -51,11 +51,38 @@ arithmetic error would move both.
 ## Consequence for Mystic
 
 - **The engine builds on macOS.** That was the Phase 1 question, and the answer is yes.
-- Do not gate work on `enet_rtt`. Treat it as a known platform-flaky harness test until
-  the Linux comparison below settles it.
+- Do not gate work on `enet_rtt`. Treat it as a known platform-flaky harness test.
 - If it reproduces on Linux, it is a genuinely flaky test worth reporting upstream; if it
   only fails on macOS, the fix is in the test's real-time sleeps (a deterministic
   packet-delivery hook instead of `thread::sleep`), not in the engine.
+
+## Resolved: the Linux comparison (2026-10-27)
+
+The identical test on Linux (rustc 1.99.1, aarch64, same `--locked` lockfile):
+
+```
+running 1 test
+test the_smoothed_round_trip_time_converges_down_to_the_samples ... ok
+test result: ok. 1 passed; 0 failed; finished in 0.50s
+```
+
+(`nightjar-core` builds clean on Linux in 1m 09s from cold.)
+
+So: **the test passes on Linux and fails on macOS.** Combined with the replay above, the
+conclusion is that the engine's smoothing arithmetic is correct on both platforms and the
+failure comes from `enet_rtt.rs`'s real-time `thread::sleep` calls, which produce a
+different `service()` interleaving on macOS. It is a harness bug, not an engine or porting
+bug.
+
+Nothing to fix before building Mystic. Worth reporting upstream as a test-only issue with
+the Linux/macOS split and the replay table as evidence — the fix is to drive packet
+delivery deterministically instead of sleeping.
+
+## Side benefit
+
+Because `nightjar-core` compiles on Linux, the `mystic-ffi` shim can be built and
+unit-tested on the Linux box against the real engine. Only the macOS link of the resulting
+static library needs the Mac.
 
 ## Toolchain
 
