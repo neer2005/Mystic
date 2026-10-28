@@ -52,8 +52,9 @@ struct VideoPreferencesView: View {
     var body: some View {
         Group {
             Picker("Resolution",selection:$model.resolution) {
-                Text("1280 × 720").tag("1280x720");Text("1920 × 1080").tag("1920x1080")
-                Text("2560 × 1440").tag("2560x1440");Text("3840 × 2160").tag("3840x2160")
+                ForEach(StreamPreferences.resolutions,id:\.self) { resolution in
+                    Text(StreamPreferences.resolutionLabel(resolution)).tag(resolution)
+                }
             }
             Picker("Frame Rate",selection:$model.fps) { Text("60 fps").tag(UInt32(60));Text("120 fps").tag(UInt32(120)) }
             Picker("Codec",selection:$model.codec) {

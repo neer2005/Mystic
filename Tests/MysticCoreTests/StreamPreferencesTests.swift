@@ -15,6 +15,13 @@ struct StreamPreferencesTests {
         preferences.volume = -1;preferences.bitrateMbps = -1
         #expect(preferences.validated().volume == 0 && preferences.validated().bitrateMbps == 5)
     }
+    @Test func nativeMacBookResolutionsSurviveValidationAndStorage() throws {
+        for resolution in ["3024x1964","3456x2234"] {
+            var preferences=StreamPreferences();preferences.resolution=resolution
+            let loaded=try JSONDecoder().decode(StreamPreferences.self,from:JSONEncoder().encode(preferences))
+            #expect(loaded.validated().resolution == resolution)
+        }
+    }
     @Test func supportedDefaultsRoundTripWithoutCredentials() throws {
         var preferences=StreamPreferences()
         preferences.resolution="3840x2160";preferences.fps=120;preferences.codec="hevc";preferences.hdr=true
