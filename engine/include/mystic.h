@@ -235,6 +235,12 @@ MysticPCMStats mystic_pcm_ring_stats(const MysticPCMRing *ring);
 /* Free only after both producer and audio render callback have stopped. */
 void mystic_pcm_ring_free(MysticPCMRing *ring);
 
+/* Additive controller APIs. Slots 0..3; full state, triggers 0..255, sticks signed. */
+int32_t mystic_session_controller(MysticSession *session, uint8_t slot, uint16_t active_mask,
+    uint32_t buttons, uint8_t left_trigger, uint8_t right_trigger,
+    int16_t left_x, int16_t left_y, int16_t right_x, int16_t right_y);
+int32_t mystic_session_controller_arrival(MysticSession *session, uint8_t slot, uint16_t active_mask);
+
 /* Reserved for a future ABI; returns MYSTIC_ERR_UNIMPLEMENTED in v1. */
 int32_t mystic_frame_buffers(const MysticFrame *frame, MysticFrameBuffer *out, size_t capacity);
 

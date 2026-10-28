@@ -176,7 +176,10 @@ impl MysticHost {
                     (8,0x63f) => nightjar_core::sdp::AudioConfiguration::SURROUND_71,
                     _ => return Err("unsupported launch audio layout".into()),
                 };
+                let gamepad_mask = v["gamepadMask"].as_u64().unwrap_or(0);
+                if gamepad_mask > 15 { return Err("invalid controller mask (maximum four controllers)".into()); }
                 let request = LaunchRequest {
+                    gamepad_mask: gamepad_mask as u32,
                     app_id,
                     app_uuid: v["appUUID"].as_str().unwrap_or("").into(),
                     width,

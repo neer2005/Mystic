@@ -63,6 +63,14 @@ int main(void) {
           "scroll before start is refused");
     CHECK(mystic_session_high_res_scroll(handle, 120) == MYSTIC_ERR_NOT_STARTED,
           "high-resolution scroll before start is refused");
+    CHECK(mystic_session_controller(handle, 0, 1, 0x1000, 17, 29, -32768, 32767, -123, 456) == MYSTIC_ERR_NOT_STARTED,
+          "controller before start");
+    CHECK(mystic_session_controller_arrival(handle, 0, 1) == MYSTIC_ERR_NOT_STARTED,
+          "controller arrival before start");
+    CHECK(mystic_session_controller_arrival(handle, 4, 1) == MYSTIC_ERR_INVALID_ARGUMENT,
+          "invalid controller slot");
+    CHECK(mystic_session_controller(handle, 0, 16, 0, 0, 0, 0, 0, 0, 0) == MYSTIC_ERR_INVALID_ARGUMENT,
+          "invalid controller mask");
     CHECK(mystic_session_horizontal_scroll(handle, 120) == MYSTIC_ERR_NOT_STARTED,
           "horizontal scroll before start is refused");
     CHECK(mystic_session_request_idr(handle) == MYSTIC_ERR_NOT_STARTED,

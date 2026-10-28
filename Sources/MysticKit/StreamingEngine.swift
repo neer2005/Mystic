@@ -346,6 +346,14 @@ public final class StreamingEngine {
         try check(mystic_session_horizontal_scroll(requireHandle(), amount))
     }
 
+    public func controller(slot: UInt8, activeMask: UInt16, buttons: UInt32, leftTrigger: UInt8, rightTrigger: UInt8,
+                           leftX: Int16, leftY: Int16, rightX: Int16, rightY: Int16) throws {
+        try check(mystic_session_controller(requireHandle(),slot,activeMask,buttons,leftTrigger,rightTrigger,leftX,leftY,rightX,rightY))
+    }
+    public func controllerArrival(slot: UInt8, activeMask: UInt16) throws {
+        try check(mystic_session_controller_arrival(requireHandle(),slot,activeMask))
+    }
+
     public func requestIDR() throws {
         try check(mystic_session_request_idr(requireHandle()))
     }

@@ -779,6 +779,21 @@ pub unsafe extern "C" fn mystic_session_horizontal_scroll(handle: *mut MysticSes
     with_input(handle, |q| q.send_high_res_hscroll(amount))
 }
 
+/// Full controller state. Caller serializes input and owns a live session handle.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_controller(handle: *mut MysticSession, slot: u8, mask: u16,
+    buttons: u32, lt: u8, rt: u8, lx: i16, ly: i16, rx: i16, ry: i16) -> i32 {
+    if slot >= 4 || mask & !0xF != 0 { return MYSTIC_ERR_INVALID_ARGUMENT; }
+    with_input(handle, |q| q.send_controller(u16::from(slot), mask, buttons, lt, rt, (lx, ly), (rx, ry)))
+}
+
+/// Generic extended gamepad: analog triggers, no unimplemented feedback capabilities.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_controller_arrival(handle: *mut MysticSession, slot: u8, mask: u16) -> i32 {
+    if slot >= 4 || mask & !0xF != 0 { return MYSTIC_ERR_INVALID_ARGUMENT; }
+    with_input(handle, |q| q.send_controller_arrival(slot, mask, 0, 0xF3FF, 0x01))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

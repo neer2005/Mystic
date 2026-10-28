@@ -33,6 +33,7 @@ public struct LaunchOptions: Codable, Sendable {
     public var hdr = false
     public var channelCount: UInt8 = 2
     public var channelMask: UInt16 = 3
+    public var gamepadMask: UInt16 = 0
     public init(app: HostApp) { appID = app.id; appUUID = app.uuid }
 }
 public struct LaunchedStream: Codable, Sendable {

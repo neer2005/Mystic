@@ -4,7 +4,9 @@ public enum RemoteInputEvent: Sendable, Equatable {
     case position(x: Int16, y: Int16, width: Int16, height: Int16)
     case motion(dx: Int16, dy: Int16)
     case scroll(vertical: Int16, horizontal: Int16)
-    /// Release the keys/buttons actually accepted by the engine, discarding unsent input.
+    case controller(slot: UInt8, activeMask: UInt16, state: ControllerState)
+    case controllerArrival(slot: UInt8, activeMask: UInt16)
+    /// Release keys, pointer buttons and controllers accepted by the engine; discard unsent input.
     case releaseAll
 }
 
@@ -166,6 +168,8 @@ public struct RemoteInputQueue: Sendable {
         if event == .releaseAll { pending=[.releaseAll];return true }
         if let last=pending.last {
             switch (last,event) {
+            case let (.controller(a,am,ast),.controller(b,bm,bst)) where a == b && am == bm && ast.buttons == bst.buttons && ast.leftTrigger == bst.leftTrigger && ast.rightTrigger == bst.rightTrigger:
+                pending[pending.count-1]=event;return true
             case (.position,.position): pending[pending.count-1]=event;return true
             case let (.motion(ax,ay),.motion(bx,by)):
                 pending[pending.count-1] = .motion(dx:Int16(clamping:Int(ax)+Int(bx)),dy:Int16(clamping:Int(ay)+Int(by)));return true
@@ -182,6 +186,7 @@ public struct RemoteInputQueue: Sendable {
 
 /// Tracks only events accepted by the transport. Release retries retain failed keys for another attempt.
 public struct RemoteInputDelivery {
+    private var controllers: Set<UInt8> = []
     private var keys: [UInt16: (UInt8,UInt8)] = [:]
     private var buttons: Set<UInt8> = []
     public init() {}
@@ -200,12 +205,17 @@ public struct RemoteInputDelivery {
             for number in buttons.sorted() {
                 do { try send(.button(number:number,down:false));buttons.remove(number) } catch { failure=error }
             }
+            for slot in controllers.sorted() {
+                do { try send(.controller(slot:slot,activeMask:0,state:ControllerState()));controllers.remove(slot) } catch { failure=error }
+            }
             if let failure { throw failure };return
         }
         try send(event)
         switch event {
         case let .key(code,down,modifiers,flags): if down { keys[code]=(modifiers,flags) } else { keys.removeValue(forKey:code) }
         case let .button(number,down): if down { buttons.insert(number) } else { buttons.remove(number) }
+        case let .controller(slot,mask,_), let .controllerArrival(slot,mask):
+            if mask & (1 << slot) != 0 { controllers.insert(slot) } else { controllers.remove(slot) }
         default:break
         }
     }

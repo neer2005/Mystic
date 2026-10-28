@@ -35,6 +35,13 @@ struct StreamingEngineTests {
         #expect(throws: EngineError.notStarted) {
             try engine.scroll(clicks: 1)
         }
+        #expect(throws: EngineError.notStarted) {
+            try engine.controllerArrival(slot:0,activeMask:1)
+        }
+        #expect(throws: EngineError.notStarted) {
+            try engine.controller(slot:0,activeMask:1,buttons:0x1000,leftTrigger:17,rightTrigger:29,
+                                  leftX:-32768,leftY:32767,rightX:-123,rightY:456)
+        }
     }
 
     @Test("stopping when nothing started is harmless")
