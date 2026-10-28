@@ -8,13 +8,15 @@ import MysticCore
 final class StreamSession: @unchecked Sendable {
     private let queue = DispatchQueue(label: "Mystic.StreamSession")
     private let engine: StreamingEngine
+    private let recoveryRequests = KeyframeRequestGate()
     private let inputMailbox = StreamInputMailbox()
     private var delivery = RemoteInputDelivery()
     private var acceptingInput = false
     private var microphone: MicrophoneCapture?
+    private let recoveryFailure: @Sendable (String) -> Void
     private let inputFailure: @Sendable () -> Void
-    init(inputFailure: @escaping @Sendable () -> Void = {}) throws {
-        engine = try StreamingEngine();self.inputFailure = inputFailure
+    init(inputFailure: @escaping @Sendable () -> Void = {},recoveryFailure: @escaping @Sendable (String) -> Void = { _ in }) throws {
+        engine = try StreamingEngine();self.inputFailure = inputFailure;self.recoveryFailure=recoveryFailure
     }
     func start(host: String, launch: LaunchedStream, configuration: StreamConfiguration,
                decoder: VideoToolboxDecoder, audio: AudioPlayer, event: @escaping @Sendable (EngineEvent) -> Void,
@@ -41,13 +43,22 @@ final class StreamSession: @unchecked Sendable {
         }
     }
     func stop(completion: @escaping @Sendable () -> Void = {}) {
-        inputMailbox.close()
+        inputMailbox.close();recoveryRequests.close()
         engine.interrupt()
         queue.async { [self] in
             microphone?.stop();microphone=nil
             try? delivery.deliver(.releaseAll, send: performInput)
             acceptingInput = false
             engine.stop(); completion()
+        }
+    }
+    /// May be called from a decoder callback, including while start is still returning.
+    func requestVideoRecovery() {
+        guard recoveryRequests.offer() else { return }
+        queue.async { [self] in
+            defer { recoveryRequests.finish() }
+            guard recoveryRequests.isOpen,acceptingInput else { return }
+            do { try engine.requestIDR() } catch { recoveryFailure("Keyframe request failed: \(error.localizedDescription)") }
         }
     }
     func setMicrophoneMuted(_ muted: Bool) { queue.async { [self] in microphone?.setMuted(muted) } }
@@ -125,4 +136,18 @@ final class StreamInputMailbox: @unchecked Sendable {
         lock.lock();defer { lock.unlock() }
         closed = true;epoch &+= 1;_ = events.take();dirty = false
     }
+}
+
+/// Bound asynchronous recovery requests to one queued engine operation. Closing
+/// invalidates already queued work before session stop/free.
+final class KeyframeRequestGate: @unchecked Sendable {
+    private let lock=NSLock()
+    private var pending=false,closed=false
+    func offer() -> Bool {
+        lock.lock();defer { lock.unlock() }
+        guard !closed,!pending else { return false };pending=true;return true
+    }
+    var isOpen: Bool { lock.lock();defer { lock.unlock() };return !closed }
+    func finish() { lock.lock();defer { lock.unlock() };pending=false }
+    func close() { lock.lock();defer { lock.unlock() };closed=true }
 }

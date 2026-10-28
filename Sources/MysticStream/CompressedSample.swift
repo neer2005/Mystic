@@ -57,7 +57,11 @@ struct CompressedVideo {
             }
         } else {
             let codec: VideoCodec = format.isH264 ? .h264 : .hevc
-            if let sets = ParameterSets.extract(from: data, codec: codec) {
+            let parameterTypes: Set<UInt8> = format.isH264 ? [7,8] : [32,33,34]
+            let hasParameterSets=AnnexB.nalUnitRanges(in:data).contains { parameterTypes.contains(codec.nalUnitType(data[$0.lowerBound])) }
+            let extracted=ParameterSets.extract(from:data,codec:codec)
+            if hasParameterSets && extracted == nil { throw VideoDecoderError.invalidSample("incomplete parameter sets") }
+            if let sets = extracted {
                 let properties = try NALConfiguration.parse(sps: sets.sps, codec: codec)
                 guard properties.bitDepth == (format.tenBit ? 10 : 8), properties.chroma444 == format.chroma444 else {
                     throw VideoDecoderError.invalidSample("NAL sequence disagrees with negotiated profile")

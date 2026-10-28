@@ -115,6 +115,7 @@ final class PresentationMailbox: @unchecked Sendable {
     }
     func reset(generation: UInt64) -> Bool {
         lock.lock(); defer { lock.unlock() }
+        guard generation >= self.generation else { return false }
         self.generation = generation; frame = nil; dirty = true
         if scheduled { return false }
         scheduled = true; return true

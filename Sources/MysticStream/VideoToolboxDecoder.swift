@@ -13,6 +13,7 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
     private let telemetry: VideoTelemetry?
     private let capabilities: VideoCapabilities
     private let output: @Sendable (DecodedVideoFrame) -> Void
+    private let requestRecovery: @Sendable () -> Void
     private let resetOutput: @Sendable (UInt64) -> Void
     private let log: @Sendable (String) -> Void
     private var setupInfo: VideoSetupInfo?
@@ -24,11 +25,16 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
     private var running = false
     private var generation: UInt64 = 0
     private var fullRange = false
+    #if DEBUG
+    private var dropNextFrame = false
+    #endif
 
     public init(capabilities: VideoCapabilities, telemetry: VideoTelemetry? = nil,
                 output: @escaping @Sendable (DecodedVideoFrame) -> Void,
+                requestRecovery: @escaping @Sendable () -> Void = {},
                 resetOutput: @escaping @Sendable (UInt64) -> Void = { _ in },
                 log: @escaping @Sendable (String) -> Void = { _ in }) {
+        self.requestRecovery=requestRecovery
         self.telemetry = telemetry
         self.capabilities = capabilities; self.output = output
         self.resetOutput = resetOutput; self.log = log
@@ -36,12 +42,14 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
 
     @MainActor
     public convenience init(capabilities: VideoCapabilities, presenter: DisplayLayerPresenter, telemetry: VideoTelemetry? = nil,
+                            requestRecovery: @escaping @Sendable () -> Void = {},
                             log: @escaping @Sendable (String) -> Void = { _ in }) {
         self.init(capabilities: capabilities, telemetry: telemetry, output: { [weak presenter] in presenter?.offer($0) },
-                  resetOutput: { [weak presenter] in presenter?.reset(generation: $0) }, log: log)
+                  requestRecovery:requestRecovery,resetOutput: { [weak presenter] in presenter?.reset(generation: $0) }, log: log)
         presenter.decoderFailure = { [weak self] generation, reason in
-            self?.completion.fail(generation: generation)
-            log("Presentation failed: \(reason)")
+            if self?.completion.fail(generation:generation) == true {
+                self?.resetOutput(generation &+ 1);requestRecovery();log("Presentation failed: \(reason); requesting IDR immediately")
+            }
         }
     }
 
@@ -80,6 +88,9 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
         let submittedAt = VideoTelemetry.nowMicros()
         return queue.sync { () -> FrameDisposition in
             guard running, let format, setupInfo != nil else { return .needIDR }
+            #if DEBUG
+            if dropNextFrame { dropNextFrame=false;return fail("simulated lost compressed frame") }
+            #endif
             if completion.takeFailure() { invalidate(preserveOrigin: true) }
             guard !recovery.needsKeyFrame || frame.isKeyFrame else { return .needIDR }
             if frame.hdrActive && !format.tenBit { return fail("HDR requires a negotiated 10-bit format") }
@@ -89,7 +100,8 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
                 let next = try CompressedVideo.make(Data(frame.data), format: format, previous: compressed)
                 let changed = next.configuration != compressed?.configuration
                 if changed && !frame.isKeyFrame { return fail("configuration changed outside keyframe") }
-                if changed || session == nil || recovery.needsKeyFrame {
+                let rebuilding = changed || session == nil || recovery.needsKeyFrame
+                if rebuilding {
                     invalidate(preserveOrigin: true)
                     let dimensions = CMVideoFormatDescriptionGetDimensions(next.description)
                     guard dimensions.width > 0, dimensions.height > 0, dimensions.width <= 16384, dimensions.height <= 16384 else {
@@ -110,7 +122,11 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
                 guard completion.reserve(generation: token) else { return fail("decode queue is full") }
                 telemetry?.submit(generation:token,hostTenthMs:frame.hostProcessingLatencyTenthMs,
                                   receiveMicros:frame.receiveTimeMicros,completeMicros:frame.enqueueTimeMicros)
-                let state = completion, output = output, log = log, telemetry = telemetry
+                let state = completion, output = output, log = log, telemetry = telemetry, requestRecovery = requestRecovery, resetOutput = resetOutput
+                let announceRecovery = rebuilding && frame.isKeyFrame
+                let signalFailure: @Sendable (String) -> Void = { reason in
+                    if state.fail(generation:token) { resetOutput(token &+ 1);requestRecovery();log("\(reason); requesting IDR immediately") }
+                }
                 let expectedPixel = format.pixelFormat(fullRange: fullRange)
                 let hdr = frame.hdrActive
                 let hdrMetadata = next.hdrMetadata
@@ -120,22 +136,23 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
                     let decodedAt = VideoTelemetry.nowMicros()
                     guard state.complete(generation: token) else { return }
                     guard status == noErr, let image else {
-                        state.fail(generation: token); log("\(format) decode failed (OSStatus \(status)); requesting IDR")
+                        signalFailure("\(format) decode failed (OSStatus \(status))")
                         return
                     }
                     guard CVPixelBufferGetPixelFormatType(image) == expectedPixel, CVPixelBufferGetIOSurface(image) != nil else {
-                        state.fail(generation: token); log("\(format) output changed pixel format or has no IOSurface")
+                        signalFailure("\(format) output changed pixel format or has no IOSurface")
                         return
                     }
                     hdrMetadata.attach(to: image)
                     if hdr {
                         let transfer = CVBufferCopyAttachment(image, kCVImageBufferTransferFunctionKey, nil)
                         guard let transfer, CFEqual(transfer, kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ) || CFEqual(transfer, kCVImageBufferTransferFunction_ITU_R_2100_HLG) else {
-                            state.fail(generation: token); log("HDR frame missing PQ/HLG transfer attachment")
+                            signalFailure("HDR frame missing PQ/HLG transfer attachment")
                             return
                         }
                     }
                     guard state.isCurrent(token) else { return }
+                    if announceRecovery { log("Video keyframe decoded: \(format), generation \(token)") }
                     telemetry?.decode(generation:token,startMicros:decodeStartedAt,endMicros:decodedAt)
                     output(DecodedVideoFrame(pixelBuffer: image, presentationTime: pts, generation: token,
                                              timing:VideoFrameTiming(submitMicros:submittedAt,decodedMicros:decodedAt)))
@@ -151,7 +168,9 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
 
     /// Presentation errors are asynchronous; recovery is requested on the next engine callback.
     public func presentationFailed(_ reason: String) {
-        completion.failCurrent(); log("Presentation failed: \(reason)")
+        if let token=completion.failCurrent() {
+            resetOutput(token &+ 1);requestRecovery();log("Presentation failed: \(reason); requesting IDR immediately")
+        }
     }
 
     private func fail(_ reason: String) -> FrameDisposition {
@@ -162,10 +181,23 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
         completion.reset(generation: generation)
         telemetry?.activate(generation:generation)
         if let session { VTDecompressionSessionInvalidate(session) }
-        session = nil; compressed = nil; recovery.invalidate()
-        if !preserveOrigin { origin = nil }
+        session = nil
+        // A lost reference does not erase validated parameter sets. Setup/cleanup still do.
+        if !preserveOrigin { compressed = nil }
+        recovery.invalidate()
+        if !preserveOrigin {
+            origin = nil
+            #if DEBUG
+            dropNextFrame=false
+            #endif
+        }
         resetOutput(generation)
     }
+
+    #if DEBUG
+    /// App-local reference-loss test. No packet filters or system network changes.
+    public func simulateFrameLoss() { queue.sync { if running { dropNextFrame=true } } }
+    #endif
 
     // Deterministic test/fixture barrier. Never called on the render or engine thread.
     func waitForFrames() { queue.sync { if let session { VTDecompressionSessionWaitForAsynchronousFrames(session) } } }
@@ -177,25 +209,38 @@ final class DecodeCompletionState: @unchecked Sendable {
     private var generation: UInt64 = 0
     private var pending = 0
     private var failed = false
+    private var failureTaken = false
+    private var active = false
     func reset(generation: UInt64) {
         lock.lock(); defer { lock.unlock() }
-        self.generation = generation; pending = 0; failed = false
+        self.generation = generation; pending = 0; failed = false; failureTaken=false; active=false
     }
     func reserve(generation: UInt64) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard self.generation == generation, pending < 3 else { return false }
-        pending += 1; return true
+        guard self.generation == generation, !failed, pending < 3 else { return false }
+        active=true;pending += 1; return true
     }
     func complete(generation: UInt64) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard self.generation == generation else { return false }
-        pending = max(0, pending - 1); return true
+        guard self.generation == generation,active,pending > 0 else { return false }
+        pending -= 1; return true
     }
-    func fail(generation: UInt64) {
-        lock.lock(); defer { lock.unlock() }
-        if self.generation == generation { failed = true }
+    @discardableResult
+    func fail(generation: UInt64) -> Bool {
+        lock.lock();defer { lock.unlock() }
+        guard self.generation == generation,active,!failed else { return false }
+        failed=true;return true
     }
-    func failCurrent() { lock.lock(); failed = true; lock.unlock() }
-    func takeFailure() -> Bool { lock.lock(); defer { lock.unlock() }; let value = failed; failed = false; return value }
-    func isCurrent(_ generation: UInt64) -> Bool { lock.lock(); defer { lock.unlock() }; return self.generation == generation }
+    @discardableResult
+    func failCurrent() -> UInt64? {
+        lock.lock();defer { lock.unlock() }
+        guard active,!failed else { return nil };failed=true;return generation
+    }
+    func takeFailure() -> Bool {
+        lock.lock();defer { lock.unlock() }
+        guard failed,!failureTaken else { return false };failureTaken=true;return true
+    }
+    func isCurrent(_ generation: UInt64) -> Bool {
+        lock.lock();defer { lock.unlock() };return self.generation == generation && active && !failed
+    }
 }

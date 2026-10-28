@@ -42,6 +42,15 @@ final class StreamInputTests: XCTestCase {
         XCTAssertEqual(mailbox.take().events,[.releaseAll])
         XCTAssertFalse(mailbox.finish())
     }
+    func testAsyncKeyframeRequestsCoalesceAndStopClosesQueuedWork() {
+        let gate=KeyframeRequestGate()
+        XCTAssertTrue(gate.offer())
+        for _ in 0..<100 { XCTAssertFalse(gate.offer()) }
+        XCTAssertTrue(gate.isOpen)
+        gate.finish();XCTAssertTrue(gate.offer())
+        gate.close();XCTAssertFalse(gate.isOpen);XCTAssertFalse(gate.offer())
+        gate.finish();XCTAssertFalse(gate.offer())
+    }
     func testMouseMovedDeliveryIsEnabledAndRestored() {
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:100,height:100),styleMask:.borderless,backing:.buffered,defer:false)
         window.isReleasedWhenClosed=false

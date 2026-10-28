@@ -184,6 +184,46 @@ final class VideoDecoderTests: XCTestCase {
         decoder.cleanup()
     }
 
+    func testLossRecoveryReusesValidatedConfigurationAndRequestsWithoutNextFrame() async throws {
+        let report=await capabilities()
+        guard report.supportedFormats & 1 != 0 else { throw XCTSkip("no H.264 hardware") }
+        let frames=CollectedFrames(),requests=RecoveryRequestCounter()
+        let decoder=VideoToolboxDecoder(capabilities:report,output:{frames.append($0)},requestRecovery:{requests.increment()})
+        let key=try VideoCapabilities.fixture(.h264)
+        var headerless=Data()
+        for range in AnnexB.nalUnitRanges(in:key) where ![7,8].contains(Int(key[range.lowerBound]&0x1F)) {
+            headerless.append(contentsOf:[0,0,0,1]);headerless.append(key[range])
+        }
+        try decoder.setup(VideoSetupInfo(format:1,width:64,height:64,fps:60,colorRange:0));decoder.start()
+        XCTAssertEqual(submit(decoder,data:key,key:true),.ok);decoder.waitForFrames()
+        XCTAssertEqual(frames.count,1)
+        #if DEBUG
+        decoder.simulateFrameLoss()
+        #endif
+        XCTAssertEqual(submit(decoder,data:Data(),key:false,time:16_767),.needIDR)
+        XCTAssertEqual(submit(decoder,data:headerless,key:false,time:33_434),.needIDR)
+        XCTAssertEqual(submit(decoder,data:headerless,key:true,time:50_101),.ok);decoder.waitForFrames()
+        XCTAssertEqual(frames.count,2)
+        decoder.presentationFailed("test asynchronous failure with no next frame")
+        XCTAssertEqual(requests.count,1) // No submit call was needed to signal the engine.
+        decoder.presentationFailed("same failed generation")
+        XCTAssertEqual(requests.count,1)
+        XCTAssertEqual(submit(decoder,data:headerless,key:true,time:66_768),.ok);decoder.waitForFrames()
+        XCTAssertEqual(frames.count,3)
+        decoder.stop();decoder.presentationFailed("late failure after stop")
+        XCTAssertEqual(requests.count,1)
+        try decoder.setup(VideoSetupInfo(format:1,width:64,height:64,fps:60,colorRange:0));decoder.start()
+        XCTAssertEqual(submit(decoder,data:headerless,key:true),.needIDR) // New setup cannot reuse old configuration.
+        decoder.cleanup()
+    }
+    func testPartialParameterSetsCannotReusePreviousConfiguration() throws {
+        let key=try VideoCapabilities.fixture(.h264)
+        let previous=try CompressedVideo.make(key,format:.h264,previous:nil)
+        let sets=try XCTUnwrap(ParameterSets.extract(from:key,codec:.h264))
+        var partial=Data([0,0,0,1]);partial.append(sets.sps)
+        XCTAssertThrowsError(try CompressedVideo.make(partial,format:.h264,previous:previous))
+    }
+
     func testCompletionBoundsAndStaleCallbacks() {
         let state = DecodeCompletionState()
         state.reset(generation: 7)
@@ -193,9 +233,13 @@ final class VideoDecoderTests: XCTestCase {
         XCTAssertFalse(state.complete(generation: 7))
         state.fail(generation: 7)
         XCTAssertFalse(state.takeFailure())
-        state.fail(generation: 8)
-        XCTAssertTrue(state.takeFailure()); XCTAssertFalse(state.takeFailure())
-        XCTAssertTrue(state.reserve(generation: 8))
+        XCTAssertFalse(state.fail(generation:8)) // No session is active after reset.
+        XCTAssertTrue(state.reserve(generation:8))
+        XCTAssertTrue(state.fail(generation:8))
+        XCTAssertFalse(state.fail(generation:8))
+        XCTAssertTrue(state.takeFailure());XCTAssertFalse(state.takeFailure())
+        XCTAssertFalse(state.isCurrent(8)) // Taking the failure must not reopen output.
+        XCTAssertFalse(state.reserve(generation:8))
     }
 
     func testMailboxCoalescesAndRejectsStaleGenerations() throws {
@@ -216,6 +260,8 @@ final class VideoDecoderTests: XCTestCase {
         XCTAssertFalse(mailbox.offer(DecodedVideoFrame(pixelBuffer: pixel, presentationTime: .zero, generation: 4)))
         XCTAssertNil(mailbox.take().frame)
         XCTAssertFalse(mailbox.finish())
+        XCTAssertFalse(mailbox.reset(generation:4))
+        XCTAssertTrue(mailbox.isCurrent(5))
     }
 
     private func submit(_ decoder: VideoToolboxDecoder, data: Data, key: Bool, time: UInt64 = 100, hdr: Bool = false) -> FrameDisposition {
@@ -234,4 +280,10 @@ private final class CollectedFrames: @unchecked Sendable {
     var count: Int { lock.lock(); defer { lock.unlock() }; return frames.count }
     var lastWidth: Int? { lock.lock(); defer { lock.unlock() }; return frames.last.map { CVPixelBufferGetWidth($0.pixelBuffer) } }
     var lastPTS: CMTime? { lock.lock(); defer { lock.unlock() }; return frames.last?.presentationTime }
+}
+
+private final class RecoveryRequestCounter: @unchecked Sendable {
+    private let lock=NSLock();private var value=0
+    func increment() { lock.lock();defer { lock.unlock() };value+=1 }
+    var count: Int { lock.lock();defer { lock.unlock() };return value }
 }

@@ -256,12 +256,17 @@ public final class ConnectionModel {
                     guard self.generation == token else { return }
                     var config = config
                     config.remoteInputAESKey = launch.key; config.remoteInputAESIV = launch.iv
+                    let session = try StreamSession(inputFailure: { [weak self] in
+                        Task { @MainActor in self?.streamFailed("Remote input delivery failed. The stream was stopped to release held keys.",token:token) }
+                    },recoveryFailure:{ [weak self] message in
+                        Task { @MainActor in self?.record(message,token:token) }
+                    })
                     let telemetry = VideoTelemetry()
                     self.telemetry = telemetry
                     let presenter = DisplayLayerPresenter(telemetry:telemetry,onFailure: { [weak self] message in
                         Task { @MainActor in self?.record(message, token: token) }
                     })
-                    let decoder = VideoToolboxDecoder(capabilities: capabilities, presenter: presenter, telemetry:telemetry,log: { [weak self] message in
+                    let decoder = VideoToolboxDecoder(capabilities: capabilities, presenter: presenter, telemetry:telemetry,requestRecovery:{ [weak session] in session?.requestVideoRecovery() },log: { [weak self] message in
                         Task { @MainActor in self?.record(message, token: token) }
                     })
                     let audio = AudioPlayer(log: { [weak self] message in
@@ -269,9 +274,6 @@ public final class ConnectionModel {
                     })
                     audio.setVolume(self.volume, muted: self.muted)
                     self.audioPlayer = audio
-                    let session = try StreamSession(inputFailure: { [weak self] in
-                        Task { @MainActor in self?.streamFailed("Remote input delivery failed. The stream was stopped to release held keys.",token:token) }
-                    })
                     self.inputCapture = StreamInputCapture(send: { [weak session] in session?.send($0) ?? false },failure: { [weak self] message in self?.record(message,token:token) })
                     self.presenter = presenter; self.decoder = decoder; self.session = session
                     self.status = "Starting video connection…"
@@ -286,6 +288,12 @@ public final class ConnectionModel {
             }
         } catch { fail(error.localizedDescription) }
     }
+    #if DEBUG
+    public func simulateVideoLoss() {
+        guard phase == .streaming else { return }
+        decoder?.simulateFrameLoss()
+    }
+    #endif
     public func disconnect() {
         inputCapture?.setAvailable(false);inputCapture = nil
         generation = UUID(); let token = generation
