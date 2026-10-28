@@ -13,6 +13,14 @@ struct HostCatalogTests {
         }
         #expect(HostEndpoint(address:"pc",port:0) == nil)
     }
+    @Test func resolvedBonjourUsesAdvertisedPortAndStableHostname() {
+        let host=DiscoveredHost(serviceName:"Big Dawg",hostName:"PC.Local.",port:48000)
+        #expect(host?.name == "Big Dawg")
+        #expect(host?.endpoint.id == "pc.local:48000")
+        #expect(DiscoveredHost(serviceName:"PC",hostName:nil,port:47989) == nil)
+        #expect(DiscoveredHost(serviceName:"PC",hostName:"pc.local.",port:-1) == nil)
+        #expect(DiscoveredHost(serviceName:"PC",hostName:"pc.local.",port:65536) == nil)
+    }
     @Test func boundedCatalogUpdatesExactEndpointsAndRoundTrips() throws {
         var catalog=HostCatalog()
         for n in 0..<40 {

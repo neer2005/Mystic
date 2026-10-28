@@ -11,6 +11,8 @@ public final class ConnectionModel {
     public enum Phase: String { case idle, connecting, pairing, ready, launching, streaming, disconnecting, failed }
     public var address: String
     public var port: String
+    public let savedHosts: SavedHosts
+    public let discovery: HostDiscovery
     public var selectedAppID: Int32?
     public var resolution = "1920x1080"
     public var fps: UInt32 = 60
@@ -53,14 +55,17 @@ public final class ConnectionModel {
     @ObservationIgnored private var probing = false
     @ObservationIgnored private var endpoint = ""
     @ObservationIgnored private var connectedAddress = ""
+    @ObservationIgnored private var connectedPort: UInt16 = 47989
 
     public init(vault: any CredentialsStorage = CredentialsVault(), rememberHost: Bool = true,
+                preferences: (any HostPreferencesStorage)? = HostPreferences(),discovery: HostDiscovery = HostDiscovery(),
                 makeHost: @escaping @Sendable (String, UInt16, ClientIdentity, String?) throws -> any HostService = {
                     try HostConnection(address: $0, port: $1, identity: $2, certificate: $3)
                 }) {
+        self.savedHosts=SavedHosts(storage:rememberHost ? preferences : nil);self.discovery=discovery
         self.vault = vault; self.makeHost = makeHost; self.rememberHost = rememberHost
-        address = UserDefaults.standard.string(forKey: "lastHost") ?? ""
-        port = UserDefaults.standard.string(forKey: "lastPort") ?? "47989"
+        address = savedHosts.hosts.first?.endpoint.address ?? UserDefaults.standard.string(forKey: "lastHost") ?? ""
+        port = savedHosts.hosts.first.map { String($0.endpoint.port) } ?? UserDefaults.standard.string(forKey: "lastPort") ?? "47989"
     }
     public func prepare() async {
         guard capabilities == nil, !probing else { return }
@@ -70,21 +75,17 @@ public final class ConnectionModel {
     }
     public func connect() {
         guard !isBusy, !hasSession else { return }
-        let address = address.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !address.isEmpty, !address.contains("/"), let port = UInt16(port), port > 0 else {
+        guard let port=UInt16(port),let target=HostEndpoint(address:address,port:port) else {
             fail("Enter a host name or IP address, and an HTTP port from 1 to 65535."); return
         }
+        let address=target.address
         connection?.cancel(); operation?.cancel()
         let token = UUID(); generation = token
-        self.endpoint = "\(address.lowercased()):\(port)"
-        connectedAddress = address
+        self.endpoint = target.id
+        connectedAddress = address;connectedPort=port
         let endpoint = self.endpoint, vault = vault, factory = makeHost
         phase = .connecting; status = "Loading client identity from Keychain…"; errorMessage = nil
         host = nil; apps = []; selectedAppID = nil; pairingPIN = nil; diagnostics = []
-        if rememberHost {
-            UserDefaults.standard.set(address, forKey: "lastHost")
-            UserDefaults.standard.set(String(port), forKey: "lastPort")
-        }
         operation = Task { [weak self] in
             do {
                 let connection = try await Task.detached {
@@ -97,9 +98,19 @@ public final class ConnectionModel {
                 guard self.generation == token else { return }
                 self.host = info
                 if info.paired { try await self.loadApps(connection, token: token) }
-                else { self.phase = .ready; self.status = "Pair with \(info.name) to view its apps." }
+                else {
+                    self.rememberConnectedHost(info)
+                    self.phase = .ready; self.status = "Pair with \(info.name) to view its apps." }
             } catch { self?.fail(error.localizedDescription, token: token) }
         }
+    }
+    public func connect(to endpoint: HostEndpoint) {
+        guard !isBusy,!hasSession else { return }
+        address=endpoint.address;port=String(endpoint.port);connect()
+    }
+    private func rememberConnectedHost(_ info: HostInfo) {
+        guard rememberHost,let target=HostEndpoint(address:connectedAddress,port:connectedPort) else { return }
+        savedHosts.remember(endpoint:target,name:info.name,uniqueID:info.paired ? info.uniqueID : nil)
     }
     public func pair() {
         guard phase == .ready, host?.paired == false, let connection else { return }
@@ -124,6 +135,7 @@ public final class ConnectionModel {
     private func loadApps(_ connection: any HostService, token: UUID) async throws {
         let list = try await connection.apps()
         guard generation == token else { return }
+        if let host { rememberConnectedHost(host) }
         apps = list; selectedAppID = list.first?.id; phase = .ready
         status = list.isEmpty ? "The host has no streamable apps configured." : "Connected to \(host?.name ?? address)."
     }

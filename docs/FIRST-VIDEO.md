@@ -37,7 +37,7 @@ executable, or use `Mystic-Package` to run the package test suite.
    fullscreen space. Disconnect stops the local stream and leaves the host app
    running; reconnecting and selecting the same app uses Nightjar's resume path.
 
-Only the last address and port are stored in preferences. The client identity and
+Saved host names, endpoints, host IDs and last-connected dates are stored in preferences. The client identity and
 host certificate pins are stored in the login Keychain. Pinned HTTPS never falls
 back to unverified HTTP after certificate or authentication failure. Launch key
 and IV bytes stay in memory and are passed unchanged into the engine. Engine

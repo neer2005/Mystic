@@ -28,6 +28,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>27.0</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>NSBonjourServices</key><array><string>_nvstream._tcp</string></array>
 <key>NSLocalNetworkUsageDescription</key><string>Mystic connects to your game-streaming host on your local network.</string>
 </dict></plist>
 PLIST

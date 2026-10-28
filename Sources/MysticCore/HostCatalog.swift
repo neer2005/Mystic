@@ -69,4 +69,10 @@ public struct DiscoveredHost: Equatable, Sendable, Identifiable {
     public let name: String
     public var id: String { endpoint.id }
     public init(endpoint: HostEndpoint,name: String) { self.endpoint=endpoint;self.name=String(name.prefix(256)) }
+    public init?(serviceName: String,hostName: String?,port: Int) {
+        guard let hostName,port > 0,port <= 65535 else { return nil }
+        let address=hostName.hasSuffix(".") ? String(hostName.dropLast()) : hostName
+        guard let endpoint=HostEndpoint(address:address,port:UInt16(port)) else { return nil }
+        self.init(endpoint:endpoint,name:serviceName)
+    }
 }

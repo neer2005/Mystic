@@ -17,7 +17,7 @@ rather than rewritten.
 - [ ] Package the engine as an `xcframework`
 - [x] PIN pairing, pinned HTTPS host control, app list, launch/resume, Keychain credentials
 - [x] Validate pairing and launch against a real host (Rubylight, Desktop)
-- [ ] Host discovery (mDNS)
+- [x] Host discovery (mDNS `_nvstream._tcp`), saved endpoints, one-click reconnect and legacy-address migration (local Bonjour fixture verified; Big Dawg uses its saved non-LAN address)
 - [ ] CI: core tests on Linux, engine build on macOS
 
 ## Phase 2 — first playable (6–10 weeks)

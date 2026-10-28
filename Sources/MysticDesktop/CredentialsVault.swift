@@ -8,7 +8,7 @@ public protocol CredentialsStorage: Sendable {
     func saveCertificate(_ certificate: String, for endpoint: String) throws
 }
 
-/// Secrets stay in the user's login Keychain; preferences contain only the last address/port.
+/// Secrets stay in the user's login Keychain; preferences contain only host labels and endpoints.
 public final class CredentialsVault: CredentialsStorage, @unchecked Sendable {
     private let lock = NSLock()
     public init() {}

@@ -120,10 +120,7 @@ impl MysticHost {
         match operation {
             "info" => {
                 let i = self.info()?;
-                Ok(
-                    json!({"name":i.hostname,"uniqueID":i.unique_id,"paired":i.paired,
-                    "appVersion":i.app_version,"codecSupport":i.server_codec_mode_support,"currentGame":i.current_game}),
-                )
+                Ok(host_info_value(&i, self.client.server_certificate_pem().is_some()))
             }
             "pair" => {
                 let pin = field(&v, "pin")?;
@@ -209,6 +206,12 @@ impl MysticHost {
         }
     }
 }
+fn host_info_value(i: &nightjar_core::http::ServerInfo, has_local_pin: bool) -> Value {
+    // Another address can recognize our identity without having a local certificate pin.
+    // Offer PIN pairing for that endpoint instead of attempting unpinned HTTPS.
+    json!({"name":i.hostname,"uniqueID":i.unique_id,"paired":i.paired && has_local_pin,
+        "appVersion":i.app_version,"codecSupport":i.server_codec_mode_support,"currentGame":i.current_game})
+}
 fn dimension(v: &Value, name: &str, max: u32) -> Result<u32, String> {
     v[name]
         .as_u64()
@@ -219,6 +222,17 @@ fn dimension(v: &Value, name: &str, max: u32) -> Result<u32, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn paired_alias_requires_its_own_local_pin() {
+        let mut info = nightjar_core::http::ServerInfo::parse(
+            r#"<root status_code="200"><hostname>PC</hostname><uniqueid>host1</uniqueid><PairStatus>1</PairStatus><state>SUNSHINE_SERVER_FREE</state></root>"#, 47989,
+        ).unwrap();
+        assert_eq!(host_info_value(&info, false)["paired"], false);
+        assert_eq!(host_info_value(&info, true)["paired"], true);
+        assert_eq!(host_info_value(&info, false)["uniqueID"], "host1");
+        info.paired = false;
+        assert_eq!(host_info_value(&info, true)["paired"], false);
+    }
     #[test]
     fn identity_round_trip_and_bad_arguments() {
         unsafe {

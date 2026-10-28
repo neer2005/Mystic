@@ -10,7 +10,38 @@ public struct HostLibraryView: View {
     public var body: some View {
         NavigationSplitView {
             Form {
-                Section("Host") {
+                if !model.savedHosts.hosts.isEmpty {
+                    Section("Saved Hosts") {
+                        ForEach(model.savedHosts.hosts) { host in
+                            HStack {
+                                Button { model.connect(to:host.endpoint) } label: {
+                                    VStack(alignment:.leading) {
+                                        Text(host.name)
+                                        Text(host.endpoint.id).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }.buttonStyle(.plain)
+                                Spacer()
+                                Button("Remove from Saved Hosts",systemImage:"minus.circle") { model.savedHosts.remove(host.endpoint) }
+                                    .labelStyle(.iconOnly)
+                                    .help("Remove this address from the list. Pairing remains in Keychain.")
+                            }.disabled(model.hasSession || model.isBusy)
+                        }
+                    }
+                }
+                Section("Nearby Hosts") {
+                    ForEach(model.discovery.hosts) { host in
+                        Button { model.connect(to:host.endpoint) } label: {
+                            VStack(alignment:.leading) {
+                                Text(host.name)
+                                Text(host.endpoint.id).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }.buttonStyle(.plain).disabled(model.hasSession || model.isBusy)
+                    }
+                    Text(model.discovery.status).font(.caption).foregroundStyle(.secondary)
+                    Button("Refresh Discovery",systemImage:"arrow.clockwise") { model.discovery.refresh() }
+                }
+                if let message=model.savedHosts.error { Text(message).font(.caption).foregroundStyle(.secondary) }
+                Section("Manual Host") {
                     TextField("LAN address", text: $model.address, prompt: Text("192.168.1.100"))
                         .onSubmit { model.connect() }.disabled(model.hasSession || model.isBusy)
                     TextField("HTTP port", text: $model.port).disabled(model.hasSession || model.isBusy)
@@ -124,7 +155,8 @@ public struct HostLibraryView: View {
             }
             .padding(20)
             .frame(minWidth: 620, minHeight: 480)
-            .task { await model.prepare() }
+            .task { model.discovery.start();await model.prepare() }
+            .onDisappear { model.discovery.stop() }
         }
     }
 }

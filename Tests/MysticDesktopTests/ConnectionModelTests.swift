@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import MysticKit
+import MysticCore
 @testable import MysticDesktop
 
 @MainActor
@@ -70,6 +71,26 @@ final class ConnectionModelTests: XCTestCase {
         model.address = "host"; model.port = "65536"; model.connect()
         XCTAssertEqual(model.phase, .failed)
     }
+    func testSuccessfulConnectionSavesNameAndReusesExactEndpointPin() async throws {
+        let preferences=MemoryHostPreferences(),vault=MemoryVault()
+        let endpoint=try XCTUnwrap(HostEndpoint(address:"PC.LOCAL",port:48000))
+        try vault.saveCertificate("existing pin",for:endpoint.id)
+        let mock=MockHost(paired:true)
+        let calls=HostFactoryCalls()
+        let model=ConnectionModel(vault:vault,preferences:preferences,makeHost: { address,port,_,certificate in
+            calls.record(address:address,port:port,certificate:certificate);return mock
+        })
+        model.connect(to:endpoint);try await settle(model)
+        XCTAssertEqual(calls.certificate,"existing pin")
+        XCTAssertEqual(calls.address,"pc.local");XCTAssertEqual(calls.port,48000)
+        XCTAssertEqual(model.savedHosts.hosts.first?.name,"Test Host")
+        XCTAssertEqual(model.savedHosts.hosts.first?.endpoint,endpoint)
+        model.disconnect()
+        XCTAssertEqual(SavedHosts(storage:preferences).hosts.first?.uniqueID,"host1")
+        // Removing an entry is not an unpair operation.
+        model.savedHosts.remove(endpoint)
+        XCTAssertEqual(try vault.certificate(for:endpoint.id),"existing pin")
+    }
     private func settle(_ model: ConnectionModel) async throws {
         for _ in 0..<200 {
             if !model.isBusy { return }
@@ -112,3 +133,12 @@ private final class MemoryVault: CredentialsStorage, @unchecked Sendable {
     }
 }
 private func decode<T: Decodable>(_ json: String) throws -> T { try JSONDecoder().decode(T.self, from: Data(json.utf8)) }
+
+private final class HostFactoryCalls: @unchecked Sendable {
+    private let lock=NSLock()
+    private var values: (String,UInt16,String?) = ("",0,nil)
+    func record(address: String,port: UInt16,certificate: String?) { lock.withLock { values=(address,port,certificate) } }
+    var address: String { lock.withLock { values.0 } }
+    var port: UInt16 { lock.withLock { values.1 } }
+    var certificate: String? { lock.withLock { values.2 } }
+}
