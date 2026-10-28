@@ -91,6 +91,34 @@ final class ConnectionModelTests: XCTestCase {
         model.savedHosts.remove(endpoint)
         XCTAssertEqual(try vault.certificate(for:endpoint.id),"existing pin")
     }
+    func testLibrarySearchSortFilterAndSelection() async throws {
+        let settings=AppSettings(storage:nil),mock=MockHost(paired:true,multipleApps:true)
+        let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,settings:settings,makeHost:{ _,_,_,_ in mock })
+        model.address="127.0.0.1";model.port="47989";model.connect();try await settle(model)
+        XCTAssertEqual(model.filteredApps.map(\.name),["Alpha","Desktop","Zulu"])
+        XCTAssertEqual(model.selectedAppID,2)
+        settings.update { $0.librarySort="host" }
+        XCTAssertEqual(model.filteredApps.map(\.id),[1,2,3])
+        model.libraryQuery="ZULU";XCTAssertEqual(model.selectedAppID,3)
+        model.libraryHDROnly=true;XCTAssertEqual(model.filteredApps.count,1)
+        model.libraryQuery="Alpha";XCTAssertTrue(model.filteredApps.isEmpty);XCTAssertNil(model.selectedAppID)
+        XCTAssertFalse(model.canPlay)
+        model.disconnect()
+    }
+    func testSavedStreamDefaultsReachHostLaunch() async throws {
+        let storage=MemorySettingsPreferences(),settings=AppSettings(storage:storage)
+        settings.update { $0.resolution="1280x720";$0.fps=120;$0.audioLayout="5.1";$0.codec="h264" }
+        let restarted=AppSettings(storage:storage),mock=MockHost(paired:true)
+        let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,settings:restarted,makeHost:{ _,_,_,_ in mock })
+        await model.prepare()
+        guard (model.capabilities?.supportedFormats ?? 0) & 1 != 0 else { throw XCTSkip("No H.264 hardware available") }
+        model.address="127.0.0.1";model.port="47989";model.connect();try await settle(model)
+        model.play();try await settle(model)
+        let launch=try XCTUnwrap(mock.launchedOptions)
+        XCTAssertEqual(launch.width,1280);XCTAssertEqual(launch.height,720);XCTAssertEqual(launch.fps,120)
+        XCTAssertEqual(launch.channelCount,6);XCTAssertEqual(launch.channelMask,0x3F)
+        model.disconnect()
+    }
     private func settle(_ model: ConnectionModel) async throws {
         for _ in 0..<200 {
             if !model.isBusy { return }
@@ -104,7 +132,10 @@ private final class MockHost: HostService, @unchecked Sendable {
     let lock = NSLock()
     private var paired: Bool
     let delay: Bool
-    init(paired: Bool, delay: Bool = false) { self.paired = paired; self.delay = delay }
+    let multipleApps: Bool
+    private var launchOptions: LaunchOptions?
+    var launchedOptions: LaunchOptions? { lock.withLock { launchOptions } }
+    init(paired: Bool, delay: Bool = false,multipleApps: Bool = false) { self.paired = paired; self.delay = delay;self.multipleApps=multipleApps }
     func serverInfo() async throws -> HostInfo {
         if delay { try await Task.sleep(for: .milliseconds(120)) }
         let isPaired = lock.withLock { paired }
@@ -115,9 +146,10 @@ private final class MockHost: HostService, @unchecked Sendable {
         return try decode("{\"certificate\":\"pinned certificate\",\"uniqueID\":\"host1\"}")
     }
     func apps() async throws -> [HostApp] {
-        try decode("[{\"id\":1,\"name\":\"Desktop\",\"uuid\":\"app1\",\"hdrSupported\":true}]")
+        if multipleApps { return try decode("[{\"id\":1,\"name\":\"Desktop\",\"uuid\":\"app1\",\"hdrSupported\":true},{\"id\":2,\"name\":\"Alpha\",\"uuid\":\"app2\",\"hdrSupported\":false},{\"id\":3,\"name\":\"Zulu\",\"uuid\":\"app3\",\"hdrSupported\":true}]") }
+        return try decode("[{\"id\":1,\"name\":\"Desktop\",\"uuid\":\"app1\",\"hdrSupported\":true}]")
     }
-    func launch(_ options: LaunchOptions) async throws -> LaunchedStream { throw HostConnectionError("not used") }
+    func launch(_ options: LaunchOptions) async throws -> LaunchedStream { lock.withLock { launchOptions=options };throw HostConnectionError("not used") }
     func cancel() {}
 }
 private final class MemoryVault: CredentialsStorage, @unchecked Sendable {

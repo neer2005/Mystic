@@ -14,14 +14,43 @@ public final class ConnectionModel {
     public let savedHosts: SavedHosts
     public let discovery: HostDiscovery
     public var selectedAppID: Int32?
-    public var resolution = "1920x1080"
-    public var fps: UInt32 = 60
-    public var bitrateMbps: Int32 = 20
-    public var hdr = false
-    public var codec = "auto"
-    public var audioLayout = "stereo"
-    public var volume: Float = 0.8 { didSet { audioPlayer?.setVolume(volume, muted: muted) } }
-    public var muted = false { didSet { audioPlayer?.setVolume(volume, muted: muted) } }
+    public let settings: AppSettings
+    public var resolution: String {
+        get { settings.value.resolution }
+        set { settings.update { $0.resolution=newValue } }
+    }
+    public var fps: UInt32 {
+        get { settings.value.fps }
+        set { settings.update { $0.fps=newValue } }
+    }
+    public var bitrateMbps: Int32 {
+        get { settings.value.bitrateMbps }
+        set { settings.update { $0.bitrateMbps=newValue } }
+    }
+    public var hdr: Bool {
+        get { settings.value.hdr }
+        set { settings.update { $0.hdr=newValue } }
+    }
+    public var codec: String {
+        get { settings.value.codec }
+        set { settings.update { $0.codec=newValue } }
+    }
+    public var audioLayout: String {
+        get { settings.value.audioLayout }
+        set { settings.update { $0.audioLayout=newValue } }
+    }
+    public var volume: Float {
+        get { settings.value.volume }
+        set { settings.update { $0.volume=newValue };audioPlayer?.setVolume(volume,muted:muted) }
+    }
+    public var muted: Bool {
+        get { settings.value.muted }
+        set { settings.update { $0.muted=newValue };audioPlayer?.setVolume(volume,muted:muted) }
+    }
+    public var showLatencyHUD: Bool {
+        get { settings.value.showLatencyHUD }
+        set { settings.update { $0.showLatencyHUD=newValue } }
+    }
     public private(set) var audioStatus = "Audio idle"
 
     public private(set) var phase: Phase = .idle
@@ -33,9 +62,27 @@ public final class ConnectionModel {
     public private(set) var capabilities: VideoCapabilities?
     public private(set) var presenter: DisplayLayerPresenter?
     public private(set) var inputCapture: StreamInputCapture?
-    public var showLatencyHUD = false
     public private(set) var videoTelemetry: VideoTelemetrySnapshot?
     public private(set) var diagnostics: [String] = []
+    public var libraryQuery = "" { didSet { reconcileLibrarySelection() } }
+    public var libraryHDROnly = false { didSet { reconcileLibrarySelection() } }
+    public var filteredApps: [HostApp] {
+        let query=libraryQuery.trimmingCharacters(in:.whitespacesAndNewlines)
+        let filtered=apps.filter { (!libraryHDROnly || $0.hdrSupported) && (query.isEmpty || $0.name.localizedStandardContains(query)) }
+        return settings.value.librarySort == "host" ? filtered : filtered.sorted {
+            $0.name == $1.name ? $0.id < $1.id : $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
+    private func reconcileLibrarySelection() {
+        if let selectedAppID,!filteredApps.contains(where: { $0.id == selectedAppID }) { self.selectedAppID=filteredApps.first?.id }
+    }
+    public var selectedHostEndpointID: String? { host != nil || isBusy || hasSession ? endpoint : nil }
+    public func selectHost(_ id: String?) {
+        guard let id else { return }
+        if let endpoint=savedHosts.hosts.first(where: { $0.id == id })?.endpoint ?? discovery.hosts.first(where: { $0.id == id })?.endpoint {
+            if id != selectedHostEndpointID { connect(to:endpoint) }
+        }
+    }
     public var selectedApp: HostApp? { apps.first { $0.id == selectedAppID } }
     public var isBusy: Bool { [.connecting, .pairing, .launching, .disconnecting].contains(phase) }
     public var canPlay: Bool { phase == .ready && selectedApp != nil && capabilities != nil }
@@ -52,20 +99,28 @@ public final class ConnectionModel {
     @ObservationIgnored private var statisticsMonitor: Task<Void, Never>?
     @ObservationIgnored private var operation: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
+    @ObservationIgnored private var libraryVisible=false
     @ObservationIgnored private var probing = false
     @ObservationIgnored private var endpoint = ""
     @ObservationIgnored private var connectedAddress = ""
     @ObservationIgnored private var connectedPort: UInt16 = 47989
 
     public init(vault: any CredentialsStorage = CredentialsVault(), rememberHost: Bool = true,
-                preferences: (any HostPreferencesStorage)? = HostPreferences(),discovery: HostDiscovery = HostDiscovery(),
+                preferences: (any HostPreferencesStorage)? = HostPreferences(),settings: AppSettings? = nil,discovery: HostDiscovery = HostDiscovery(),
                 makeHost: @escaping @Sendable (String, UInt16, ClientIdentity, String?) throws -> any HostService = {
                     try HostConnection(address: $0, port: $1, identity: $2, certificate: $3)
                 }) {
+        self.settings=settings ?? AppSettings(storage:rememberHost ? SettingsPreferences() : nil)
         self.savedHosts=SavedHosts(storage:rememberHost ? preferences : nil);self.discovery=discovery
         self.vault = vault; self.makeHost = makeHost; self.rememberHost = rememberHost
         address = savedHosts.hosts.first?.endpoint.address ?? UserDefaults.standard.string(forKey: "lastHost") ?? ""
         port = savedHosts.hosts.first.map { String($0.endpoint.port) } ?? UserDefaults.standard.string(forKey: "lastPort") ?? "47989"
+    }
+    public func libraryAppeared() { libraryVisible=true;applyLiveSettings() }
+    public func libraryDisappeared() { libraryVisible=false;discovery.stop() }
+    public func applyLiveSettings() {
+        audioPlayer?.setVolume(volume,muted:muted)
+        if libraryVisible && settings.value.discoveryEnabled { discovery.start() } else { discovery.stop() }
     }
     public func prepare() async {
         guard capabilities == nil, !probing else { return }
@@ -136,7 +191,7 @@ public final class ConnectionModel {
         let list = try await connection.apps()
         guard generation == token else { return }
         if let host { rememberConnectedHost(host) }
-        apps = list; selectedAppID = list.first?.id; phase = .ready
+        apps = list; selectedAppID = filteredApps.first?.id; phase = .ready
         status = list.isEmpty ? "The host has no streamable apps configured." : "Connected to \(host?.name ?? address)."
     }
     public func play() {
