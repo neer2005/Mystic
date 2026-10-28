@@ -26,7 +26,8 @@ public struct StreamingView: View {
                 }
             }
         }
-        .frame(minWidth: 640, minHeight: 360)
+        .frame(minWidth:640,maxWidth:.infinity,minHeight:360,maxHeight:.infinity)
+        .windowFullScreenBehavior(.enabled)
         .toolbar {
             ToolbarItem { Text(model.status).font(.caption).lineLimit(1) }
             if let capture = model.inputCapture {

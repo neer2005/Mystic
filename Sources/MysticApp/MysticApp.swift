@@ -20,6 +20,7 @@ struct MysticApp: App {
             }
         Settings { MysticSettingsView(model:model) }
         Window("Mystic Stream", id: "stream") { StreamingView(model: model) }
+            .windowResizability(.contentMinSize)
             .defaultSize(width: 1280, height: 720)
     }
 }
