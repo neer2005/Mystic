@@ -10,6 +10,7 @@ import MysticKit
 public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
     private let queue = DispatchQueue(label: "Mystic.VideoToolbox")
     private let completion = DecodeCompletionState()
+    private let telemetry: VideoTelemetry?
     private let capabilities: VideoCapabilities
     private let output: @Sendable (DecodedVideoFrame) -> Void
     private let resetOutput: @Sendable (UInt64) -> Void
@@ -24,18 +25,19 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
     private var generation: UInt64 = 0
     private var fullRange = false
 
-    public init(capabilities: VideoCapabilities,
+    public init(capabilities: VideoCapabilities, telemetry: VideoTelemetry? = nil,
                 output: @escaping @Sendable (DecodedVideoFrame) -> Void,
                 resetOutput: @escaping @Sendable (UInt64) -> Void = { _ in },
                 log: @escaping @Sendable (String) -> Void = { _ in }) {
+        self.telemetry = telemetry
         self.capabilities = capabilities; self.output = output
         self.resetOutput = resetOutput; self.log = log
     }
 
     @MainActor
-    public convenience init(capabilities: VideoCapabilities, presenter: DisplayLayerPresenter,
+    public convenience init(capabilities: VideoCapabilities, presenter: DisplayLayerPresenter, telemetry: VideoTelemetry? = nil,
                             log: @escaping @Sendable (String) -> Void = { _ in }) {
-        self.init(capabilities: capabilities, output: { [weak presenter] in presenter?.offer($0) },
+        self.init(capabilities: capabilities, telemetry: telemetry, output: { [weak presenter] in presenter?.offer($0) },
                   resetOutput: { [weak presenter] in presenter?.reset(generation: $0) }, log: log)
         presenter.decoderFailure = { [weak self] generation, reason in
             self?.completion.fail(generation: generation)
@@ -44,6 +46,7 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
     }
 
     deinit {
+        telemetry?.activate(generation:generation &+ 1)
         completion.reset(generation: generation &+ 1)
         resetOutput(generation &+ 1)
         if let session { VTDecompressionSessionInvalidate(session) }
@@ -74,7 +77,8 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
     public func cleanup() { queue.sync { running = false; invalidate(); setupInfo = nil; format = nil } }
 
     public func submit(_ frame: VideoFrameInfo) -> FrameDisposition {
-        queue.sync { () -> FrameDisposition in
+        let submittedAt = VideoTelemetry.nowMicros()
+        return queue.sync { () -> FrameDisposition in
             guard running, let format, setupInfo != nil else { return .needIDR }
             if completion.takeFailure() { invalidate(preserveOrigin: true) }
             guard !recovery.needsKeyFrame || frame.isKeyFrame else { return .needIDR }
@@ -104,12 +108,16 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
                 let token = generation
                 // Dropping an encoded reference frame requires IDR recovery, not just dropping display.
                 guard completion.reserve(generation: token) else { return fail("decode queue is full") }
-                let state = completion, output = output, log = log
+                telemetry?.submit(generation:token,hostTenthMs:frame.hostProcessingLatencyTenthMs,
+                                  receiveMicros:frame.receiveTimeMicros,completeMicros:frame.enqueueTimeMicros)
+                let state = completion, output = output, log = log, telemetry = telemetry
                 let expectedPixel = format.pixelFormat(fullRange: fullRange)
                 let hdr = frame.hdrActive
                 let hdrMetadata = next.hdrMetadata
+                let decodeStartedAt = VideoTelemetry.nowMicros()
                 let status = VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample,
                     flags: [._EnableAsynchronousDecompression], infoFlagsOut: nil) { status, _, image, pts, _ in
+                    let decodedAt = VideoTelemetry.nowMicros()
                     guard state.complete(generation: token) else { return }
                     guard status == noErr, let image else {
                         state.fail(generation: token); log("\(format) decode failed (OSStatus \(status)); requesting IDR")
@@ -128,7 +136,9 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
                         }
                     }
                     guard state.isCurrent(token) else { return }
-                    output(DecodedVideoFrame(pixelBuffer: image, presentationTime: pts, generation: token))
+                    telemetry?.decode(generation:token,startMicros:decodeStartedAt,endMicros:decodedAt)
+                    output(DecodedVideoFrame(pixelBuffer: image, presentationTime: pts, generation: token,
+                                             timing:VideoFrameTiming(submitMicros:submittedAt,decodedMicros:decodedAt)))
                 }
                 if status != noErr {
                     _ = completion.complete(generation: token)
@@ -150,6 +160,7 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
     private func invalidate(preserveOrigin: Bool = false) {
         generation &+= 1
         completion.reset(generation: generation)
+        telemetry?.activate(generation:generation)
         if let session { VTDecompressionSessionInvalidate(session) }
         session = nil; compressed = nil; recovery.invalidate()
         if !preserveOrigin { origin = nil }

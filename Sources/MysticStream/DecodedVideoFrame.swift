@@ -7,6 +7,10 @@ public struct DecodedVideoFrame: @unchecked Sendable {
     public let pixelBuffer: CVPixelBuffer
     public let presentationTime: CMTime
     public let generation: UInt64
+    public let timing: VideoFrameTiming?
+    public init(pixelBuffer: CVPixelBuffer,presentationTime: CMTime,generation: UInt64,timing: VideoFrameTiming? = nil) {
+        self.pixelBuffer=pixelBuffer;self.presentationTime=presentationTime;self.generation=generation;self.timing=timing
+    }
 
     func sampleBuffer() throws -> CMSampleBuffer {
         var description: CMVideoFormatDescription?

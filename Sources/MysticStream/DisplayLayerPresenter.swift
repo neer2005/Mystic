@@ -12,6 +12,7 @@ public final class DisplayLayerPresenter {
         guard videoSize.width > 0, videoSize.height > 0 else { return .zero }
         return AVMakeRect(aspectRatio: videoSize, insideRect: layer.bounds)
     }
+    private let telemetry: VideoTelemetry?
     private let synchronizer = AVSampleBufferRenderSynchronizer()
     private let receiver: AVSampleBufferVideoRenderer.Receiver
     private nonisolated let mailbox = PresentationMailbox()
@@ -21,7 +22,8 @@ public final class DisplayLayerPresenter {
     private let onFailure: @Sendable (String) -> Void
     var decoderFailure: (@Sendable (UInt64, String) -> Void)?
 
-    public init(onFailure: @escaping @Sendable (String) -> Void = { _ in }) {
+    public init(telemetry: VideoTelemetry? = nil, onFailure: @escaping @Sendable (String) -> Void = { _ in }) {
+        self.telemetry = telemetry
         self.onFailure = onFailure
         let layer = AVSampleBufferDisplayLayer()
         self.layer = layer
@@ -76,9 +78,14 @@ public final class DisplayLayerPresenter {
                 videoSize = CMVideoFormatDescriptionGetPresentationDimensions(description,usePixelAspectRatio:true,useCleanAperture:true)
             }
             guard mailbox.isCurrent(frame.generation) else { return }
+            let enqueueStartedAt = VideoTelemetry.nowMicros()
             let result = try await receiver.enqueue(CMReadySampleBuffer(unsafeBuffer: sample))
             guard mailbox.isCurrent(frame.generation) else { return }
             try checkEnqueue(result)
+            if case .cancelledDueToFlush = result { return }
+            if let timing = frame.timing {
+                telemetry?.enqueue(generation:frame.generation,timing:timing,startMicros:enqueueStartedAt,endMicros:VideoTelemetry.nowMicros())
+            }
             lastPTS = frame.presentationTime
         } catch {
             receiver.flush()
