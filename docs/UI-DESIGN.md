@@ -116,3 +116,15 @@ remain live. See [SETTINGS.md](SETTINGS.md) for storage and validation.
 The live UI was checked in the Mac's current dark appearance. Separate light-mode,
 increased-contrast, and VoiceOver acceptance remain to be performed; native
 components provide the system behavior but that is not a substitute for those checks.
+
+### Stream window fullscreen role
+
+The stream scene explicitly uses `.windowManagerRole(.principal)`. Runtime
+inspection of the broken window found collection behavior `0x20100`: auxiliary
+plus fullscreen-auxiliary, with unrestricted maximum size. That role disabled the
+native fullscreen command and made `toggleFullScreen` ineffective. Changing the
+scene role enables the native menu and green fullscreen control without overriding
+content sizing or replacing the toolbar action. Verified in the rebuilt stream
+window: View → Enter Full Screen enters a native space, the menu becomes Exit Full
+Screen, and the existing toolbar button exits it. This window-only verification
+does not require starting or reconnecting a host stream.
