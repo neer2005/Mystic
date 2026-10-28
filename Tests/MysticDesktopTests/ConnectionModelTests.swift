@@ -119,6 +119,18 @@ final class ConnectionModelTests: XCTestCase {
         XCTAssertEqual(launch.channelCount,6);XCTAssertEqual(launch.channelMask,0x3F)
         model.disconnect()
     }
+    func testMicrophonePermissionDenialPreventsHostLaunch() async throws {
+        let settings=AppSettings(storage:nil),mock=MockHost(paired:true)
+        settings.update { $0.microphoneEnabled=true }
+        let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,microphonePermission:{ false },settings:settings,makeHost:{ _,_,_,_ in mock })
+        await model.prepare()
+        guard model.capabilities?.supportedFormats ?? 0 != 0 else { throw XCTSkip("No hardware decoder") }
+        model.address="127.0.0.1";model.port="47989";model.connect();try await settle(model)
+        model.play();try await settle(model)
+        XCTAssertNil(mock.launchedOptions)
+        XCTAssertTrue(model.errorMessage?.contains("Microphone") == true)
+        model.disconnect()
+    }
     private func settle(_ model: ConnectionModel) async throws {
         for _ in 0..<200 {
             if !model.isBusy { return }

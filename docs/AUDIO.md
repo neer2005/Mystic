@@ -80,3 +80,10 @@ more than 2600 decoded packets, no concealed packets at the sampled observation,
 and about 40 ms of queued PCM. The user confirmed hearing host audio through the
 Mac. Physical listening, automated render/mute checks, and the stereo/surround
 fixture checks passed; output-device switching and live surround remain unverified.
+
+## Microphone forwarding
+
+Mac microphone capture and encrypted Rubylight/Apollo passthrough are now available
+as a separate opt-in path. Enable Use Mac Microphone before starting a stream;
+Mute Microphone is independent of playback Mute. The user confirmed the Windows
+input meter responds to the Mac mic on Big Dawg. See [MICROPHONE.md](MICROPHONE.md).

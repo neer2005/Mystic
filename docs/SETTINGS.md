@@ -3,7 +3,7 @@
 Open Mystic → Settings with Command–Comma. General controls the default library
 view, app sort order, and latency HUD visibility. Video contains resolution, frame
 rate, bitrate, codec and HDR. Audio contains the host channel layout, local volume
-and mute. Network enables or disables local host discovery while the library is
+and mute, plus opt-in Mac microphone forwarding with a separate microphone mute. Network enables or disables local host discovery while the library is
 open. Appearance, accessibility, and input-capture behavior follow the existing
 system/application behavior; there are no duplicate system preference switches.
 
@@ -46,3 +46,11 @@ and Desktop launch from Stream Details. While Desktop streamed, format/channel
 controls were disabled and local volume/mute remained available. The final build's
 Command–F focused the search field. The app bundle builds and its ad-hoc signature
 verifies. No new engine ABI or consumer-interface changes were required.
+
+
+Microphone forwarding is off by default and requires macOS microphone permission.
+Enable Use Mac Microphone before starting a stream. Denial prevents launch with
+an actionable privacy-settings message. If the host does not negotiate encrypted
+passthrough, capture does not start and the stream toolbar reports it. The new
+optional preference preserves older documents without resetting their video or
+audio defaults. See [MICROPHONE.md](MICROPHONE.md).

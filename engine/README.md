@@ -23,7 +23,6 @@ ABI v1 covers:
 
 **Not in v1** (deliberate, next iterations):
 
-- microphone sending (`send_microphone`)
 - controllers, touch and pen (`send_controller`, `send_touch`, `send_pen`)
 - statistics (`Session::stats`) and host control messages
 - per-buffer frame descriptors (`mystic_frame_buffers` returns `MYSTIC_ERR_UNIMPLEMENTED`)
@@ -94,3 +93,10 @@ The engine statically links bundled libopus through the pinned `opus`/`opusic-sy
 crates. CMake and Rust 1.82+ are required; no system libopus install is needed.
 The PCM ring reader is allocation/lock free and is called by the AVAudioEngine
 source node. See `docs/AUDIO.md` from the repository root for lifecycle details.
+
+
+ABI 2 also has additive microphone availability/sending functions and bounded
+capture-ring/mono-Opus encoder functions. Start/stop, conversion, encoding and sends
+are serialized by the Swift session worker. The audio IO producer only writes the
+ring's atomic sample storage. Microphone packets use Nightjar's encrypted transport;
+the front end does not construct encryption or silently send unencrypted audio.

@@ -1,3 +1,4 @@
+import AVFoundation
 import GameController
 import AppKit
 import Foundation
@@ -51,6 +52,12 @@ public final class ConnectionModel {
         get { settings.value.showLatencyHUD }
         set { settings.update { $0.showLatencyHUD=newValue } }
     }
+    public var microphoneEnabled: Bool {
+        get { settings.value.microphoneEnabled ?? false }
+        set { settings.update { $0.microphoneEnabled=newValue } }
+    }
+    public var microphoneMuted=false { didSet { session?.setMicrophoneMuted(microphoneMuted) } }
+    public private(set) var microphoneStatus="Microphone off"
     public private(set) var audioStatus = "Audio idle"
 
     public private(set) var phase: Phase = .idle
@@ -88,6 +95,7 @@ public final class ConnectionModel {
     public var canPlay: Bool { phase == .ready && selectedApp != nil && capabilities != nil }
     public var hasSession: Bool { phase == .streaming || phase == .launching }
 
+    @ObservationIgnored private let microphonePermission: @Sendable () async -> Bool
     @ObservationIgnored private let rememberHost: Bool
     @ObservationIgnored private let vault: any CredentialsStorage
     @ObservationIgnored private let makeHost: @Sendable (String, UInt16, ClientIdentity, String?) throws -> any HostService
@@ -106,10 +114,17 @@ public final class ConnectionModel {
     @ObservationIgnored private var connectedPort: UInt16 = 47989
 
     public init(vault: any CredentialsStorage = CredentialsVault(), rememberHost: Bool = true,
-                preferences: (any HostPreferencesStorage)? = HostPreferences(),settings: AppSettings? = nil,discovery: HostDiscovery = HostDiscovery(),
+                microphonePermission: @escaping @Sendable () async -> Bool = {
+                    switch AVCaptureDevice.authorizationStatus(for:.audio) {
+                    case .authorized: return true
+                    case .notDetermined: return await AVCaptureDevice.requestAccess(for:.audio)
+                    default:return false
+                    }
+                },preferences: (any HostPreferencesStorage)? = HostPreferences(),settings: AppSettings? = nil,discovery: HostDiscovery = HostDiscovery(),
                 makeHost: @escaping @Sendable (String, UInt16, ClientIdentity, String?) throws -> any HostService = {
                     try HostConnection(address: $0, port: $1, identity: $2, certificate: $3)
                 }) {
+        self.microphonePermission=microphonePermission
         self.settings=settings ?? AppSettings(storage:rememberHost ? SettingsPreferences() : nil)
         self.savedHosts=SavedHosts(storage:rememberHost ? preferences : nil);self.discovery=discovery
         self.vault = vault; self.makeHost = makeHost; self.rememberHost = rememberHost
@@ -221,15 +236,24 @@ public final class ConnectionModel {
             config.width = Int32(dims[0]); config.height = Int32(dims[1]); config.fps = Int32(fps)
             config.bitrateKbps = bitrateMbps * 1000; config.supportedVideoFormats = mask
             config.colorSpace = hdr ? 2 : 1; config.colorRange = 0
+            config.microphone = microphoneEnabled
             config.channelCount = options.channelCount; config.channelMask = options.channelMask
             let token = generation
             videoTelemetry = nil
             phase = .launching; status = "Launching \(app.name)…"; errorMessage = nil
-            let address = connectedAddress
+            let address = connectedAddress,permission = microphonePermission
+            microphoneStatus = microphoneEnabled ? "Waiting for microphone permission…" : "Microphone off"
             operation = Task { [weak self, config] in
                 do {
+                    if config.microphone {
+                        guard await permission() else {
+                            if self?.generation == token { self?.microphoneStatus="Microphone permission denied" }
+                            throw HostConnectionError("Allow Mystic microphone access in System Settings → Privacy & Security → Microphone, or turn off Use Mac Microphone.")
+                        }
+                    }
+                    guard let self,self.generation == token else { return }
                     let launch = try await connection.launch(options)
-                    guard let self, self.generation == token else { return }
+                    guard self.generation == token else { return }
                     var config = config
                     config.remoteInputAESKey = launch.key; config.remoteInputAESIV = launch.iv
                     let telemetry = VideoTelemetry()
@@ -253,7 +277,10 @@ public final class ConnectionModel {
                     self.status = "Starting video connection…"
                     session.start(host: address, launch: launch, configuration: config, decoder: decoder, audio: audio,
                         event: { [weak self] event in Task { @MainActor in self?.handle(event, token: token) } },
-                        failure: { [weak self] message in Task { @MainActor in self?.streamFailed(message, token: token) } })
+                        failure: { [weak self] message in Task { @MainActor in self?.streamFailed(message, token: token) } },
+                        microphoneMuted:self.microphoneMuted,microphoneStatus:{ [weak self] message in
+                            Task { @MainActor in guard let self,self.generation == token else { return };self.microphoneStatus=message }
+                        })
                     self.monitorMedia(audio, telemetry:telemetry,token: token)
                 } catch { self?.fail(error.localizedDescription, token: token) }
             }
@@ -262,6 +289,7 @@ public final class ConnectionModel {
     public func disconnect() {
         inputCapture?.setAvailable(false);inputCapture = nil
         generation = UUID(); let token = generation
+        microphoneStatus="Microphone off"
         telemetry = nil; videoTelemetry = nil
         statisticsMonitor?.cancel(); statisticsMonitor = nil; audioStatus = "Audio stopped"
         operation?.cancel(); connection?.cancel(); connection = nil; pairingPIN = nil

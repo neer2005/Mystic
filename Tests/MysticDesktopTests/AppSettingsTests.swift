@@ -20,6 +20,16 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(restarted.value,defaults)
         XCTAssertEqual(AppSettings(storage:storage).value,defaults)
     }
+    func testOlderPreferencesKeepVideoDefaultsAndMicrophoneOff() {
+        let storage=MemorySettingsPreferences(),old=AppSettings(storage:storage)
+        // Optional microphone field is omitted by JSONEncoder, just like older versions.
+        old.update { $0.resolution="3840x2160";$0.fps=120;$0.bitrateMbps=70;$0.hdr=true }
+        let loaded=AppSettings(storage:storage)
+        XCTAssertNil(loaded.value.microphoneEnabled)
+        XCTAssertEqual(loaded.value.resolution,"3840x2160");XCTAssertEqual(loaded.value.fps,120)
+        XCTAssertEqual(loaded.value.bitrateMbps,70);XCTAssertTrue(loaded.value.hdr)
+        XCTAssertNil(loaded.error)
+    }
     func testCorruptAndFutureSettingsFallBackAndRecover() {
         let storage=MemorySettingsPreferences()
         for data in [Data("not JSON".utf8),Data(repeating:0,count:65_537),Data("{\"version\":99,\"preferences\":{}}".utf8)] {

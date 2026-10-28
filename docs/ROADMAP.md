@@ -44,7 +44,7 @@ rather than rewritten.
 - [ ] HDR/EDR output with correct PQ metadata and no double tone-mapping
 - [ ] Metal renderer with PTS-driven frame pacing
 - [ ] DualSense haptics and adaptive triggers
-- [ ] Microphone passthrough (Apollo/Rubylight mono Opus over UDP)
+- [x] Opt-in Mac microphone capture, mono Opus and encrypted Apollo/Rubylight forwarding (live Windows input-meter response confirmed on Big Dawg)
 - [ ] Native library browsing against Rubylight's API
 
 ## Phase 4 — hardening and release

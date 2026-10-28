@@ -11,13 +11,15 @@ final class StreamSession: @unchecked Sendable {
     private let inputMailbox = StreamInputMailbox()
     private var delivery = RemoteInputDelivery()
     private var acceptingInput = false
+    private var microphone: MicrophoneCapture?
     private let inputFailure: @Sendable () -> Void
     init(inputFailure: @escaping @Sendable () -> Void = {}) throws {
         engine = try StreamingEngine();self.inputFailure = inputFailure
     }
     func start(host: String, launch: LaunchedStream, configuration: StreamConfiguration,
                decoder: VideoToolboxDecoder, audio: AudioPlayer, event: @escaping @Sendable (EngineEvent) -> Void,
-               failure: @escaping @Sendable (String) -> Void) {
+               failure: @escaping @Sendable (String) -> Void,
+               microphoneMuted: Bool = false,microphoneStatus: @escaping @Sendable (String) -> Void = { _ in }) {
         queue.async { [self] in
             do {
                 guard let version = launch.appVersion else { throw HostConnectionError("The host did not report its application version.") }
@@ -25,6 +27,16 @@ final class StreamSession: @unchecked Sendable {
                     serverCodecModeSupport: launch.codecSupport, configuration: configuration,
                     video: decoder, audio: audio, onEvent: event)
                 acceptingInput = true
+                if configuration.microphone {
+                    if engine.microphoneAvailable {
+                        let capture=MicrophoneCapture(queue:queue,send:{ [weak self] packet in
+                            guard let self,self.acceptingInput else { throw HostConnectionError("Stream ended.") }
+                            try self.engine.sendMicrophone(packet)
+                        },report:microphoneStatus)
+                        do { try capture.start();capture.setMuted(microphoneMuted);microphone=capture }
+                        catch { microphoneStatus("Microphone unavailable: \(error.localizedDescription)") }
+                    } else { microphoneStatus("Host did not negotiate encrypted microphone passthrough.") }
+                } else { microphoneStatus("Microphone off") }
             } catch { failure(String(describing: error)) }
         }
     }
@@ -32,11 +44,13 @@ final class StreamSession: @unchecked Sendable {
         inputMailbox.close()
         engine.interrupt()
         queue.async { [self] in
+            microphone?.stop();microphone=nil
             try? delivery.deliver(.releaseAll, send: performInput)
             acceptingInput = false
             engine.stop(); completion()
         }
     }
+    func setMicrophoneMuted(_ muted: Bool) { queue.async { [self] in microphone?.setMuted(muted) } }
     @discardableResult
     func send(_ event: RemoteInputEvent) -> Bool {
         let result = inputMailbox.offer(event)

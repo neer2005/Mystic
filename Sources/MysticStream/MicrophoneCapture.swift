@@ -37,7 +37,7 @@ public final class MicrophoneCapture: @unchecked Sendable {
             mystic_mic_write(ingress.handle,data.assumingMemoryBound(to:Float.self),frames,first.mNumberChannels)
             return 0
         }
-        engine.attach(sink);engine.connect(node,to:sink,format:format)
+        engine.attach(sink);try engine.connectNode(node,to:sink,format:format)
         self.engine=engine;self.ingress=ingress;self.sink=sink;self.encoder=encoder
         mystic_mic_mute(ingress.handle,muted)
         do { try engine.start() } catch { stop();throw error }

@@ -73,6 +73,11 @@ struct AudioPreferencesView: View {
         }.disabled(model.hasSession || model.isBusy)
         Toggle("Mute",isOn:$model.muted)
         Slider(value:$model.volume,in:0...1) { Text("Volume") }
+        Toggle("Use Mac Microphone",isOn:$model.microphoneEnabled).disabled(model.hasSession || model.isBusy)
+        if model.microphoneEnabled {
+            Toggle("Mute Microphone",isOn:$model.microphoneMuted)
+            Text(model.microphoneStatus).font(.caption).foregroundStyle(.secondary)
+        }
         Text(model.audioStatus).font(.caption).foregroundStyle(.secondary)
     }
 }

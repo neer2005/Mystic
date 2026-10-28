@@ -10,6 +10,7 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public var audioLayout = "stereo"
     public var volume: Float = 0.8
     public var muted = false
+    public var microphoneEnabled: Bool? = nil // Missing in older documents; defaults off.
     public var showLatencyHUD = false
     public var libraryLayout = "grid"
     public var librarySort = "name"
