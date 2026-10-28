@@ -57,6 +57,7 @@ public struct StreamingView: View {
             }
             ToolbarItem { Button("Disconnect", systemImage: "xmark.circle") { model.disconnect() } }
         }
+        .windowToolbarFullScreenVisibility(.onHover)
         .background(WindowReader { streamWindow = $0 })
         .onDisappear { if model.hasSession { model.disconnect() } }
     }
