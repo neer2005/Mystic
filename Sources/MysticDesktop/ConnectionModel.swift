@@ -31,6 +31,8 @@ public final class ConnectionModel {
     public private(set) var capabilities: VideoCapabilities?
     public private(set) var presenter: DisplayLayerPresenter?
     public private(set) var inputCapture: StreamInputCapture?
+    public var showLatencyHUD = false
+    public private(set) var videoTelemetry: VideoTelemetrySnapshot?
     public private(set) var diagnostics: [String] = []
     public var selectedApp: HostApp? { apps.first { $0.id == selectedAppID } }
     public var isBusy: Bool { [.connecting, .pairing, .launching, .disconnecting].contains(phase) }
@@ -44,7 +46,8 @@ public final class ConnectionModel {
     @ObservationIgnored private var session: StreamSession?
     @ObservationIgnored private var decoder: VideoToolboxDecoder?
     @ObservationIgnored private var audioPlayer: AudioPlayer?
-    @ObservationIgnored private var audioMonitor: Task<Void, Never>?
+    @ObservationIgnored private var telemetry: VideoTelemetry?
+    @ObservationIgnored private var statisticsMonitor: Task<Void, Never>?
     @ObservationIgnored private var operation: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var probing = false
@@ -153,6 +156,7 @@ public final class ConnectionModel {
             config.colorSpace = hdr ? 2 : 1; config.colorRange = 0
             config.channelCount = options.channelCount; config.channelMask = options.channelMask
             let token = generation
+            videoTelemetry = nil
             phase = .launching; status = "Launching \(app.name)…"; errorMessage = nil
             let address = connectedAddress
             operation = Task { [weak self, config] in
@@ -161,10 +165,12 @@ public final class ConnectionModel {
                     guard let self, self.generation == token else { return }
                     var config = config
                     config.remoteInputAESKey = launch.key; config.remoteInputAESIV = launch.iv
-                    let presenter = DisplayLayerPresenter(onFailure: { [weak self] message in
+                    let telemetry = VideoTelemetry()
+                    self.telemetry = telemetry
+                    let presenter = DisplayLayerPresenter(telemetry:telemetry,onFailure: { [weak self] message in
                         Task { @MainActor in self?.record(message, token: token) }
                     })
-                    let decoder = VideoToolboxDecoder(capabilities: capabilities, presenter: presenter, log: { [weak self] message in
+                    let decoder = VideoToolboxDecoder(capabilities: capabilities, presenter: presenter, telemetry:telemetry,log: { [weak self] message in
                         Task { @MainActor in self?.record(message, token: token) }
                     })
                     let audio = AudioPlayer(log: { [weak self] message in
@@ -181,7 +187,7 @@ public final class ConnectionModel {
                     session.start(host: address, launch: launch, configuration: config, decoder: decoder, audio: audio,
                         event: { [weak self] event in Task { @MainActor in self?.handle(event, token: token) } },
                         failure: { [weak self] message in Task { @MainActor in self?.streamFailed(message, token: token) } })
-                    self.monitorAudio(audio, token: token)
+                    self.monitorMedia(audio, telemetry:telemetry,token: token)
                 } catch { self?.fail(error.localizedDescription, token: token) }
             }
         } catch { fail(error.localizedDescription) }
@@ -189,7 +195,8 @@ public final class ConnectionModel {
     public func disconnect() {
         inputCapture?.setAvailable(false);inputCapture = nil
         generation = UUID(); let token = generation
-        audioMonitor?.cancel(); audioMonitor = nil; audioStatus = "Audio stopped"
+        telemetry = nil; videoTelemetry = nil
+        statisticsMonitor?.cancel(); statisticsMonitor = nil; audioStatus = "Audio stopped"
         operation?.cancel(); connection?.cancel(); connection = nil; pairingPIN = nil
         host = nil; apps = []; selectedAppID = nil
         guard let session else {
@@ -205,11 +212,12 @@ public final class ConnectionModel {
             }
         }
     }
-    private func monitorAudio(_ player: AudioPlayer, token: UUID) {
-        audioMonitor?.cancel()
-        audioMonitor = Task { [weak self, weak player] in
+    private func monitorMedia(_ player: AudioPlayer, telemetry: VideoTelemetry, token: UUID) {
+        statisticsMonitor?.cancel()
+        statisticsMonitor = Task { [weak self, weak player] in
             while !Task.isCancelled {
                 guard let self, let player, self.generation == token else { return }
+                self.videoTelemetry = telemetry.snapshot()
                 let stats = player.statistics
                 self.audioStatus = "Audio: \(stats.decodedPackets) packets, \(stats.concealedPackets) concealed, \(stats.renderedFrames) frames played, \(stats.queuedFrames/48) ms queued"
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }

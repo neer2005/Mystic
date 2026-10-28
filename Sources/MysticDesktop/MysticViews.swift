@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import MysticStream
+import MysticCore
 
 public struct HostLibraryView: View {
     @Bindable private var model: ConnectionModel
@@ -100,7 +101,7 @@ public struct HostLibraryView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.canPlay)
-                    Text("Audio plays on this Mac. Click video to control the host. Controllers are not connected yet.").font(.caption).foregroundStyle(.secondary)
+                    Text("Audio plays on this Mac. Click video to control the host. Connected controllers follow the same input capture.").font(.caption).foregroundStyle(.secondary)
                 }
                 DisclosureGroup("Decoder capabilities") {
                     if let capabilities = model.capabilities {
@@ -134,7 +135,15 @@ public struct StreamingView: View {
     public init(model: ConnectionModel) { self.model = model }
     public var body: some View {
         VStack(spacing: 0) {
-            if let presenter = model.presenter { VideoSurface(presenter: presenter,capture:model.inputCapture) }
+            if let presenter = model.presenter {
+                VideoSurface(presenter: presenter,capture:model.inputCapture)
+                    .overlay(alignment:.topLeading) {
+                        if model.showLatencyHUD {
+                            LatencyHUD(snapshot:model.videoTelemetry)
+                                .padding(12).allowsHitTesting(false)
+                        }
+                    }
+            }
             else {
                 ZStack {
                     Color.black
@@ -151,6 +160,10 @@ public struct StreamingView: View {
                 ToolbarItem { Button("Control Desktop",systemImage:"cursorarrow") { capture.controlDesktop() }.disabled(!capture.available) }
                 ToolbarItem { Button("Capture Mouse",systemImage:"computermouse") { capture.captureMouse() }.disabled(!capture.available) }
                 ToolbarItem { Button("Release Input",systemImage:"escape") { capture.release() }.disabled(capture.mode == .released) }
+            }
+            ToolbarItem {
+                Toggle(isOn:$model.showLatencyHUD) { Label("Latency HUD",systemImage:"chart.bar.xaxis") }
+                    .help("Show measured video timings and renderer enqueue rate")
             }
             ToolbarItem { Button("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right") { streamWindow?.toggleFullScreen(nil) } }
             ToolbarItem { Button(model.muted ? "Unmute" : "Mute", systemImage: model.muted ? "speaker.slash" : "speaker.wave.2") { model.muted.toggle() } }
@@ -181,5 +194,43 @@ private final class WindowProbe: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         Task { @MainActor [weak self] in guard let self else { return }; receive(window) }
+    }
+}
+
+/// Read-only overlay; pointer and keyboard events continue to the streaming view.
+private struct LatencyHUD: View {
+    let snapshot: VideoTelemetrySnapshot?
+    private func milliseconds(_ value: Int64) -> String { String(format:"%.2f",Double(value)/1000) }
+    private func rate(_ value: Double?) -> String { value.map { String(format:"%.1f",$0) } ?? "—" }
+    var body: some View {
+        VStack(alignment:.leading,spacing:8) {
+            Text("Video latency").font(.headline)
+            Text("Decoded \(rate(snapshot?.decodedFPS)) fps · Enqueued \(rate(snapshot?.enqueuedFPS)) fps")
+            Grid(alignment:.leading,horizontalSpacing:14,verticalSpacing:4) {
+                GridRow {
+                    Text("Rolling 600 frames")
+                    Text("p50 ms");Text("p95 ms")
+                }.foregroundStyle(.secondary)
+                ForEach(VideoTimingStage.allCases,id: \.self) { stage in
+                    GridRow {
+                        Text(stage.label)
+                        if let timing=snapshot?.timings[stage] {
+                            Text(milliseconds(timing.p50Micros))
+                            Text(milliseconds(timing.p95Micros))
+                        } else { Text("—");Text("—") }
+                    }
+                }
+            }
+            if let snapshot {
+                Text("Submitted \(snapshot.submitted) · Decoded \(snapshot.decoded) · Enqueued \(snapshot.enqueued)")
+            } else { Text("Waiting for video measurements…") }
+            Text("Enqueue ends at renderer acceptance.\nNetwork transit and screen latency unavailable.")
+                .foregroundStyle(.secondary)
+        }
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(.white)
+        .padding(12)
+        .background(.black.opacity(0.8),in:RoundedRectangle(cornerRadius:10))
+        .accessibilityElement(children:.combine)
     }
 }
