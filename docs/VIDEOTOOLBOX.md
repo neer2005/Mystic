@@ -70,8 +70,8 @@ pixel buffers, with no CPU pixel copy in the presentation path.
 
 Consumer operations serialize on a private queue. At most three decode operations
 are in flight. Queue overflow, invalid configuration, and reference loss request
-an IDR. Asynchronous decoder/display failures latch recovery for the next engine
-submission. Recovery discards dependent frames until a usable keyframe arrives.
+an IDR. Asynchronous decoder/display failures immediately request a keyframe and latch
+recovery before the next submission. See [RECOVERY.md](RECOVERY.md). Recovery discards dependent frames until a usable keyframe arrives.
 New parameter sets rebuild the session; keyframe dimension changes are accepted.
 
 PTS conversion uses integer microseconds relative to the first frame of a session.

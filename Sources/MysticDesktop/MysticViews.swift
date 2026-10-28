@@ -39,6 +39,13 @@ public struct StreamingView: View {
                 Toggle(isOn:$model.showLatencyHUD) { Label("Latency HUD",systemImage:"chart.bar.xaxis") }
                     .help("Show measured video timings and renderer enqueue rate")
             }
+            #if DEBUG
+            ToolbarItem {
+                Button("Test Video Recovery",systemImage:"arrow.clockwise") { model.simulateVideoLoss() }
+                    .disabled(model.phase != .streaming)
+                    .help("Development test: discard one compressed frame and request a new keyframe.")
+            }
+            #endif
             ToolbarItem { Button("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right") { streamWindow?.toggleFullScreen(nil) } }
             ToolbarItem { Button(model.muted ? "Unmute" : "Mute", systemImage: model.muted ? "speaker.slash" : "speaker.wave.2") { model.muted.toggle() } }
             if model.microphoneEnabled {

@@ -28,7 +28,8 @@ rather than rewritten.
 - [x] VideoToolbox H.264/HEVC/AV1 implementation with per-profile hardware probes
 - [x] Display-layer presenter and native fullscreen control
 - [x] Live Desktop video, disconnect/resume, saved pairing across app restart, native fullscreen, 1080p → 720p session change
-- [ ] Live packet-loss/IDR recovery and visual HDR validation
+- [x] Live simulated reference-loss/IDR recovery on 4K/120 HEVC 10-bit Desktop
+- [ ] Controlled UDP packet loss/FEC recovery and visual HDR validation
 - [ ] AV1 hardware validation on a supported Mac (current Mac reports no hardware decoder)
 - [x] AVAudioEngine audio (bundled libopus), concealment, stereo/surround downmix, volume/mute
 - [x] Live stereo listening confirmed on Desktop
