@@ -71,6 +71,10 @@ int main(void) {
           "invalid controller slot");
     CHECK(mystic_session_controller(handle, 0, 16, 0, 0, 0, 0, 0, 0, 0) == MYSTIC_ERR_INVALID_ARGUMENT,
           "invalid controller mask");
+    const uint8_t mic_packet[] = {1};
+    CHECK(!mystic_session_microphone_available(handle), "mic unavailable before start");
+    CHECK(mystic_session_send_microphone(handle, mic_packet, 1) == MYSTIC_ERR_NOT_STARTED, "mic send before start");
+    CHECK(mystic_session_send_microphone(handle, NULL, 0) == MYSTIC_ERR_INVALID_ARGUMENT, "mic rejects empty payload");
     CHECK(mystic_session_horizontal_scroll(handle, 120) == MYSTIC_ERR_NOT_STARTED,
           "horizontal scroll before start is refused");
     CHECK(mystic_session_request_idr(handle) == MYSTIC_ERR_NOT_STARTED,

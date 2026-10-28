@@ -21,6 +21,7 @@
 
 mod host;
 mod audio;
+mod microphone;
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::Arc;
@@ -792,6 +793,19 @@ pub unsafe extern "C" fn mystic_session_controller(handle: *mut MysticSession, s
 pub unsafe extern "C" fn mystic_session_controller_arrival(handle: *mut MysticSession, slot: u8, mask: u16) -> i32 {
     if slot >= 4 || mask & !0xF != 0 { return MYSTIC_ERR_INVALID_ARGUMENT; }
     with_input(handle, |q| q.send_controller_arrival(slot, mask, 0, 0xF3FF, 0x01))
+}
+
+/// Live handle, serialized with start/stop. Only encrypted negotiated streams are exposed.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_microphone_available(handle:*const MysticSession) -> bool {
+    handle.as_ref().and_then(|h|h.session.as_ref()).is_some_and(|s|s.microphone_available())
+}
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_send_microphone(handle:*const MysticSession,data:*const u8,length:usize) -> i32 {
+    if data.is_null() || length==0 || length>1275 { return MYSTIC_ERR_INVALID_ARGUMENT; }
+    let Some(s)=handle.as_ref().and_then(|h|h.session.as_ref()) else { return MYSTIC_ERR_NOT_STARTED; };
+    if !s.microphone_available() { return MYSTIC_ERR_UNIMPLEMENTED; }
+    match s.send_microphone(std::slice::from_raw_parts(data,length)) { Ok(())=>MYSTIC_OK,Err(_)=>MYSTIC_ERR_INPUT_FAILED }
 }
 
 #[cfg(test)]

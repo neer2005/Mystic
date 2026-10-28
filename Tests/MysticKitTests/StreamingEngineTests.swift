@@ -22,6 +22,10 @@ struct StreamingEngineTests {
     @Test("input is refused before a session starts")
     func inputBeforeStart() throws {
         let engine = try StreamingEngine()
+        #expect(!engine.microphoneAvailable)
+        #expect(throws: EngineError.notStarted) {
+            try [UInt8(1)].withUnsafeBytes { try engine.sendMicrophone($0) }
+        }
 
         #expect(throws: EngineError.notStarted) {
             try engine.mouseMove(dx: 1, dy: 1)

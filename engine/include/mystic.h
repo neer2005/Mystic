@@ -241,6 +241,18 @@ int32_t mystic_session_controller(MysticSession *session, uint8_t slot, uint16_t
     int16_t left_x, int16_t left_y, int16_t right_x, int16_t right_y);
 int32_t mystic_session_controller_arrival(MysticSession *session, uint8_t slot, uint16_t active_mask);
 
+/* Microphone capture: producer write is lock/allocation free; all other calls are
+ * serialized on the session worker. Free after the producer has stopped. */
+typedef struct MysticMic MysticMic;
+MysticMic *mystic_mic_new(uint32_t max_queued_frames);
+void mystic_mic_write(const MysticMic *mic, const float *pcm, uint32_t frames, uint32_t stride);
+uint32_t mystic_mic_read(const MysticMic *mic, float *pcm, uint32_t frames);
+void mystic_mic_mute(MysticMic *mic, bool muted);
+int32_t mystic_mic_encode(MysticMic *mic, const float *pcm, uint32_t frames, uint8_t *packet, size_t capacity);
+void mystic_mic_free(MysticMic *mic);
+bool mystic_session_microphone_available(const MysticSession *session);
+int32_t mystic_session_send_microphone(const MysticSession *session, const uint8_t *packet, size_t length);
+
 /* Reserved for a future ABI; returns MYSTIC_ERR_UNIMPLEMENTED in v1. */
 int32_t mystic_frame_buffers(const MysticFrame *frame, MysticFrameBuffer *out, size_t capacity);
 

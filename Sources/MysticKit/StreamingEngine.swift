@@ -354,6 +354,11 @@ public final class StreamingEngine {
         try check(mystic_session_controller_arrival(requireHandle(),slot,activeMask))
     }
 
+    public var microphoneAvailable: Bool { mystic_session_microphone_available(requireHandle()) }
+    public func sendMicrophone(_ packet: UnsafeRawBufferPointer) throws {
+        try check(mystic_session_send_microphone(requireHandle(),packet.bindMemory(to:UInt8.self).baseAddress,packet.count))
+    }
+
     public func requestIDR() throws {
         try check(mystic_session_request_idr(requireHandle()))
     }
