@@ -23,7 +23,7 @@ rather than rewritten.
 ## Phase 2 — first playable (6–10 weeks)
 
 - [x] Minimal SwiftPM macOS app target: manual host, library, stream window, connect/disconnect commands
-- [ ] Full three-pane shell and Settings scene
+- [x] Native three-pane shell and Settings scene: search, grid/list, sort/filter, shared saved stream defaults (live Desktop launch verified)
 - [x] Wire host launch credentials and RTSP session lifecycle through engine to decoder
 - [x] VideoToolbox H.264/HEVC/AV1 implementation with per-profile hardware probes
 - [x] Display-layer presenter and native fullscreen control

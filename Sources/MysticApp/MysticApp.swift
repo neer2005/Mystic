@@ -8,14 +8,17 @@ struct MysticApp: App {
     @State private var model = ConnectionModel()
     var body: some Scene {
         Window("Mystic", id: "library") { HostLibraryView(model: model).onAppear { appDelegate.model = model } }
-            .defaultSize(width: 1000, height: 680)
+            .defaultSize(width: 1200, height: 720)
             .commands {
+                SidebarCommands()
+                LibraryCommands()
                 CommandGroup(after: .newItem) {
                     Button("Connect to Host") { model.connect() }.keyboardShortcut("k", modifiers: .command)
                         .disabled(model.isBusy || model.hasSession)
                     Button("Disconnect") { model.disconnect() }.keyboardShortcut("d", modifiers: [.command, .shift])
                 }
             }
+        Settings { MysticSettingsView(model:model) }
         Window("Mystic Stream", id: "stream") { StreamingView(model: model) }
             .defaultSize(width: 1280, height: 720)
     }

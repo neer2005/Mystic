@@ -82,3 +82,37 @@ Standard `Window`, `Help`. Every item backed by a `Commands` group.
 Multi-layer Liquid Glass icon authored in Icon Composer: a dark base, an aurora-like
 gradient sweep, and a single bright glyph. No text, no border, no shadow of its own —
 the system draws the platform shadow.
+
+
+## Implemented shell — 2026-10-27
+
+The library now uses a standard three-column NavigationSplitView: native host
+sidebar, searchable app library, and a grouped-form Stream Details column. Grid
+and native list views share the selected app. Name/host-order sorting and an HDR
+filter operate on the current host's app list. The grid uses SF Symbols when art
+is unavailable; it does not fabricate covers. Arrow keys move selection in the
+grid, and the native list supplies list keyboard behavior. Command–F focuses the
+library's search field through a command scoped to that window. Standard sidebar
+commands and the toolbar control use the system split-view behavior.
+
+Mystic → Settings (Command–Comma) is a SwiftUI Settings scene. Its native toolbar
+has General, Video, Audio, and Network panes, with the last pane restored and the
+window title following the active pane. Only implemented controls are exposed.
+There are no speculative experimental switches. System typography, SF Symbols,
+semantic foregrounds and native form/control backgrounds handle the interface;
+no custom window furniture, gradients or glass backgrounds were introduced.
+
+These choices follow Apple's [sidebar guidance](https://developer.apple.com/design/human-interface-guidelines/sidebars),
+[Settings guidance](https://developer.apple.com/design/human-interface-guidelines/settings),
+and [Liquid Glass adoption guidance](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass).
+The design principle is to let standard components acquire current system styling.
+
+Shared stream settings persist and apply to future streams. Stream Details edits
+the same defaults as Settings; per-app overrides, box-art retrieval, a recent-app
+collection, and a collapsible detail inspector remain later polish. Video and host
+channel layout are fixed during a stream; local volume/mute and HUD visibility
+remain live. See [SETTINGS.md](SETTINGS.md) for storage and validation.
+
+The live UI was checked in the Mac's current dark appearance. Separate light-mode,
+increased-contrast, and VoiceOver acceptance remain to be performed; native
+components provide the system behavior but that is not a substitute for those checks.

@@ -24,7 +24,7 @@ executable, or use `Mystic-Package` to run the package test suite.
 
 ## Host flow
 
-1. Enter the host's IP address/name and HTTP port (normally 47989); choose Connect.
+1. Select a saved or nearby host in the sidebar, or expand Add Host to enter its address and HTTP port (normally 47989).
 2. If unpaired, choose Pair with Host. Mystic displays a random four-digit PIN;
    enter that PIN in the host's Sunshine/Apollo/Rubylight pairing page. The host
    does not display a PIN for you to type into Mystic.
@@ -32,7 +32,8 @@ executable, or use `Mystic-Package` to run the package test suite.
    applications. Rubylight reports a clear permission error if launching is denied.
    Mystic does not change these permissions automatically.
 4. Select Desktop for initial validation. Start at 1080p60, 20 Mbps, Automatic
-   codec, HDR off. Choose Start Stream.
+   codec, HDR off in Stream Details. Choose Start Stream. Shared defaults are also
+   available in Mystic → Settings (Command–Comma).
 5. The stream opens in a separate native window. Full Screen toggles a native
    fullscreen space. Disconnect stops the local stream and leaves the host app
    running; reconnecting and selecting the same app uses Nightjar's resume path.
@@ -46,7 +47,7 @@ protocol logs are excluded from the UI because they can contain credentials.
 ## Current limits
 
 Opus audio playback is connected; see AUDIO.md for controls and stereo/surround
-downmix behavior. Keyboard/mouse control is available in the stream window (see INPUT.md); controllers are not yet connected. Codec/HDR options are restricted by the decoder probe results;
+downmix behavior. Keyboard/mouse control is available in the stream window (see INPUT.md); extended-profile controller input is implemented with physical acceptance pending. Codec/HDR options are restricted by the decoder probe results;
 PyroWave is unadvertised. Some host app catalog control tiles are intentionally
 excluded so a click cannot terminate a host session. A different running app is
 not replaced automatically. No host quit/cancel endpoint is called on disconnect.
