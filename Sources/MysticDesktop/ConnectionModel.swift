@@ -1,3 +1,4 @@
+import GameController
 import AppKit
 import Foundation
 import Observation
@@ -144,6 +145,7 @@ public final class ConnectionModel {
             case "7.1": options.channelCount = 8; options.channelMask = 0x63F
             default: break
             }
+            options.gamepadMask = UInt16((1 << min(4,GCController.controllers().filter { $0.extendedGamepad != nil }.count))-1)
             options.width = dims[0]; options.height = dims[1]; options.fps = fps; options.hdr = hdr
             var config = StreamConfiguration()
             config.width = Int32(dims[0]); config.height = Int32(dims[1]); config.fps = Int32(fps)

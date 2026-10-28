@@ -19,6 +19,7 @@ public final class StreamInputCapture {
     @ObservationIgnored private let send: (RemoteInputEvent) -> Bool
     @ObservationIgnored private let failure: (String) -> Void
     @ObservationIgnored private weak var view: RemoteVideoView?
+    @ObservationIgnored private var controllers: StreamControllers?
     @ObservationIgnored private var monitor: Any?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var state = RemoteInputState()
@@ -67,11 +68,19 @@ public final class StreamInputCapture {
             NSCursor.hide();cursorHidden = true
         }
         mode = next
+        if controllers == nil {
+            controllers=StreamControllers(send:send,failure: { [weak self] in
+                self?.release();self?.failure("Controller input backlog was full. Control released; click video to resume.")
+            })
+        }
+        controllers?.setEnabled(true)
+        guard mode != .released else { return }
         installMonitor(window:window)
     }
     public func release() {
         let hadInput = mode != .released
         mode = .released
+        controllers?.setEnabled(false)
         if let monitor { NSEvent.removeMonitor(monitor);self.monitor = nil }
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()

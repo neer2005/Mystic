@@ -68,6 +68,10 @@ final class StreamSession: @unchecked Sendable {
         case let .scroll(vertical,horizontal):
             if vertical != 0 { try engine.scrollHighResolution(amount:vertical) }
             if horizontal != 0 { try engine.scrollHorizontal(amount:horizontal) }
+        case let .controller(slot,mask,s):
+            try engine.controller(slot:slot,activeMask:mask,buttons:s.buttons,leftTrigger:s.leftTrigger,rightTrigger:s.rightTrigger,
+                                  leftX:s.leftX,leftY:s.leftY,rightX:s.rightX,rightY:s.rightY)
+        case let .controllerArrival(slot,mask): try engine.controllerArrival(slot:slot,activeMask:mask)
         case .releaseAll: break
         }
     }

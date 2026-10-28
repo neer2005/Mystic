@@ -1,4 +1,4 @@
-# Keyboard and mouse input
+# Keyboard, mouse, and controller input
 
 The stream window forwards local AppKit events through `StreamSession`'s existing
 engine queue. It does not install a global event tap or request Accessibility /
@@ -33,8 +33,7 @@ state changes. Ordinary Escape is forwarded; only the release chord stays local.
 
 Letters, digits, punctuation, F1–F20, navigation, keypad, and ISO/JIS positions have
 physical mappings. Fn/media keys and unknown positions are not sent. Text follows
-the host keyboard layout; local IME composition, clipboard synchronization, and
-controller forwarding are separate work. macOS-reserved shortcuts may switch
+the host keyboard layout; local IME composition and clipboard synchronization are separate work. macOS-reserved shortcuts may switch
 apps; that transition releases host input instead of trapping the user.
 
 Mouse buttons map explicitly: Mac left/right/middle become host 1/3/2; buttons 4
@@ -83,3 +82,37 @@ control to the Mac. These checks used the existing Desktop stream.
 Development rebuilds are ad-hoc signed; macOS may ask again before allowing the
 rebuilt app to read its existing Keychain identity. The connection UI identifies
 that stage separately from host networking. No trust/pinning checks are bypassed.
+
+## Controllers
+
+Control Desktop or Capture Mouse also enables GameController forwarding. Pair a
+DualSense or Xbox controller in macOS first. Up to four extended-profile controllers
+are forwarded with positional A/B/X/Y face buttons (Cross/Circle/Square/Triangle on
+PlayStation), d-pad, shoulders, stick clicks, Menu/Options, analog triggers, and both
+sticks. Sticks use a radial 12% dead zone rescaled to full travel; triggers use 0–255.
+Guide/Home, touchpad, paddles, motion, rumble, and adaptive triggers are not forwarded.
+Only analog-trigger capability is advertised; controller arrivals use the generic
+extended-gamepad type. No controller feedback capability is claimed.
+
+Connected devices contribute a four-bit gamepad mask to host launch/resume. During
+capture, connect/disconnect notifications update the active mask and reuse free
+slots without moving surviving controllers. Unplug sends a neutral state. Focus
+loss, the release shortcut, disconnect, and quit disable handlers and neutralize
+controller slots accepted by the engine. Reactivation takes fresh snapshots, so
+held controls reflect the current physical state. Unsent events share the same
+256-event mailbox and epoch invalidation as keyboard/mouse. Stick-only changes can
+coalesce; button and trigger transitions remain ordered.
+
+Snapshot-controller tests exercise the actual GameController profile mapping,
+including d-pad directions/diagonals, signed stick extremes, trigger conversion,
+four-device capacity, slot reuse, disconnect/reconnect, queued callback rejection,
+and overflow shutdown. Core tests cover invalid analog values, coalescing boundaries,
+and neutral-state release retries. The C smoke test covers controller entry points
+and slot/mask rejection. Xcode validation: 98 tests, 94 passed, four AV1 hardware
+skips. Rust: 11 passed; C ABI smoke: PASS.
+
+**Live controller acceptance is pending:** no physical controller was available on
+2026-10-27. With one connected, stream Desktop, activate Control Desktop, open the
+host's game-controller properties, and check each button, both sticks, and both
+triggers. Then check unplug/reconnect and release/focus loss while a control is held.
+These simulated tests do not establish Bluetooth/USB behavior or host recognition.
