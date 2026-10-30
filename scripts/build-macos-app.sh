@@ -3,6 +3,27 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 configuration="${1:-debug}"
+# Keep the signing identity stable across rebuilds so Keychain approvals can persist.
+# The checkout's selection is local Git configuration, never a committed personal identity.
+signing_identity="${MYSTIC_SIGNING_IDENTITY:-$(git config --get mystic.signingIdentity || true)}"
+if [[ -z "$signing_identity" ]]; then
+    identity_report="$(security find-identity -v -p codesigning)"
+    development_identities=()
+    while IFS= read -r fingerprint; do
+        [[ -z "$fingerprint" ]] || development_identities+=("$fingerprint")
+    done < <(printf '%s\n' "$identity_report" | sed -nE 's/^[[:space:]]*[0-9]+\) ([[:xdigit:]]{40}) "Apple Development:.*"$/\1/p')
+    if [[ ${#development_identities[@]} -ne 1 ]]; then
+        printf '%s\n' 'Choose a persistent signing certificate before building Mystic.' \
+            'Run: security find-identity -v -p codesigning' \
+            'Then: git config --local mystic.signingIdentity <certificate-SHA-1>' \
+            'See docs/SIGNING.md for setup and explicit ad-hoc builds.' >&2
+        exit 1
+    fi
+    signing_identity="${development_identities[0]}"
+fi
+if [[ "$signing_identity" == "-" ]]; then
+    printf '%s\n' 'Explicit ad-hoc signing: Keychain may ask again after each rebuild.' >&2
+fi
 export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-/tmp/mystic-clang}"
 export SWIFTPM_MODULECACHE_OVERRIDE="${SWIFTPM_MODULECACHE_OVERRIDE:-/tmp/mystic-swift}"
 cargo build --manifest-path engine/Cargo.toml --release --locked
@@ -34,5 +55,6 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 # Local development signing only; distribution signing and notarization are later work.
-codesign --force --deep --sign - --identifier com.mystic.streaming "$app"
+codesign --force --deep --sign "$signing_identity" --timestamp=none --identifier com.mystic.streaming "$app"
+codesign --verify --deep --strict "$app"
 printf '\nBuilt %s\n' "$app"

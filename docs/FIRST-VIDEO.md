@@ -16,7 +16,8 @@ open .build/Mystic.app
 
 The script builds the pinned engine archive, builds the `MysticApp` SwiftPM
 executable, copies its decoder probe resources into a development `.app`, and
-signs it ad hoc. `scripts/build-macos-app.sh release` builds an optimized app.
+signs it with a persistent development certificate; see [SIGNING.md](SIGNING.md)
+for certificate selection. `scripts/build-macos-app.sh release` builds an optimized app.
 This is a local development bundle, not a notarized distribution build.
 
 The package can also be opened in Xcode. Build the `MysticApp` scheme to debug the
