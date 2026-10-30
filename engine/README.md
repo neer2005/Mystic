@@ -126,3 +126,14 @@ Call these on their owning actor/worker; no policy call is a real-time audio
 callback. No existing C layouts change. Swift serializes samples and applied
 rates on the session worker, and performs host HTTP requests separately. See
 `docs/NETWORK.md` from the repository root for defaults, behavior and limits.
+
+## Controller feedback (additive ABI 2)
+
+`mystic_session_controller_arrival_with_feedback` reports only implemented analog,
+handle-rumble and trigger-rumble capabilities, with a caller-supplied slot epoch.
+The old arrival entry point remains compatible and advertises analog triggers only.
+Nightjar listener rumble events feed a fixed mailbox of eight latest states; the
+poll API returns owned motor values and the arrival epoch. New arrivals clear a
+slot's pending feedback, and Swift rejects old epochs after release/slot reuse.
+The existing callback/configuration struct layouts are unchanged. No PCM haptics,
+controller audio, LEDs or DualSense adaptive trigger resistance is advertised.

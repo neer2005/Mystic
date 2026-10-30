@@ -59,7 +59,7 @@ let package = Package(
         // compiles and tests on Linux; Apple decoding lives in MysticStream.
         .target(
             name: "MysticKit",
-            dependencies: ["CMystic"],
+            dependencies: ["CMystic", "MysticCore"],
             linkerSettings: [
                 .unsafeFlags(["-L\(engineLibraryPath)", "-lmystic_ffi"]),
                 .unsafeFlags(["-ldl"], .when(platforms: [.linux])),

@@ -1,4 +1,5 @@
 import CMystic
+import MysticCore
 
 /// What the host negotiated for the video stream.
 public struct VideoSetupInfo: Sendable, Equatable {
@@ -136,6 +137,13 @@ public protocol AudioConsumer: AnyObject {
 }
 
 // MARK: - Mapping from the C ABI
+
+extension ControllerFeedback {
+    init?(_ cValue: MysticControllerFeedback) {
+        guard cValue.slot < 4,let kind=Kind(rawValue:cValue.kind) else { return nil }
+        self.init(slot:cValue.slot,kind:kind,first:cValue.first,second:cValue.second,epoch:cValue.epoch)
+    }
+}
 
 // These are internal on purpose: they are the field-by-field translation the callbacks use,
 // kept as named initialisers so a swapped or forgotten field is a test failure rather than a

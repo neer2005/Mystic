@@ -9,14 +9,16 @@ Mystic now pins Nightjar `461e403b0a1fde4a1e447f73c65c505ab61e84ea`, matching
 the local Nightjar checkout. Its expanded Opus mapping is adapted to Mystic's
 existing eight-channel ABI; unsupported audio layouts/codecs fail before Swift
 callbacks. Automatic reconnect and opt-in bitrate adaptation now use the pinned
-Nightjar shared policies; see `NETWORK.md` for behavior and limits. See
+Nightjar shared policies; see `NETWORK.md` for behavior and limits. Controller
+feedback now crosses a bounded polling bridge to native Core Haptics; see
+`INPUT.md` and `PLAYTEST.md`. See
 `engine/README.md` for scope and revision-update rules.
 
 Verified on macOS arm64 with Xcode 27:
 
-- `bash engine/scripts/test-c-abi.sh`: 17 Rust tests passed, release archive built,
+- `bash engine/scripts/test-c-abi.sh`: 20 Rust tests passed, release archive built,
   C smoke test passed with all six struct layouts matching.
-- `swift test --disable-sandbox`: 132 tests passed; four AV1 hardware tests skipped
+- `swift test --disable-sandbox`: 138 tests passed; four AV1 hardware tests skipped
   because this Mac has no hardware AV1 decoder.
 - `bash scripts/build-macos-app.sh`: local `.build/Mystic.app` rebuilt and signed.
 

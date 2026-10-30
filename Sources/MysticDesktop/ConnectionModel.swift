@@ -112,6 +112,7 @@ public final class ConnectionModel {
     @ObservationIgnored private var decoder: VideoToolboxDecoder?
     @ObservationIgnored private var audioPlayer: AudioPlayer?
     @ObservationIgnored private var telemetry: VideoTelemetry?
+    @ObservationIgnored private var controllerFeedbackMonitor: Task<Void, Never>?
     @ObservationIgnored private var statisticsMonitor: Task<Void, Never>?
     @ObservationIgnored private var operation: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
@@ -355,6 +356,7 @@ public final class ConnectionModel {
         generation = UUID(); let token = generation
         microphoneStatus="Microphone off"
         telemetry = nil; videoTelemetry = nil
+        controllerFeedbackMonitor?.cancel();controllerFeedbackMonitor=nil
         statisticsMonitor?.cancel(); statisticsMonitor = nil; audioStatus = "Audio stopped"
         operation?.cancel(); connection?.cancel(); connection = nil; pairingPIN = nil
         host = nil; apps = []; selectedAppID = nil
@@ -385,11 +387,25 @@ public final class ConnectionModel {
             }
         }
     }
+    private func monitorControllerFeedback(_ session: any StreamSessionService,token: UUID) {
+        controllerFeedbackMonitor?.cancel()
+        controllerFeedbackMonitor=Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self,self.generation == token else { return }
+                let epoch=self.inputCapture?.feedbackEpoch
+                let values=await session.takeControllerFeedback()
+                guard self.generation == token,!Task.isCancelled else { return }
+                self.inputCapture?.applyControllerFeedback(values,epoch:epoch)
+                do { try await Task.sleep(for:.milliseconds(16)) } catch { return }
+            }
+        }
+    }
     private func handle(_ event: EngineEvent, token: UUID) {
         guard generation == token else { return }
         switch event {
         case .connected:
             connectedAt=nowMillis();inputCapture?.setAvailable(true);phase = .streaming
+            if let session { monitorControllerFeedback(session,token:token) }
             status = "Streaming \(plan?.app.name ?? selectedApp?.name ?? "video")."
         case .stageStarting(let stage): status = "Starting \(stage.name)…"
         case .stageComplete: break
@@ -432,6 +448,7 @@ public final class ConnectionModel {
         generation=UUID();let token=generation
         operation?.cancel();connection?.cancel();connection=nil
         inputCapture?.setAvailable(false);inputCapture=nil
+        controllerFeedbackMonitor?.cancel();controllerFeedbackMonitor=nil
         statisticsMonitor?.cancel();statisticsMonitor=nil
         bitrateTask?.cancel();bitrateTask=nil;adaptationActive=false
         let previous=session;session=nil

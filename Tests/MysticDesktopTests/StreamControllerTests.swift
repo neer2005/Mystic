@@ -36,14 +36,14 @@ final class StreamControllerTests: XCTestCase {
         manager.refresh();XCTAssertTrue(events.isEmpty)
         manager.setEnabled(true)
         XCTAssertEqual(events.filter { if case .controllerArrival = $0 { return true };return false }.count,4)
-        XCTAssertTrue(events.contains(.controllerArrival(slot:3,activeMask:15)))
+        XCTAssertTrue(events.contains(.controllerArrival(slot:3,activeMask:15,feedbackEpoch:manager.feedbackEpoch)))
         events.removeAll()
         connected=[all[1],all[2],all[3]]
         manager.refresh()
         XCTAssertEqual(events.first,.controller(slot:0,activeMask:14,state:ControllerState()))
-        XCTAssertTrue(events.contains(.controllerArrival(slot:1,activeMask:14)))
+        XCTAssertTrue(events.contains(.controllerArrival(slot:1,activeMask:14,feedbackEpoch:manager.feedbackEpoch)))
         connected.append(all[4]);events.removeAll();manager.refresh()
-        XCTAssertTrue(events.contains(.controllerArrival(slot:0,activeMask:15)))
+        XCTAssertTrue(events.contains(.controllerArrival(slot:0,activeMask:15,feedbackEpoch:manager.feedbackEpoch)))
         let count=events.count
         manager.setEnabled(false);manager.refresh()
         XCTAssertEqual(events.count,count)

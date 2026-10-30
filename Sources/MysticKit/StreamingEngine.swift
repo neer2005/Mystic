@@ -1,5 +1,6 @@
 import CMystic
 import Foundation
+import MysticCore
 
 /// Errors surfaced by the streaming engine, carrying the engine's own message where it has
 /// one.
@@ -362,8 +363,16 @@ public final class StreamingEngine {
                            leftX: Int16, leftY: Int16, rightX: Int16, rightY: Int16) throws {
         try check(mystic_session_controller(requireHandle(),slot,activeMask,buttons,leftTrigger,rightTrigger,leftX,leftY,rightX,rightY))
     }
-    public func controllerArrival(slot: UInt8, activeMask: UInt16) throws {
-        try check(mystic_session_controller_arrival(requireHandle(),slot,activeMask))
+    public func controllerArrival(slot: UInt8, activeMask: UInt16, capabilities: ControllerCapabilities = .analogTriggers, feedbackEpoch: UInt64 = 0) throws {
+        try check(mystic_session_controller_arrival_with_feedback(requireHandle(),slot,activeMask,capabilities.rawValue,feedbackEpoch))
+    }
+
+    /// Called only on the serialized session worker. A fixed buffer bounds host feedback.
+    public func takeControllerFeedback() -> [ControllerFeedback] {
+        var values=Array(repeating:MysticControllerFeedback(),count:8)
+        let count=mystic_session_take_controller_feedback(requireHandle(),&values,values.count)
+        guard count > 0 else { return [] }
+        return values.prefix(Int(count)).compactMap { ControllerFeedback($0) }
     }
 
     public var microphoneAvailable: Bool { mystic_session_microphone_available(requireHandle()) }

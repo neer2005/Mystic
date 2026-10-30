@@ -45,7 +45,8 @@ rather than rewritten.
 - [ ] Metal compute port of the PyroWave decoder (MSL), 4:4:4 support
 - [ ] HDR/EDR output with correct PQ metadata and no double tone-mapping
 - [ ] Metal renderer with PTS-driven frame pacing
-- [ ] DualSense haptics and adaptive triggers
+- [x] Controller handle rumble and supported trigger-motor rumble via Core Haptics (automated checks; physical validation pending)
+- [ ] DualSense PCM haptics and adaptive triggers
 - [x] Opt-in Mac microphone capture, mono Opus and encrypted Apollo/Rubylight forwarding (live Windows input-meter response confirmed on Big Dawg)
 - [ ] Native library browsing against Rubylight's API
 

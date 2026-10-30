@@ -22,3 +22,25 @@ public struct ControllerState: Sendable, Equatable {
         return (axis(x*scale),axis(y*scale))
     }
 }
+
+/// Moonlight controller-arrival capability bits implemented by Mystic.
+public struct ControllerCapabilities: OptionSet, Sendable, Equatable {
+    public let rawValue: UInt16
+    public init(rawValue: UInt16) { self.rawValue=rawValue }
+    public static let analogTriggers=Self(rawValue:0x01)
+    public static let rumble=Self(rawValue:0x02)
+    public static let triggerRumble=Self(rawValue:0x04)
+}
+
+/// An owned snapshot of the host's latest motor amplitudes.
+public struct ControllerFeedback: Sendable, Equatable {
+    public enum Kind: UInt8, Sendable { case rumble=1, triggerRumble=2 }
+    public let slot: UInt8
+    public let kind: Kind
+    public let first: UInt16
+    public let second: UInt16
+    public let epoch: UInt64
+    public init(slot: UInt8,kind: Kind,first: UInt16,second: UInt16,epoch: UInt64 = 0) {
+        self.slot=slot;self.kind=kind;self.first=first;self.second=second;self.epoch=epoch
+    }
+}

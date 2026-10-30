@@ -10,11 +10,18 @@ final class StreamControllers {
     private let connectedDevices: () -> [GCController]
     private var observers: [NSObjectProtocol] = []
     private var enabled = false
+    private var haptics: [Int:any ControllerHaptics] = [:]
+    private let makeHaptics: (GCController) -> (any ControllerHaptics)?
+    private let feedbackFailure: (String) -> Void
+    private(set) var feedbackEpoch: UInt64 = 0
     private let send: (RemoteInputEvent) -> Bool
     private let failure: () -> Void
     init(connectedDevices: @escaping () -> [GCController] = { GCController.controllers() },
+         makeHaptics: @escaping (GCController) -> (any ControllerHaptics)? = { NativeControllerHaptics(controller:$0) },
+         feedbackFailure: @escaping (String) -> Void = { _ in },
          send: @escaping (RemoteInputEvent) -> Bool, failure: @escaping () -> Void) {
         self.send=send;self.failure=failure;self.connectedDevices=connectedDevices
+        self.makeHaptics=makeHaptics;self.feedbackFailure=feedbackFailure
         let center=NotificationCenter.default
         for name in [NSNotification.Name.GCControllerDidConnect,NSNotification.Name.GCControllerDidDisconnect] {
             observers.append(center.addObserver(forName:name,object:nil,queue:.main) { [weak self] _ in
@@ -25,13 +32,15 @@ final class StreamControllers {
     isolated deinit {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         for controller in devices.values { controller.extendedGamepad?.valueChangedHandler=nil }
+        for feedback in haptics.values { feedback.stop() }
     }
     func setEnabled(_ value: Bool) {
         guard value != enabled else { return }
-        enabled=value
+        enabled=value;feedbackEpoch &+= 1
         if value { refresh() }
         else {
             for controller in devices.values { controller.extendedGamepad?.valueChangedHandler=nil }
+            for feedback in haptics.values { feedback.stop() };haptics.removeAll()
             devices.removeAll()
             // Capture's releaseAll neutralizes states actually accepted by the worker.
         }
@@ -44,18 +53,20 @@ final class StreamControllers {
         for slot in devices.keys.sorted() {
             guard let device=devices[slot],!connected.contains(where: { $0 === device }) else { continue }
             device.extendedGamepad?.valueChangedHandler=nil
+            haptics.removeValue(forKey:slot)?.stop()
             devices.removeValue(forKey:slot);changed=true
             guard emit(.controller(slot:UInt8(slot),activeMask:mask,state:ControllerState())) else { return }
         }
         for device in connected where !devices.values.contains(where: { $0 === device }) {
             guard let slot=(0..<4).first(where: { devices[$0] == nil }) else { break }
-            devices[slot]=device;changed=true
+            devices[slot]=device;haptics[slot]=makeHaptics(device);changed=true
         }
         guard changed else { return }
+        feedbackEpoch &+= 1
         for slot in devices.keys.sorted() {
             guard enabled,let device=devices[slot] else { return }
             device.handlerQueue = .main
-            guard emit(.controllerArrival(slot:UInt8(slot),activeMask:mask)) else { return }
+            guard emit(.controllerArrival(slot:UInt8(slot),activeMask:mask,capabilities:capabilities(slot:slot),feedbackEpoch:feedbackEpoch)) else { return }
             device.extendedGamepad?.valueChangedHandler = { [weak self,weak device] _,_ in
                 MainActor.assumeIsolated {
                     guard let self,let device,self.enabled,self.devices[slot] === device else { return }
@@ -63,6 +74,24 @@ final class StreamControllers {
                 }
             }
             submit(slot:slot)
+        }
+    }
+    private func capabilities(slot: Int) -> ControllerCapabilities {
+        (haptics[slot]?.capabilities ?? []).union(.analogTriggers)
+    }
+    func applyFeedback(_ values: [ControllerFeedback],epoch: UInt64) {
+        guard enabled,epoch == feedbackEpoch else { return }
+        for value in values {
+            let slot=Int(value.slot)
+            guard value.epoch == feedbackEpoch,devices[slot] != nil,let feedback=haptics[slot] else { continue }
+            let required: ControllerCapabilities=value.kind == .rumble ? .rumble : .triggerRumble
+            guard feedback.capabilities.contains(required) else { continue }
+            do { try feedback.apply(value) }
+            catch {
+                feedback.stop();haptics.removeValue(forKey:slot)
+                feedbackFailure("Controller feedback unavailable. Controller input remains active.")
+                guard emit(.controllerArrival(slot:value.slot,activeMask:mask,capabilities:.analogTriggers,feedbackEpoch:feedbackEpoch)) else { return }
+            }
         }
     }
     private func submit(slot: Int) {

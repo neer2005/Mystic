@@ -69,13 +69,18 @@ public final class StreamInputCapture {
         }
         mode = next
         if controllers == nil {
-            controllers=StreamControllers(send:send,failure: { [weak self] in
+            controllers=StreamControllers(feedbackFailure:failure,send:send,failure: { [weak self] in
                 self?.release();self?.failure("Controller input backlog was full. Control released; click video to resume.")
             })
         }
         controllers?.setEnabled(true)
         guard mode != .released else { return }
         installMonitor(window:window)
+    }
+    var feedbackEpoch: UInt64? { mode == .released ? nil : controllers?.feedbackEpoch }
+    func applyControllerFeedback(_ values: [ControllerFeedback],epoch: UInt64?) {
+        guard mode != .released,let epoch else { return }
+        controllers?.applyFeedback(values,epoch:epoch)
     }
     public func release() {
         let hadInput = mode != .released
