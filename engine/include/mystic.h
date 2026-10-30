@@ -277,6 +277,11 @@ bool mystic_recovers_termination(int32_t code, bool video_started);
 bool mystic_recovers_startup(int32_t stage, int32_t code);
 int64_t mystic_recovery_next(MysticRecovery *policy, uint64_t now_ms, uint64_t connected_ms);
 uint64_t mystic_recovery_remaining(const MysticRecovery *policy, uint64_t now_ms);
+#define MYSTIC_CLIPBOARD_MANUAL_MAX_BYTES (1024 * 1024)
+#define MYSTIC_CLIPBOARD_SYNC_MAX_BYTES (65500 - 10)
+/* Text-only clipboard sync: bounded JSON request {active,baseline,text?}, owned JSON
+ * response freed with mystic_string_free. Serialized session-worker calls. */
+char *mystic_session_clipboard_step(const MysticSession *session, const char *request_json);
 int32_t mystic_session_bitrate_begin(MysticSession *session, uint32_t ceiling, uint32_t current, uint64_t now_ms);
 uint32_t mystic_session_bitrate_sample(MysticSession *session, float decode_ms, uint64_t now_ms);
 void mystic_session_bitrate_applied(MysticSession *session, uint32_t requested, uint32_t applied, uint64_t now_ms);

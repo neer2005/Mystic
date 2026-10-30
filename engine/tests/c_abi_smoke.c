@@ -169,6 +169,11 @@ int main(void) {
     mystic_pcm_ring_free(ring);
     mystic_pcm_ring_free(NULL);
 
+    char *clipboard_result = mystic_session_clipboard_step(handle, "{\"active\":false}");
+    CHECK(clipboard_result != NULL && strstr(clipboard_result, "\"ok\":false") != NULL,
+          "clipboard sync before start returns an owned structured error");
+    mystic_string_free(clipboard_result);
+
     MysticRecovery *recovery = mystic_recovery_new();
     CHECK(recovery != NULL, "shared recovery policy is allocated");
     CHECK(mystic_recovery_next(recovery, 0, 0) == 1000, "recovery starts with a one-second delay");

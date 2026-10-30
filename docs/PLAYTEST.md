@@ -52,6 +52,21 @@ that adaptation is unavailable and continue at the fixed rate.
 4. Compare picture stability and responsiveness with automatic bitrate off at the
    same resolution/frame rate. A larger number alone is not a success criterion.
 
+## Clipboard text
+
+1. In the stream's Clipboard menu, send a new Mac text copy to the host, then paste
+   it in a host text editor. Test accents, emoji and multiple lines.
+2. Copy text on the host and use Copy Host Text to Mac. Check both permitted
+   directions; disabled buttons should match the host's device permissions.
+3. Enable Sync Clipboard Text in General before a new stream. Existing clipboard
+   contents should not be sent at startup. New text copies in the active stream
+   window should arrive without bouncing repeatedly between the two sides.
+4. Switch to another Mac app and copy text. It must stay local when you return to
+   the stream. A new host copy should not replace a copied file/image on the Mac.
+5. Request host text, then immediately switch windows or copy something new
+   locally. A late response must preserve the newer local clipboard. Disconnect
+   should stop all automatic sharing; recovery should start a fresh baseline.
+
 ## Useful result notes
 
 For a failure, note the action that triggered it, the stream status/bitrate text,

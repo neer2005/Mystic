@@ -49,6 +49,16 @@ public struct StreamingView: View {
                     .help("Development test: discard one compressed frame and request a new keyframe.")
             }
             #endif
+            ToolbarItem {
+                Menu {
+                    Button("Send Text to Host") { model.sendClipboardToHost() }.disabled(!model.canSendClipboard)
+                    Button("Copy Host Text to Mac") { model.copyHostClipboard() }.disabled(!model.canReadClipboard)
+                    Divider()
+                    Text(model.clipboardStatus)
+                } label: { Label("Clipboard",systemImage:"doc.on.clipboard") }
+                .help(model.clipboardStatus)
+                .disabled(model.phase != .streaming)
+            }
             ToolbarItem { Button("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right") { streamWindow?.toggleFullScreen(nil) } }
             ToolbarItem { Button(model.muted ? "Unmute" : "Mute", systemImage: model.muted ? "speaker.slash" : "speaker.wave.2") { model.muted.toggle() } }
             if model.microphoneEnabled {

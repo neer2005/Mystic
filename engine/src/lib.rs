@@ -24,6 +24,7 @@ mod audio;
 mod microphone;
 mod policy;
 mod controller_feedback;
+mod clipboard;
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::{Arc, Mutex};
@@ -409,6 +410,7 @@ impl AudioRenderer for AudioAdapter {
 struct ListenerAdapter {
     callbacks: MysticCallbacks,
     feedback: Arc<Mutex<controller_feedback::FeedbackMailbox>>,
+    clipboard: Arc<Mutex<clipboard::ClipboardState>>,
 }
 
 impl ListenerAdapter {
@@ -428,7 +430,14 @@ impl ListenerAdapter {
 }
 
 impl Listener for ListenerAdapter {
+    fn host_control_messages(&self, messages: &[u16]) {
+        self.clipboard.lock().unwrap_or_else(|e| e.into_inner()).announce(messages);
+    }
     fn control_event(&self, event: nightjar_core::control::ControlEvent) {
+        if matches!(event, nightjar_core::control::ControlEvent::ClipboardSync(_)) {
+            self.clipboard.lock().unwrap_or_else(|e| e.into_inner()).receive(event);
+            return;
+        }
         if matches!(event, nightjar_core::control::ControlEvent::Rumble { .. }
             | nightjar_core::control::ControlEvent::RumbleTriggers { .. }) {
             self.feedback.lock().unwrap_or_else(|e| e.into_inner()).receive(event);
@@ -477,6 +486,7 @@ pub struct MysticSession {
     network: Arc<Mutex<policy::NetworkTiming>>,
     bitrate: Option<policy::Bitrate>,
     feedback: Arc<Mutex<controller_feedback::FeedbackMailbox>>,
+    clipboard: Arc<Mutex<clipboard::ClipboardState>>,
 }
 
 fn write_error(buffer: *mut c_char, capacity: usize, message: &str) {
@@ -532,6 +542,7 @@ pub extern "C" fn mystic_session_new() -> *mut MysticSession {
         network: Arc::new(Mutex::new(policy::NetworkTiming::default())),
         bitrate: None,
         feedback: Arc::new(Mutex::new(controller_feedback::FeedbackMailbox::default())),
+        clipboard: Arc::new(Mutex::new(clipboard::ClipboardState::default())),
     }))
 }
 
@@ -595,6 +606,7 @@ pub unsafe extern "C" fn mystic_session_start(
         return MYSTIC_ERR_INVALID_ARGUMENT;
     }
     handle.bitrate = None;
+    *handle.clipboard.lock().unwrap_or_else(|e| e.into_inner()) = clipboard::ClipboardState::default();
     *handle.feedback.lock().unwrap_or_else(|e| e.into_inner()) = controller_feedback::FeedbackMailbox::default();
     *handle.network.lock().unwrap_or_else(|e| e.into_inner()) = policy::NetworkTiming::default();
 
@@ -630,7 +642,7 @@ pub unsafe extern "C" fn mystic_session_start(
         network: handle.network.clone(),
     });
     let audio: Box<dyn AudioRenderer> = Box::new(AudioAdapter { callbacks });
-    let listener = Arc::new(ListenerAdapter { callbacks, feedback: handle.feedback.clone() });
+    let listener = Arc::new(ListenerAdapter { callbacks, feedback: handle.feedback.clone(), clipboard: handle.clipboard.clone() });
 
     match Session::start(
         &host_info,
@@ -663,6 +675,7 @@ pub unsafe extern "C" fn mystic_session_stop(handle: *mut MysticSession) -> i32 
         return MYSTIC_ERR_INVALID_ARGUMENT;
     };
     handle.bitrate = None;
+    *handle.clipboard.lock().unwrap_or_else(|e| e.into_inner()) = clipboard::ClipboardState::default();
     *handle.feedback.lock().unwrap_or_else(|e| e.into_inner()) = controller_feedback::FeedbackMailbox::default();
     match handle.session.take() {
         Some(session) => {

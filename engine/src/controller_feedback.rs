@@ -163,6 +163,7 @@ mod tests {
             let listener = ListenerAdapter {
                 callbacks: MysticCallbacks::default(),
                 feedback: (*handle).feedback.clone(),
+                clipboard: (*handle).clipboard.clone(),
             };
             listener.control_event(ControlEvent::Rumble {
                 controller: 3,

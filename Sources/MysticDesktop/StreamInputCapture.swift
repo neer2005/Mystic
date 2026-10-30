@@ -77,6 +77,7 @@ public final class StreamInputCapture {
         guard mode != .released else { return }
         installMonitor(window:window)
     }
+    var clipboardActive: Bool { available && NSApp.isActive && view?.window?.isKeyWindow == true }
     var feedbackEpoch: UInt64? { mode == .released ? nil : controllers?.feedbackEpoch }
     func applyControllerFeedback(_ values: [ControllerFeedback],epoch: UInt64?) {
         guard mode != .released,let epoch else { return }

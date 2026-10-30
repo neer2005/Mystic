@@ -33,7 +33,8 @@ state changes. Ordinary Escape is forwarded; only the release chord stays local.
 
 Letters, digits, punctuation, F1–F20, navigation, keypad, and ISO/JIS positions have
 physical mappings. Fn/media keys and unknown positions are not sent. Text follows
-the host keyboard layout; local IME composition and clipboard synchronization are separate work. macOS-reserved shortcuts may switch
+the host keyboard layout; local IME composition remains separate work. Clipboard text transfer and opt-in
+sync are described in [CLIPBOARD.md](CLIPBOARD.md). macOS-reserved shortcuts may switch
 apps; that transition releases host input instead of trapping the user.
 
 Mouse buttons map explicitly: Mac left/right/middle become host 1/3/2; buttons 4

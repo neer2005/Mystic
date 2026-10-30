@@ -1,7 +1,7 @@
 # Settings and library defaults
 
 Open Mystic → Settings with Command–Comma. General controls the default library
-view, app sort order, and latency HUD visibility. Video contains resolution, frame
+view, app sort order, latency HUD visibility, and opt-in clipboard text sync. Video contains resolution, frame
 rate, bitrate, codec and HDR. Audio contains the host channel layout, local volume
 and mute, plus opt-in Mac microphone forwarding with a separate microphone mute. Network controls interrupted-stream recovery and local host discovery while the library is
 open. Automatic reconnect defaults on; automatic bitrate in Video defaults off.
@@ -58,3 +58,10 @@ an actionable privacy-settings message. If the host does not negotiate encrypted
 passthrough, capture does not start and the stream toolbar reports it. The new
 optional preference preserves older documents without resetting their video or
 audio defaults. See [MICROPHONE.md](MICROPHONE.md).
+
+
+Clipboard text sync defaults off. Enable Sync Clipboard Text in General before
+starting a stream. The Clipboard menu also offers manual text transfers without
+enabling sync. Host permissions decide which directions are available. Automatic
+sync pauses outside the active stream window; existing/background copies stay
+local. See [CLIPBOARD.md](CLIPBOARD.md).

@@ -111,6 +111,7 @@ public final class StreamingEngine {
     public static let expectedABI: UInt32 = 2
 
     private var handle: OpaquePointer?
+    var clipboardHandle: OpaquePointer? { handle }
     private let eventLock = NSLock()
     private var eventSink: (@Sendable (EngineEvent) -> Void)?
     /// Sinks are set before `start` and read from engine threads afterwards; they are never
