@@ -80,6 +80,8 @@ struct VideoPreferencesView: View {
                 Text("Adjusts bitrate up to the selected limit when the host supports live changes.").font(.caption).foregroundStyle(.secondary)
             }
             Toggle("HDR",isOn:$model.hdr)
+            Text("Requests 10-bit HDR from supported host apps. HDR video uses the stream window’s display; macOS maps it to SDR on displays without HDR headroom.")
+                .font(.caption).foregroundStyle(.secondary)
         }.disabled(locked)
     }
 }

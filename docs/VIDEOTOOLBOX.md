@@ -46,8 +46,9 @@ The report records why each rejected variant was excluded.
 Probes establish profile support at 64×64, not maximum stream throughput or display
 HDR luminance. Actual stream configuration is validated again when its first
 keyframe creates a decompression session. There is no software fallback, chroma
-reduction, or forced SDR conversion. HDR-active frames require 10-bit negotiation
-and PQ/HLG transfer metadata. Correct visual HDR output still requires a suitable
+reduction, or manual SDR conversion. HDR-active frames require 10-bit negotiation,
+PQ/HLG transfer, primaries and matrix metadata. Native EDR requests and macOS output
+mapping follow the stream window's screen; see [HDR.md](HDR.md). Correct visual HDR output still requires a suitable
 window/display and visual validation; an offscreen readiness check cannot prove it.
 
 CoreMedia consumes encoded NAL parameter sets with emulation-prevention bytes

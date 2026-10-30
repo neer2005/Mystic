@@ -8,6 +8,7 @@ final class RemoteVideoView: NSView {
     private var tracking: NSTrackingArea?
     private weak var movementWindow: NSWindow?
     private var previousAcceptsMouseMoved = false
+    private var displayObservers: [any NSObjectProtocol] = []
     init(presenter: DisplayLayerPresenter,capture: StreamInputCapture?) {
         self.presenter = presenter;self.capture = capture
         super.init(frame:.zero)
@@ -19,6 +20,7 @@ final class RemoteVideoView: NSView {
         setAccessibilityHelp("Click to control the host. Control Option Shift Escape releases input.")
     }
     required init?(coder: NSCoder) { nil }
+    isolated deinit { stopObservingDisplay() }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func resignFirstResponder() -> Bool { capture?.release();return true }
@@ -33,19 +35,42 @@ final class RemoteVideoView: NSView {
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        stopObservingDisplay()
+        if let window {
+            let center=NotificationCenter.default
+            for (name,object) in [(NSWindow.didChangeScreenNotification,window as AnyObject?),
+                                  (NSApplication.didChangeScreenParametersNotification,nil)] {
+                displayObservers.append(center.addObserver(forName:name,object:object,queue:.main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.updateDisplay() }
+                })
+            }
+        }
+        updateDisplay()
         if window != nil { capture?.attach(self) } else { capture?.detach(self) }
+    }
+    private func updateDisplay() {
+        let screen=window?.screen
+        presenter.updateDisplay(name:screen?.localizedName,
+            currentHeadroom:screen.map { Double($0.maximumExtendedDynamicRangeColorComponentValue) },
+            potentialHeadroom:screen.map { Double($0.maximumPotentialExtendedDynamicRangeColorComponentValue) })
+    }
+    private func stopObservingDisplay() {
+        for observer in displayObservers { NotificationCenter.default.removeObserver(observer) }
+        displayObservers.removeAll()
     }
     func install(_ presenter: DisplayLayerPresenter,capture: StreamInputCapture?) {
         if self.presenter !== presenter {
+            self.presenter.updateDisplay(name:nil,currentHeadroom:nil,potentialHeadroom:nil)
             self.presenter.layer.removeFromSuperlayer()
             self.presenter = presenter;layer?.addSublayer(presenter.layer);needsLayout = true
+            updateDisplay()
         }
         if self.capture !== capture {
             self.capture?.detach(self);self.capture = capture
             if window != nil { capture?.attach(self) }
         }
     }
-    func disconnectInput() { capture?.detach(self) }
+    func disconnectInput() { capture?.detach(self);stopObservingDisplay();presenter.updateDisplay(name:nil,currentHeadroom:nil,potentialHeadroom:nil) }
     override func layout() { super.layout();presenter.layer.frame = bounds }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

@@ -81,6 +81,28 @@ that adaptation is unavailable and continue at the fixed rate.
 4. Disconnect and start a stream at the other frame rate. Check smoothness, correct
    sizing, continuing counters and image clearing when you disconnect again.
 
+## HDR / EDR
+
+1. Enable HDR in Video settings and start an HDR-capable host app on an HDR/EDR
+   screen. Confirm the host has HDR enabled too. In the HUD, expect PQ (or HLG),
+   the source's color primaries, and “HDR output requested”. Record current and
+   potential display headroom; current headroom alone is not a capability test.
+2. Inspect a repeatable HDR scene or HDR calibration pattern. Check bright detail,
+   dark gradients, neutral grays, saturated colors and readable host UI. Compare
+   with the host image and an SDR stream of the same scene; avoid using a Mac
+   screenshot as proof of HDR output. Note clipping, washed-out colors or a
+   double-toned appearance. Try both pacing modes in separate sessions.
+3. If available, move the window from an HDR to an SDR screen and back, then try
+   fullscreen. The HUD should follow the destination, show “HDR mapped to SDR” on
+   the SDR screen, and resume the HDR request on the HDR screen without reconnecting.
+4. Change display brightness/reference mode or an external display's macOS HDR
+   setting. Confirm headroom refreshes. Disconnect/reconnect the display and check
+   the new destination. Temporary headroom changes must not trigger stream recovery.
+5. Use Test Video Recovery and disconnect/resume. Old frames must not restore HDR
+   after stop. Start an SDR stream afterward and check the HUD reports SDR output
+   and ordinary UI brightness. Record display model, macOS HDR/reference settings,
+   codec, resolution, frame rate and the HUD's color/headroom readings with results.
+
 ## Useful result notes
 
 For a failure, note the action that triggered it, the stream status/bitrate text,

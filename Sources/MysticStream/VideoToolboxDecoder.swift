@@ -146,11 +146,8 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
                     }
                     hdrMetadata.attach(to: image)
                     if hdr {
-                        let transfer = CVBufferCopyAttachment(image, kCVImageBufferTransferFunctionKey, nil)
-                        guard let transfer, CFEqual(transfer, kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ) || CFEqual(transfer, kCVImageBufferTransferFunction_ITU_R_2100_HLG) else {
-                            signalFailure("HDR frame missing PQ/HLG transfer attachment")
-                            return
-                        }
+                        do { try validateHDRImage(image) }
+                        catch { signalFailure(String(describing:error));return }
                     }
                     guard state.isCurrent(token) else { return }
                     if announceRecovery { log("Video keyframe decoded: \(format), generation \(token)") }

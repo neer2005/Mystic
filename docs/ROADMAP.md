@@ -45,7 +45,7 @@ rather than rewritten.
 ## Phase 3 — PyroWave and platform polish (2–4 months)
 
 - [ ] Metal compute port of the PyroWave decoder (MSL), 4:4:4 support
-- [ ] HDR/EDR output with correct PQ metadata and no double tone-mapping
+- [x] Native HDR/EDR output requests, PQ/HLG metadata preservation and display-aware macOS tone mapping (automated checks; visual fidelity validation pending)
 - [ ] Metal renderer with PTS-driven frame pacing
 - [x] Controller handle rumble and supported trigger-motor rumble via Core Haptics (automated checks; physical validation pending)
 - [ ] DualSense PCM haptics and adaptive triggers

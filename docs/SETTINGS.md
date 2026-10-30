@@ -1,5 +1,9 @@
 # Settings and library defaults
 
+HDR requests 10-bit output from a supporting host app. The stream window's actual
+display controls native EDR presentation, with macOS mapping HDR to SDR when needed.
+The latency HUD shows source color tags and display headroom; see [HDR.md](HDR.md).
+
 Open Mystic → Settings with Command–Comma. General controls the default library
 view, app sort order, latency HUD visibility, and opt-in clipboard text sync. Video contains resolution, frame
 rate, frame pacing, bitrate, codec and HDR. Audio contains the host channel layout, local volume

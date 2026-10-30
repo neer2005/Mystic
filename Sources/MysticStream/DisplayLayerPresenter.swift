@@ -26,6 +26,7 @@ private final class NativePresentationReceiver: PresentationReceiver {
 public final class DisplayLayerPresenter {
     public let layer: AVSampleBufferDisplayLayer
     public let pacingMode: FramePacingMode
+    public let videoOutput = VideoOutputState()
     public private(set) var videoSize: CGSize = .zero
     public var videoRect: CGRect {
         guard videoSize.width > 0,videoSize.height > 0 else { return .zero }
@@ -58,6 +59,19 @@ public final class DisplayLayerPresenter {
         receiver=receiverOverride ?? NativePresentationReceiver(native)
         synchronizer.delaysRateChangeUntilHasSufficientMediaData=false
         layer.videoGravity = .resizeAspect
+        layer.preferredDynamicRange = .standard
+        layer.toneMapMode = .automatic
+    }
+
+    /// Called by the owning view when its actual destination or screen headroom changes.
+    public func updateDisplay(name: String?,currentHeadroom: Double?,potentialHeadroom: Double?) {
+        videoOutput.updateDisplay(name:name,currentHeadroom:currentHeadroom,potentialHeadroom:potentialHeadroom)
+        configureDynamicRange()
+    }
+    private func configureDynamicRange() {
+        // Preserve the tagged YCbCr surface. Core Animation owns the sole output tone map.
+        let range: CALayer.DynamicRange = videoOutput.requestsEDR ? .high : .standard
+        if layer.preferredDynamicRange != range { layer.preferredDynamicRange = range }
     }
 
     /// At most one pending actor task, one image in flight, and one waiting image.
@@ -85,6 +99,7 @@ public final class DisplayLayerPresenter {
             guard mailbox.isCurrent(work.generation) else { return }
             if pacer.hasAcceptedFrame { telemetry?.presentationResynchronize(generation:work.generation) }
             displayedGeneration=work.generation;pacer.reset();anchored=false;videoSize = .zero
+            videoOutput.reset();configureDynamicRange()
             synchronizer.setRate(0,time:.zero)
         }
         guard let frame=work.frame else { return }
@@ -127,6 +142,7 @@ public final class DisplayLayerPresenter {
                         videoSize=CMVideoFormatDescriptionGetPresentationDimensions(description,usePixelAspectRatio:true,useCleanAperture:true)
                     }
                     guard mailbox.isCurrent(frame.generation) else { return }
+                    videoOutput.update(image:frame.pixelBuffer);configureDynamicRange()
                     let enqueueStarted=VideoTelemetry.nowMicros()
                     let result=try await receiver.enqueue(sample)
                     guard mailbox.isCurrent(frame.generation) else { return }
