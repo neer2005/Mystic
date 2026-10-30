@@ -61,6 +61,9 @@ public struct StreamingView: View {
             }
             ToolbarItem { Button("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right") { streamWindow?.toggleFullScreen(nil) } }
             ToolbarItem { Button(model.muted ? "Unmute" : "Mute", systemImage: model.muted ? "speaker.slash" : "speaker.wave.2") { model.muted.toggle() } }
+            if model.canRetryAudio {
+                ToolbarItem { Button("Retry Audio",systemImage:"speaker.badge.exclamationmark") { model.retryAudioOutput() }.help(model.audioStatus) }
+            }
             if model.microphoneEnabled {
                 ToolbarItem {
                     Button(model.microphoneMuted ? "Unmute Microphone" : "Mute Microphone",systemImage:model.microphoneMuted ? "mic.slash" : "mic") { model.microphoneMuted.toggle() }

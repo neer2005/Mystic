@@ -43,17 +43,44 @@ output without skipping Opus state advancement. Underruns are zero-filled. Volum
 and mute use an atomic ring gain with a 128-frame render-side ramp, independent of
 Core Audio parameter timing and without changing the Mac's system volume.
 
-A device configuration notification rebuilds the graph with a fresh ring, avoiding
-stale audio after a route change. If output recreation fails, three one-second
-retries are bounded to the current lifecycle generation. Stop/cleanup cancel those
-retries and remove observers. The source block retains its ring state until the
-engine releases it, so a late render cannot read freed storage.
+Playback follows the Mac's default audio output. Core Audio listeners observe
+default-output/device-list changes and the current device's alive, nominal-rate,
+and output-stream-configuration changes. The engine's configuration notification
+provides a second signal. This does not change the Mac's selected output, system
+volume, or microphone device. Native output metadata reports the engine's actual
+device and format, rather than assuming the default did not change during setup.
+
+Route notifications stop the old graph immediately and coalesce for 150 ms before
+creating a fresh graph/ring. Queued old audio is discarded. Output creation gets
+one attempt plus three one-second retries. After that, the status is unavailable,
+while device monitoring remains active. A later device event or **Retry Audio**
+starts a fresh bounded attempt sequence. Retry Audio appears in the stream toolbar
+and Audio settings when playback is unavailable. Recovery is confined to audio;
+the host stream and video session are not restarted.
+
+Setup validates the negotiated Opus format without opening the audio device.
+Output starts with the consumer's start callback. A missing/unavailable device at
+start therefore does not abort an otherwise valid stream. During an output outage
+Opus decoding and concealment continue, but decoded PCM is discarded, preserving
+decoder state without accumulating old sound. Volume/mute are retained across
+rebuilds. A new ring's render-side gain is initialized before the audio thread
+starts, so mute is effective from its first sample.
+
+Stop/cleanup cancel pending rebuilds/retries and remove device/engine listeners.
+Lifetime and output revisions reject late callbacks from older sessions and
+retired engines. The source block retains its ring state until the engine releases
+it, so a late render cannot read freed storage. If device monitoring cannot be
+registered, engine notifications and manual retry remain available; a diagnostic
+explains the monitoring failure.
 
 The app provides Stereo, 5.1 → Stereo, and 7.1 → Stereo host requests, consistent in
 both the HTTP launch and RTSP stream configuration. It defaults to Stereo, 80%
 application volume, unmuted. Volume/mute remain available during playback; host
-layout changes apply to the next session. Audio statistics show decoded/concealed
-packets, rendered frames, and queued milliseconds. They indicate pipeline activity,
+layout changes apply to the next session. Audio statistics show output state,
+device name/rate, decoded/concealed packets, rendered frames, queued milliseconds,
+successful output restarts and PCM discarded during output changes. Render/drop/
+underrun counters accumulate across output rebuilds and reset at the next setup.
+The queued count refers only to the current ring. They indicate pipeline activity,
 not proof that a listener can hear the selected physical output.
 
 ## Validation
@@ -61,6 +88,15 @@ not proof that a listener can hear the selected physical output.
 - Synthetic independent channel tones verify Opus decoding and 5.1 routing/downmix.
 - Packet-loss and malformed-packet tests cover concealment and buffer bounds.
 - An offline AVAudioEngine test verifies actual source-node rendering and mute.
+- Native offline graphs verify 48 kHz stream conversion to 16, 44.1 and 96 kHz
+  outputs, and silence from the first sample of a newly muted output.
+- Native Core Audio listener registration/refresh/cleanup is exercised without
+  changing the selected physical device.
+- Controlled output tests use real Opus packets and PCM rings to check notification
+  coalescing, stale-audio discard, cumulative statistics, gain retention, exhausted
+  retry budgets, later device/manual recovery, continuing decoder state during an
+  outage, and old-session/engine callback rejection. They do not simulate physical
+  Bluetooth or HDMI driver behavior.
 - Core tests verify mono/stereo passthrough, speaker routing, LFE omission, headroom,
   bad masks, insufficient storage, and non-finite samples.
 - Rust tests exercise ring overflow, backlog skipping, zero-fill, gain/mute, and a
@@ -72,6 +108,9 @@ Run `engine/scripts/test-c-abi.sh` and the Xcode `Mystic-Package` test suite. Co
 Audio service access is required even for the offline engine test; a restricted
 process sandbox can prevent audio component creation. Live listening and device
 switch behavior require the host and the user's selected audio output.
+
+Platform contracts: [Apple engine configuration notifications](https://developer.apple.com/documentation/foundation/nsnotification/name-swift.struct/avaudioengineconfigurationchange)
+and [Core Audio property listeners](https://developer.apple.com/documentation/coreaudio/audioobjectaddpropertylistenerblock(_:_:_:_:)).
 
 ## Live result — 2026-10-27
 

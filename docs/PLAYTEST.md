@@ -4,6 +4,31 @@ Use the rebuilt `.build/Mystic.app`. Start with a familiar game at your usual
 resolution/frame rate. Record the controller model, USB or Bluetooth, host
 software/version, and whether the Mac uses Wi-Fi or Ethernet.
 
+## Audio output switching
+
+1. Play recognizable game audio using the Mac's current speakers. While streaming,
+   connect wired/USB headphones or choose another output in macOS Sound settings.
+   Audio should resume on that output without reconnecting the stream. Inspect
+   Audio settings for the device name, rate, output state and restart counter.
+2. Disconnect the selected headphones/USB/HDMI device and check fallback to the
+   Mac's new default output. Repeat with Bluetooth headphones. If possible, change
+   the output's sample rate in Audio MIDI Setup; playback should recover without
+   changing the stream's 48 kHz input format or accumulating delay.
+3. Set a low Mystic volume and switch outputs. The volume should stay low. Repeat
+   muted: there must be no brief audible burst on the new output, including its
+   first samples. Unmute and confirm fresh game sound rather than buffered speech.
+4. If an output becomes unavailable for longer than the retry window, video/input
+   should continue. Restore a working output; device detection should recover
+   playback. If still unavailable, choose Retry Audio in the stream toolbar or
+   Audio settings. Each retry sequence is bounded, with a clear unavailable status.
+5. Switch devices rapidly, then disconnect the stream while audio is recovering.
+   Audio must stay stopped, with no delayed restart. Start a new stream and check
+   old output notifications do not interrupt it. Repeat with the microphone enabled
+   to check Bluetooth profile changes and separate microphone forwarding.
+
+Playback still downmixes surround streams to stereo. These checks do not validate
+discrete 5.1/7.1 speaker output, passthrough or microphone echo cancellation.
+
 ## Controller input and rumble
 
 1. Pair/connect the controller in macOS, start the stream, then click the video or

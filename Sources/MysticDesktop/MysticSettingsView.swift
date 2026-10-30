@@ -110,5 +110,6 @@ struct AudioPreferencesView: View {
             Text(model.microphoneStatus).font(.caption).foregroundStyle(.secondary)
         }
         Text(model.audioStatus).font(.caption).foregroundStyle(.secondary)
+        if model.canRetryAudio { Button("Retry Audio") { model.retryAudioOutput() } }
     }
 }
