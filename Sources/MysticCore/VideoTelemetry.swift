@@ -27,6 +27,7 @@ public struct VideoTelemetrySnapshot: Sendable, Equatable {
     /// Rates since the previous snapshot; absent until an interval has elapsed.
     public let decodedFPS: Double?
     public let enqueuedFPS: Double?
+    public let presentation: PresentationMetrics
 }
 
 /// Bounded rolling measurements; snapshot sorting happens only at the HUD polling rate.
@@ -35,6 +36,7 @@ public struct VideoTelemetrySnapshot: Sendable, Equatable {
 public struct VideoTelemetryAccumulator: Sendable {
     private var stats: [VideoTimingStage: LatencyStats]
     private var submitted: UInt64 = 0, decoded: UInt64 = 0, enqueued: UInt64 = 0
+    private var presentation=PresentationMetrics()
     private var previous: (time: UInt64, decoded: UInt64, enqueued: UInt64)?
     public init(capacity: Int = 600) {
         stats=Dictionary(uniqueKeysWithValues:VideoTimingStage.allCases.map { ($0,LatencyStats(capacity:capacity)) })
@@ -62,6 +64,11 @@ public struct VideoTelemetryAccumulator: Sendable {
         record(.rendererEnqueue,Self.duration(from:startMicros,to:endMicros))
         record(.clientToEnqueue,Self.duration(from:submitMicros,to:endMicros))
     }
+    public mutating func presentationDrop(_ reason: PresentationDropReason,count: UInt64 = 1) { presentation.drop(reason,count:count) }
+    public mutating func presentationLate() { presentation.late() }
+    public mutating func presentationQueue(depth: Int) { presentation.queue(depth:depth) }
+    public mutating func presentationResynchronize() { presentation.resynchronize() }
+    public mutating func rendererMetrics(dropped: UInt64?,corrupted: UInt64?) { presentation.renderer(dropped:dropped,corrupted:corrupted) }
     public mutating func snapshot(nowMicros: UInt64) -> VideoTelemetrySnapshot {
         var summaries: [VideoTimingStage: VideoTimingSummary]=[:]
         for stage in VideoTimingStage.allCases {
@@ -77,7 +84,7 @@ public struct VideoTelemetryAccumulator: Sendable {
         // Equal/regressed poll timestamps cannot poison the next rate interval.
         if previous == nil || nowMicros > previous!.time { previous=(nowMicros,decoded,enqueued) }
         return VideoTelemetrySnapshot(timings:summaries,submitted:submitted,decoded:decoded,enqueued:enqueued,
-                                      decodedFPS:decodedFPS,enqueuedFPS:enqueuedFPS)
+                                      decodedFPS:decodedFPS,enqueuedFPS:enqueuedFPS,presentation:presentation)
     }
 }
 

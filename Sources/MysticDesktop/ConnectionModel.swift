@@ -36,6 +36,10 @@ public final class ConnectionModel {
         get { settings.value.codec }
         set { settings.update { $0.codec=newValue } }
     }
+    public var framePacing: FramePacingMode {
+        get { FramePacingMode(rawValue:settings.value.framePacing ?? "") ?? .lowLatency }
+        set { settings.update { $0.framePacing=newValue.rawValue } }
+    }
     public var audioLayout: String {
         get { settings.value.audioLayout }
         set { settings.update { $0.audioLayout=newValue } }
@@ -123,6 +127,7 @@ public final class ConnectionModel {
     @ObservationIgnored private var decoder: VideoToolboxDecoder?
     @ObservationIgnored private var audioPlayer: AudioPlayer?
     @ObservationIgnored private var telemetry: VideoTelemetry?
+    @ObservationIgnored private var rendererMetricsMonitor: Task<Void,Never>?
     @ObservationIgnored private var controllerFeedbackMonitor: Task<Void, Never>?
     @ObservationIgnored private var statisticsMonitor: Task<Void, Never>?
     @ObservationIgnored private var operation: Task<Void, Never>?
@@ -140,6 +145,7 @@ public final class ConnectionModel {
         let adaptive: Bool
         let reconnect: Bool
         let hostID: String
+        let framePacing: FramePacingMode
     }
     @ObservationIgnored private var plan: StreamPlan?
     @ObservationIgnored private var recovery = StreamRecovery()
@@ -286,7 +292,7 @@ public final class ConnectionModel {
             recovery = StreamRecovery();recovering = false;hadVideo = false;connectedAt = nil
             let plan = StreamPlan(app:app,options:options,configuration:config,
                 adaptive:settings.value.adaptiveBitrate ?? false,reconnect:settings.value.automaticReconnect ?? true,
-                hostID:host?.uniqueID ?? "")
+                hostID:host?.uniqueID ?? "",framePacing:framePacing)
             self.plan = plan
             launchStream(plan,connection:connection,capabilities:capabilities)
         } catch { fail(error.localizedDescription) }
@@ -322,7 +328,7 @@ public final class ConnectionModel {
                 })
                 let telemetry = VideoTelemetry()
                 self.telemetry = telemetry
-                let presenter = DisplayLayerPresenter(telemetry:telemetry,onFailure: { [weak self] message in
+                let presenter = DisplayLayerPresenter(telemetry:telemetry,mode:plan.framePacing,onFailure: { [weak self] message in
                     Task { @MainActor in self?.record(message, token: token) }
                 })
                 let decoder = VideoToolboxDecoder(capabilities: capabilities, presenter: presenter, telemetry:telemetry,requestRecovery:{ [weak session] in session?.requestVideoRecovery() },log: { [weak self] message in
@@ -379,6 +385,7 @@ public final class ConnectionModel {
         generation = UUID(); let token = generation
         microphoneStatus="Microphone off"
         telemetry = nil; videoTelemetry = nil
+        rendererMetricsMonitor?.cancel();rendererMetricsMonitor=nil
         controllerFeedbackMonitor?.cancel();controllerFeedbackMonitor=nil
         statisticsMonitor?.cancel(); statisticsMonitor = nil; audioStatus = "Audio stopped"
         operation?.cancel(); connection?.cancel(); connection = nil; pairingPIN = nil
@@ -410,6 +417,17 @@ public final class ConnectionModel {
             }
         }
     }
+    private func monitorRendererMetrics(_ presenter: DisplayLayerPresenter,token: UUID) {
+        rendererMetricsMonitor?.cancel()
+        rendererMetricsMonitor=Task { [weak self] in
+            while !Task.isCancelled {
+                guard self?.generation == token else { return }
+                await presenter.refreshRendererMetrics()
+                guard self?.generation == token,!Task.isCancelled else { return }
+                do { try await Task.sleep(for:.seconds(1)) } catch { return }
+            }
+        }
+    }
     private func monitorControllerFeedback(_ session: any StreamSessionService,token: UUID) {
         controllerFeedbackMonitor?.cancel()
         controllerFeedbackMonitor=Task { [weak self] in
@@ -430,6 +448,7 @@ public final class ConnectionModel {
             connectedAt=nowMillis();inputCapture?.setAvailable(true);phase = .streaming
             if let session { monitorControllerFeedback(session,token:token) }
             clipboard?.start()
+            if let presenter { monitorRendererMetrics(presenter,token:token) }
             status = "Streaming \(plan?.app.name ?? selectedApp?.name ?? "video")."
         case .stageStarting(let stage): status = "Starting \(stage.name)…"
         case .stageComplete: break
@@ -473,6 +492,7 @@ public final class ConnectionModel {
         generation=UUID();let token=generation
         operation?.cancel();connection?.cancel();connection=nil
         inputCapture?.setAvailable(false);inputCapture=nil
+        rendererMetricsMonitor?.cancel();rendererMetricsMonitor=nil
         controllerFeedbackMonitor?.cancel();controllerFeedbackMonitor=nil
         statisticsMonitor?.cancel();statisticsMonitor=nil
         bitrateTask?.cancel();bitrateTask=nil;adaptationActive=false

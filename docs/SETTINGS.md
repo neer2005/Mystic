@@ -2,7 +2,7 @@
 
 Open Mystic → Settings with Command–Comma. General controls the default library
 view, app sort order, latency HUD visibility, and opt-in clipboard text sync. Video contains resolution, frame
-rate, bitrate, codec and HDR. Audio contains the host channel layout, local volume
+rate, frame pacing, bitrate, codec and HDR. Audio contains the host channel layout, local volume
 and mute, plus opt-in Mac microphone forwarding with a separate microphone mute. Network controls interrupted-stream recovery and local host discovery while the library is
 open. Automatic reconnect defaults on; automatic bitrate in Video defaults off.
 When enabled, the selected bitrate is its ceiling on hosts with live bitrate
@@ -65,3 +65,9 @@ starting a stream. The Clipboard menu also offers manual text transfers without
 enabling sync. Host permissions decide which directions are available. Automatic
 sync pauses outside the active stream window; existing/background copies stay
 local. See [CLIPBOARD.md](CLIPBOARD.md).
+
+
+Frame Pacing defaults to Low Latency; Balanced adds approximately one frame of
+buffering for steadier cadence. The setting applies to the next stream and is
+retained during automatic reconnect. See [FRAME-PACING.md](FRAME-PACING.md) for
+scheduling bounds and HUD counter definitions.

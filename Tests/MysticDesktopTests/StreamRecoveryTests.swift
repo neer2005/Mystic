@@ -9,7 +9,9 @@ import MysticStream
 final class StreamRecoveryTests: XCTestCase {
     func testReconnectKeepsOriginalOptionsAndIgnoresOldSessionCallbacks() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
-        let model=try await running(host,sessions,clock)
+        let model=try await running(host,sessions,clock,pacing:.balanced)
+        XCTAssertEqual(model.presenter?.pacingMode,.balanced)
+        model.framePacing = .lowLatency
         model.processMediaSnapshot(picture())
         sessions.all[0].emit(.terminated(code:-100))
         try await wait { sessions.all.count == 2 && model.phase == .streaming }
@@ -18,6 +20,7 @@ final class StreamRecoveryTests: XCTestCase {
         XCTAssertTrue(host.launches[1].resumeOnly)
         XCTAssertEqual(host.launches[0].width,host.launches[1].width)
         XCTAssertEqual(host.launches[0].appID,host.launches[1].appID)
+        XCTAssertEqual(model.presenter?.pacingMode,.balanced,"Recovery keeps the original presentation mode")
         XCTAssertEqual(sessions.all[0].stops,1)
         sessions.all[0].emit(.terminated(code:0))
         try await Task.sleep(for:.milliseconds(20))
@@ -136,12 +139,12 @@ final class StreamRecoveryTests: XCTestCase {
         }
     }
     private func running(_ host: RecoveryHost,_ sessions: RecoverySessions,_ clock: RecoveryClock,
-                         reconnect: Bool = true,adaptive: Bool = false) async throws -> ConnectionModel {
+                         reconnect: Bool = true,adaptive: Bool = false,pacing: FramePacingMode = .lowLatency) async throws -> ConnectionModel {
         let model=ConnectionModel(vault:RecoveryVault(),rememberHost:false,makeHost:{ _,_,_,_ in host })
         model.makeSession={ _,_ in sessions.make() }
         model.nowMillis={ clock.now }
         model.sleepForRecovery={ delay in clock.advance(delay);await Task.yield() }
-        model.automaticReconnect=reconnect;model.adaptiveBitrate=adaptive
+        model.automaticReconnect=reconnect;model.adaptiveBitrate=adaptive;model.framePacing=pacing
         await model.prepare()
         guard model.capabilities?.supportedFormats ?? 0 != 0 else { throw XCTSkip("No hardware video decoder") }
         model.address="127.0.0.1";model.connect()

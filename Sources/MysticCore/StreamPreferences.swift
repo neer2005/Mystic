@@ -6,6 +6,7 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public var fps: UInt32 = 60
     public var bitrateMbps: Int32 = 20
     public var codec = "auto"
+    public var framePacing: String? = nil // Missing in older documents; defaults to low latency.
     public var hdr = false
     public var audioLayout = "stereo"
     public var volume: Float = 0.8
@@ -36,6 +37,7 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
         if !Self.resolutions.contains(value.resolution) { value.resolution="1920x1080" }
         if ![60,120].contains(value.fps) { value.fps=60 }
         value.bitrateMbps=min(150,max(5,value.bitrateMbps))
+        if let mode=value.framePacing,FramePacingMode(rawValue:mode) == nil { value.framePacing=nil }
         if !Self.codecs.contains(value.codec) { value.codec="auto" }
         if !["stereo","5.1","7.1"].contains(value.audioLayout) { value.audioLayout="stereo" }
         value.volume=value.volume.isFinite ? min(1,max(0,value.volume)) : 0.8

@@ -148,40 +148,47 @@ final class VideoDecoderTests: XCTestCase {
     func testPresenterDisplaysAndClearsOnStop() async throws {
         let report = await capabilities()
         guard report.supportedFormats & 1 != 0 else { throw XCTSkip("no H.264 hardware") }
-        let telemetry = VideoTelemetry()
-        let presenter = DisplayLayerPresenter(telemetry:telemetry)
-        presenter.layer.bounds = CGRect(x: 0, y: 0, width: 64, height: 64)
-        let decoder = VideoToolboxDecoder(capabilities: report, presenter: presenter,telemetry:telemetry)
-        try decoder.setup(VideoSetupInfo(format: 1, width: 64, height: 64, fps: 60, colorRange: 0))
-        decoder.start()
-        let fixture = try VideoCapabilities.fixture(.h264)
-        let disposition = fixture.withUnsafeBytes { bytes in
-            decoder.submit(VideoFrameInfo(number:1,isKeyFrame:true,hostProcessingLatencyTenthMs:13,
-                receiveTimeMicros:9_000_000,enqueueTimeMicros:9_002_300,presentationTimeMicros:100,
-                rtpTimestamp:0,hdrActive:false,colorspace:1,data:bytes))
+        for mode in FramePacingMode.allCases {
+            let telemetry = VideoTelemetry()
+            let presenter = DisplayLayerPresenter(telemetry:telemetry,mode:mode)
+            presenter.layer.bounds = CGRect(x: 0, y: 0, width: 64, height: 64)
+            let decoder = VideoToolboxDecoder(capabilities: report, presenter: presenter,telemetry:telemetry)
+            try decoder.setup(VideoSetupInfo(format: 1, width: 64, height: 64, fps: 60, colorRange: 0))
+            decoder.start()
+            let fixture = try VideoCapabilities.fixture(.h264)
+            let disposition = fixture.withUnsafeBytes { bytes in
+                decoder.submit(VideoFrameInfo(number:1,isKeyFrame:true,hostProcessingLatencyTenthMs:13,
+                    receiveTimeMicros:9_000_000,enqueueTimeMicros:9_002_300,presentationTimeMicros:100,
+                    rtpTimestamp:0,hdrActive:false,colorspace:1,data:bytes))
+            }
+            XCTAssertEqual(disposition,.ok)
+            decoder.waitForFrames()
+            for _ in 0..<50 {
+                if telemetry.snapshot().enqueued == 1 { break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            await presenter.refreshRendererMetrics()
+            let snapshot = telemetry.snapshot()
+            XCTAssertEqual(snapshot.submitted,1);XCTAssertEqual(snapshot.decoded,1);XCTAssertEqual(snapshot.enqueued,1)
+            XCTAssertEqual(snapshot.timings[.hostProcessing]?.p50Micros,1300)
+            XCTAssertEqual(snapshot.timings[.reassembly]?.p50Micros,2300)
+            XCTAssertEqual(snapshot.timings.count,6)
+            let local = try XCTUnwrap(snapshot.timings[.clientToEnqueue]?.p50Micros)
+            let decode = try XCTUnwrap(snapshot.timings[.decode]?.p50Micros)
+            XCTAssertGreaterThanOrEqual(local,decode)
+            for _ in 0..<50 {
+                if presenter.layer.isReadyForDisplay { break }
+                try await Task.sleep(for:.milliseconds(10))
+            }
+            XCTAssertTrue(presenter.layer.isReadyForDisplay)
+            decoder.stop()
+            for _ in 0..<50 {
+                if !presenter.layer.isReadyForDisplay { break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertFalse(presenter.layer.isReadyForDisplay)
+            decoder.cleanup()
         }
-        XCTAssertEqual(disposition,.ok)
-        decoder.waitForFrames()
-        for _ in 0..<50 {
-            if telemetry.snapshot().enqueued == 1 { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        let snapshot = telemetry.snapshot()
-        XCTAssertEqual(snapshot.submitted,1);XCTAssertEqual(snapshot.decoded,1);XCTAssertEqual(snapshot.enqueued,1)
-        XCTAssertEqual(snapshot.timings[.hostProcessing]?.p50Micros,1300)
-        XCTAssertEqual(snapshot.timings[.reassembly]?.p50Micros,2300)
-        XCTAssertEqual(snapshot.timings.count,6)
-        let local = try XCTUnwrap(snapshot.timings[.clientToEnqueue]?.p50Micros)
-        let decode = try XCTUnwrap(snapshot.timings[.decode]?.p50Micros)
-        XCTAssertGreaterThanOrEqual(local,decode)
-        XCTAssertTrue(presenter.layer.isReadyForDisplay)
-        decoder.stop()
-        for _ in 0..<50 {
-            if !presenter.layer.isReadyForDisplay { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        XCTAssertFalse(presenter.layer.isReadyForDisplay)
-        decoder.cleanup()
     }
 
     func testLossRecoveryReusesValidatedConfigurationAndRequestsWithoutNextFrame() async throws {

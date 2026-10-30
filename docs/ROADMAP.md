@@ -39,6 +39,7 @@ rather than rewritten.
 - [x] Keyboard/mouse mapping, window capture/release, and bounded engine delivery
 - [x] Live keyboard shortcut, pointer clicking/scrolling, relative capture, and release chord verified on Desktop
 - [x] GameController input: DualSense/Xbox extended-profile mapping, bounded delivery and lifecycle (snapshot tested; physical host acceptance pending)
+- [x] Low Latency/Balanced native frame pacing, presenter queue/drop counters and renderer-reported drops (automated checks; live comparison pending)
 - [x] Latency HUD: engine frame assembly/host processing, VideoToolbox decode, and renderer enqueue timings; rolling p50/p95 and rates (live Desktop verified; network transit/scanout unavailable)
 
 ## Phase 3 — PyroWave and platform polish (2–4 months)

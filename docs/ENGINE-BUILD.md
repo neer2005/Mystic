@@ -12,14 +12,15 @@ callbacks. Automatic reconnect and opt-in bitrate adaptation now use the pinned
 Nightjar shared policies; see `NETWORK.md` for behavior and limits. Controller
 feedback now crosses a bounded polling bridge to native Core Haptics; see
 `INPUT.md` and `PLAYTEST.md`. Manual clipboard text sharing and opt-in foreground
-sync are covered in `CLIPBOARD.md`. See
+sync are covered in `CLIPBOARD.md`. Native Low Latency/Balanced presentation
+and its diagnostic counters are covered in `FRAME-PACING.md`. See
 `engine/README.md` for scope and revision-update rules.
 
 Verified on macOS arm64 with Xcode 27:
 
 - `bash engine/scripts/test-c-abi.sh`: 25 Rust tests passed, release archive built,
   C smoke test passed with all six struct layouts matching.
-- `swift test --disable-sandbox`: 150 tests passed; four AV1 hardware tests skipped
+- `swift test --disable-sandbox`: 166 tests passed; four AV1 hardware tests skipped
   because this Mac has no hardware AV1 decoder.
 - `bash scripts/build-macos-app.sh`: local `.build/Mystic.app` rebuilt and signed.
 

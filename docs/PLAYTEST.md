@@ -67,6 +67,20 @@ that adaptation is unavailable and continue at the fixed rate.
    locally. A late response must preserve the newer local clipboard. Disconnect
    should stop all automatic sharing; recovery should start a fresh baseline.
 
+## Frame pacing
+
+1. At 60 fps, compare Low Latency and Balanced in Settings → Video across separate
+   streams. Use a repeatable camera pan or scrolling scene. Compare smoothness,
+   control response and audio alignment; repeat at 120 fps if the Mac/host support it.
+2. Enable the latency HUD. Presenter queue depth should stay at 0–2. Note late
+   frames, superseded drops, renderer drops (when available), and decode/enqueue
+   timings. An enqueued frame is not proof it reached the screen.
+3. Switch focus away and back, briefly interrupt the network, and use Test Video
+   Recovery. Video should resume without an accumulating delay or an old image
+   returning. Reconnect should retain the selected pacing mode.
+4. Disconnect and start a stream at the other frame rate. Check smoothness, correct
+   sizing, continuing counters and image clearing when you disconnect again.
+
 ## Useful result notes
 
 For a failure, note the action that triggered it, the stream status/bitrate text,
