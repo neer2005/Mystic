@@ -23,6 +23,7 @@ mod host;
 mod audio;
 mod microphone;
 mod policy;
+mod controller_feedback;
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::{Arc, Mutex};
@@ -407,6 +408,7 @@ impl AudioRenderer for AudioAdapter {
 
 struct ListenerAdapter {
     callbacks: MysticCallbacks,
+    feedback: Arc<Mutex<controller_feedback::FeedbackMailbox>>,
 }
 
 impl ListenerAdapter {
@@ -426,6 +428,13 @@ impl ListenerAdapter {
 }
 
 impl Listener for ListenerAdapter {
+    fn control_event(&self, event: nightjar_core::control::ControlEvent) {
+        if matches!(event, nightjar_core::control::ControlEvent::Rumble { .. }
+            | nightjar_core::control::ControlEvent::RumbleTriggers { .. }) {
+            self.feedback.lock().unwrap_or_else(|e| e.into_inner()).receive(event);
+        }
+    }
+
     fn stage_starting(&self, stage: Stage) {
         self.emit_stage(stage, MYSTIC_STAGE_STARTING, 0);
     }
@@ -467,6 +476,7 @@ pub struct MysticSession {
     last_error: Option<CString>,
     network: Arc<Mutex<policy::NetworkTiming>>,
     bitrate: Option<policy::Bitrate>,
+    feedback: Arc<Mutex<controller_feedback::FeedbackMailbox>>,
 }
 
 fn write_error(buffer: *mut c_char, capacity: usize, message: &str) {
@@ -521,6 +531,7 @@ pub extern "C" fn mystic_session_new() -> *mut MysticSession {
         last_error: None,
         network: Arc::new(Mutex::new(policy::NetworkTiming::default())),
         bitrate: None,
+        feedback: Arc::new(Mutex::new(controller_feedback::FeedbackMailbox::default())),
     }))
 }
 
@@ -584,6 +595,7 @@ pub unsafe extern "C" fn mystic_session_start(
         return MYSTIC_ERR_INVALID_ARGUMENT;
     }
     handle.bitrate = None;
+    *handle.feedback.lock().unwrap_or_else(|e| e.into_inner()) = controller_feedback::FeedbackMailbox::default();
     *handle.network.lock().unwrap_or_else(|e| e.into_inner()) = policy::NetworkTiming::default();
 
     let host_info = HostInfo {
@@ -618,7 +630,7 @@ pub unsafe extern "C" fn mystic_session_start(
         network: handle.network.clone(),
     });
     let audio: Box<dyn AudioRenderer> = Box::new(AudioAdapter { callbacks });
-    let listener = Arc::new(ListenerAdapter { callbacks });
+    let listener = Arc::new(ListenerAdapter { callbacks, feedback: handle.feedback.clone() });
 
     match Session::start(
         &host_info,
@@ -651,6 +663,7 @@ pub unsafe extern "C" fn mystic_session_stop(handle: *mut MysticSession) -> i32 
         return MYSTIC_ERR_INVALID_ARGUMENT;
     };
     handle.bitrate = None;
+    *handle.feedback.lock().unwrap_or_else(|e| e.into_inner()) = controller_feedback::FeedbackMailbox::default();
     match handle.session.take() {
         Some(session) => {
             session.stop();
@@ -813,11 +826,24 @@ pub unsafe extern "C" fn mystic_session_controller(handle: *mut MysticSession, s
     with_input(handle, |q| q.send_controller(u16::from(slot), mask, buttons, lt, rt, (lx, ly), (rx, ry)))
 }
 
-/// Generic extended gamepad: analog triggers, no unimplemented feedback capabilities.
+/// Compatibility entry point: generic extended gamepad without feedback.
 #[no_mangle]
 pub unsafe extern "C" fn mystic_session_controller_arrival(handle: *mut MysticSession, slot: u8, mask: u16) -> i32 {
-    if slot >= 4 || mask & !0xF != 0 { return MYSTIC_ERR_INVALID_ARGUMENT; }
-    with_input(handle, |q| q.send_controller_arrival(slot, mask, 0, 0xF3FF, 0x01))
+    mystic_session_controller_arrival_with_feedback(handle, slot, mask, 0x01, 0)
+}
+
+/// Capabilities are limited to the implemented analog/rumble/trigger-rumble bits.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_controller_arrival_with_feedback(
+    handle: *mut MysticSession, slot: u8, mask: u16, capabilities: u16, epoch: u64,
+) -> i32 {
+    use nightjar_core::input::packets::capability;
+    let allowed = capability::ANALOG_TRIGGERS | capability::RUMBLE | capability::TRIGGER_RUMBLE;
+    if slot >= 4 || mask & !0xF != 0 || capabilities & !allowed != 0 { return MYSTIC_ERR_INVALID_ARGUMENT; }
+    if let Some(handle) = handle.as_ref() {
+        handle.feedback.lock().unwrap_or_else(|e| e.into_inner()).clear_slot(slot, epoch);
+    }
+    with_input(handle, |q| q.send_controller_arrival(slot, mask, 0, 0xF3FF, capabilities | capability::ANALOG_TRIGGERS))
 }
 
 /// Live handle, serialized with start/stop. Only encrypted negotiated streams are exposed.

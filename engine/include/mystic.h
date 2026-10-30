@@ -240,6 +240,18 @@ int32_t mystic_session_controller(MysticSession *session, uint8_t slot, uint16_t
     uint32_t buttons, uint8_t left_trigger, uint8_t right_trigger,
     int16_t left_x, int16_t left_y, int16_t right_x, int16_t right_y);
 int32_t mystic_session_controller_arrival(MysticSession *session, uint8_t slot, uint16_t active_mask);
+/* Additive ABI 2: analog triggers=1, rumble=2, trigger rumble=4. Other bits rejected. */
+int32_t mystic_session_controller_arrival_with_feedback(MysticSession *session, uint8_t slot,
+    uint16_t active_mask, uint16_t capabilities, uint64_t epoch);
+typedef struct {
+    uint8_t slot, kind; /* kind 1: low/high handle motors; kind 2: left/right triggers */
+    uint16_t first, second; /* amplitudes 0..65535; zero stops that motor */
+    uint64_t epoch; /* echoes the slot arrival, fencing reuse/release */
+} MysticControllerFeedback;
+/* Takes latest states, at most eight. Serialized with start/stop; capacity 1..8.
+ * Returns count or a negative error. No borrowed pointers escape the call. */
+int32_t mystic_session_take_controller_feedback(const MysticSession *session,
+    MysticControllerFeedback *out, size_t capacity);
 
 /* Microphone capture: producer write is lock/allocation free; all other calls are
  * serialized on the session worker. Free after the producer has stopped. */

@@ -1,5 +1,6 @@
 import CMystic
 import Testing
+import MysticCore
 @testable import MysticKit
 
 /// The C-to-Swift field mapping is the place where a swapped or forgotten field would produce
@@ -7,6 +8,15 @@ import Testing
 /// distinct value.
 @Suite("Consumer mapping")
 struct ConsumerMappingTests {
+
+    @Test("controller feedback preserves motor values and slot epoch")
+    func controllerFeedbackMapping() {
+        var c=MysticControllerFeedback()
+        c.slot=3;c.kind=2;c.first=0x1234;c.second=0xFEDC;c.epoch=0xFEDCBA9876543210
+        #expect(ControllerFeedback(c) == ControllerFeedback(slot:3,kind:.triggerRumble,first:0x1234,second:0xFEDC,epoch:0xFEDCBA9876543210))
+        c.kind=99;#expect(ControllerFeedback(c) == nil)
+        c.kind=1;c.slot=4;#expect(ControllerFeedback(c) == nil)
+    }
 
     @Test("video setup maps every field")
     func videoSetupMapping() {

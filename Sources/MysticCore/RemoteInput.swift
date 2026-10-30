@@ -5,7 +5,7 @@ public enum RemoteInputEvent: Sendable, Equatable {
     case motion(dx: Int16, dy: Int16)
     case scroll(vertical: Int16, horizontal: Int16)
     case controller(slot: UInt8, activeMask: UInt16, state: ControllerState)
-    case controllerArrival(slot: UInt8, activeMask: UInt16)
+    case controllerArrival(slot: UInt8, activeMask: UInt16, capabilities: ControllerCapabilities = .analogTriggers, feedbackEpoch: UInt64 = 0)
     /// Release keys, pointer buttons and controllers accepted by the engine; discard unsent input.
     case releaseAll
 }
@@ -214,7 +214,7 @@ public struct RemoteInputDelivery {
         switch event {
         case let .key(code,down,modifiers,flags): if down { keys[code]=(modifiers,flags) } else { keys.removeValue(forKey:code) }
         case let .button(number,down): if down { buttons.insert(number) } else { buttons.remove(number) }
-        case let .controller(slot,mask,_), let .controllerArrival(slot,mask):
+        case let .controller(slot,mask,_), let .controllerArrival(slot,mask,_,_):
             if mask & (1 << slot) != 0 { controllers.insert(slot) } else { controllers.remove(slot) }
         default:break
         }

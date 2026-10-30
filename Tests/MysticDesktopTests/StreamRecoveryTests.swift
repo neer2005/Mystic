@@ -187,6 +187,7 @@ private final class RecoverySession: StreamSessionService, @unchecked Sendable {
         if let startup { failure(startup) } else { event(.connected) }
     }
     func stop(completion:@escaping @Sendable ()->Void) { lock.withLock { stopCount+=1 };completion() }
+    func takeControllerFeedback() async -> [ControllerFeedback] { [] }
     func requestVideoRecovery() {}
     func setMicrophoneMuted(_ muted:Bool) {}
     func send(_ event:RemoteInputEvent)->Bool { true }

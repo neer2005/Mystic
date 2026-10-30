@@ -90,9 +90,30 @@ DualSense or Xbox controller in macOS first. Up to four extended-profile control
 are forwarded with positional A/B/X/Y face buttons (Cross/Circle/Square/Triangle on
 PlayStation), d-pad, shoulders, stick clicks, Menu/Options, analog triggers, and both
 sticks. Sticks use a radial 12% dead zone rescaled to full travel; triggers use 0–255.
-Guide/Home, touchpad, paddles, motion, rumble, and adaptive triggers are not forwarded.
-Only analog-trigger capability is advertised; controller arrivals use the generic
-extended-gamepad type. No controller feedback capability is claimed.
+Guide/Home, touchpad, paddles, motion and DualSense adaptive resistance effects are
+not forwarded. Controller arrivals use the generic extended-gamepad type and
+advertise analog triggers plus only the feedback motors macOS exposes.
+
+Host-driven handle rumble now uses GameController-created Core Haptics engines.
+Low/high amplitudes target the left/right handles separately when available;
+otherwise their maximum drives the controller's default haptic locality. Trigger
+rumble is advertised only when both trigger motor engines can be created. Trigger
+rumble is vibration, not DualSense adaptive trigger resistance. System-disabled
+or unavailable haptics leave controller input working without a feedback claim.
+
+Feedback uses a fixed eight-state Rust mailbox (four slots, two motor kinds),
+coalescing to the latest amplitude, including zero stops. A serialized worker poll
+and an awaited main-actor loop bound delivery. Capture epochs are echoed through
+controller arrivals and polled feedback; old polls and old slot bindings are
+rejected after release/reactivation or unplug/replacement. The existing ABI 2
+callback and configuration layouts remain unchanged.
+
+Release, focus loss, unplug, disconnect, reconnect recovery and teardown stop the
+controller's players and engines. A motor error disables feedback for that
+controller, updates its advertised capabilities and records a diagnostic while
+leaving input active. Engine resets invalidate cached players without replaying
+old effects. PCM haptics, controller audio, LEDs and adaptive triggers remain
+separate work.
 
 Connected devices contribute a four-bit gamepad mask to host launch/resume. During
 capture, connect/disconnect notifications update the active mask and reuse free
@@ -116,3 +137,16 @@ skips. Rust: 11 passed; C ABI smoke: PASS.
 host's game-controller properties, and check each button, both sticks, and both
 triggers. Then check unplug/reconnect and release/focus loss while a control is held.
 These simulated tests do not establish Bluetooth/USB behavior or host recognition.
+
+
+## Controller feedback validation — 2026-10-30
+
+Tests cover per-controller capabilities, handle/trigger routing, explicit zero
+stops, absent motors, release/reactivation, slot replacement, stale feedback,
+feedback failure without input failure, bounded/coalesced Rust storage and the
+Listener → C polling path. Core Haptics validates real continuous-controller
+patterns without requiring a physical controller. The C smoke test checks the
+new feedback layout, bounded output storage and capability rejection.
+
+Physical rumble strength, USB/Bluetooth behavior and game-specific feedback still
+need a real controller and host. See [PLAYTEST.md](PLAYTEST.md) for the live checklist.

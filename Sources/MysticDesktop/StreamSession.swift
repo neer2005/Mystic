@@ -30,6 +30,7 @@ protocol StreamSessionService: AnyObject, Sendable {
                failure: @escaping @Sendable (StreamStartFailure) -> Void,
                microphoneMuted: Bool, microphoneStatus: @escaping @Sendable (String) -> Void)
     func stop(completion: @escaping @Sendable () -> Void)
+    func takeControllerFeedback() async -> [ControllerFeedback]
     func requestVideoRecovery()
     func setMicrophoneMuted(_ muted: Bool)
     func send(_ event: RemoteInputEvent) -> Bool
@@ -104,6 +105,11 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
             continuation.resume()
         } }
     }
+    func takeControllerFeedback() async -> [ControllerFeedback] {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            continuation.resume(returning:acceptingInput ? engine.takeControllerFeedback() : [])
+        } }
+    }
     private static func nowMillis() -> UInt64 { DispatchTime.now().uptimeNanoseconds/1_000_000 }
     /// May be called from a decoder callback, including while start is still returning.
     func requestVideoRecovery() {
@@ -149,7 +155,7 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
         case let .controller(slot,mask,s):
             try engine.controller(slot:slot,activeMask:mask,buttons:s.buttons,leftTrigger:s.leftTrigger,rightTrigger:s.rightTrigger,
                                   leftX:s.leftX,leftY:s.leftY,rightX:s.rightX,rightY:s.rightY)
-        case let .controllerArrival(slot,mask): try engine.controllerArrival(slot:slot,activeMask:mask)
+        case let .controllerArrival(slot,mask,capabilities,epoch): try engine.controllerArrival(slot:slot,activeMask:mask,capabilities:capabilities,feedbackEpoch:epoch)
         case .releaseAll: break
         }
     }

@@ -67,6 +67,19 @@ int main(void) {
           "controller before start");
     CHECK(mystic_session_controller_arrival(handle, 0, 1) == MYSTIC_ERR_NOT_STARTED,
           "controller arrival before start");
+    CHECK(mystic_session_controller_arrival_with_feedback(handle, 0, 1, 7, 42) == MYSTIC_ERR_NOT_STARTED,
+          "feedback-capable arrival before start");
+    CHECK(mystic_session_controller_arrival_with_feedback(handle, 0, 1, 0x80, 42) == MYSTIC_ERR_INVALID_ARGUMENT,
+          "unsupported controller capabilities are refused");
+    MysticControllerFeedback feedback[8];
+    CHECK(sizeof(MysticControllerFeedback) == 16 && offsetof(MysticControllerFeedback, epoch) == 8,
+          "controller feedback has the expected fixed layout");
+    CHECK(mystic_session_take_controller_feedback(handle, feedback, 8) == 0,
+          "controller feedback starts empty");
+    CHECK(mystic_session_take_controller_feedback(handle, feedback, 9) == MYSTIC_ERR_INVALID_ARGUMENT,
+          "controller feedback capacity is bounded");
+    CHECK(mystic_session_take_controller_feedback(handle, NULL, 8) == MYSTIC_ERR_INVALID_ARGUMENT,
+          "controller feedback rejects null storage");
     CHECK(mystic_session_controller_arrival(handle, 4, 1) == MYSTIC_ERR_INVALID_ARGUMENT,
           "invalid controller slot");
     CHECK(mystic_session_controller(handle, 0, 16, 0, 0, 0, 0, 0, 0, 0) == MYSTIC_ERR_INVALID_ARGUMENT,
