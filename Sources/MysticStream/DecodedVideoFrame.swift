@@ -27,6 +27,19 @@ public struct DecodedVideoFrame: @unchecked Sendable {
     }
 }
 
+/// HDR must be interpreted from source tags, never from the user's launch preference alone.
+func validateHDRImage(_ image: CVPixelBuffer) throws {
+    let transfer=CVBufferCopyAttachment(image,kCVImageBufferTransferFunctionKey,nil)
+    guard let transfer,CFEqual(transfer,kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ) ||
+            CFEqual(transfer,kCVImageBufferTransferFunction_ITU_R_2100_HLG) else {
+        throw VideoDecoderError.invalidSample("HDR frame missing PQ/HLG transfer attachment")
+    }
+    guard CVBufferCopyAttachment(image,kCVImageBufferColorPrimariesKey,nil) != nil,
+          CVBufferCopyAttachment(image,kCVImageBufferYCbCrMatrixKey,nil) != nil else {
+        throw VideoDecoderError.invalidSample("HDR frame missing color primaries or YCbCr matrix")
+    }
+}
+
 extension VideoHDRMetadata {
     func attach(to image: CVPixelBuffer) {
         if let masteringDisplay {

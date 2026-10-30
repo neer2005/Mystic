@@ -77,4 +77,27 @@ final class StreamInputTests: XCTestCase {
         XCTAssertTrue(events.isEmpty)
         capture.detach(view)
     }
+    func testVideoDisplayTracksWindowAttachmentReplacementAndScreenNotifications() {
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:100,height:100),styleMask:.borderless,backing:.buffered,defer:false)
+        window.isReleasedWhenClosed=false
+        let original=DisplayLayerPresenter()
+        let view=RemoteVideoView(presenter:original,capture:nil)
+        window.contentView=view
+        XCTAssertEqual(original.videoOutput.screenName,window.screen?.localizedName)
+        let replacement=DisplayLayerPresenter()
+        view.install(replacement,capture:nil)
+        XCTAssertNil(original.videoOutput.screenName)
+        XCTAssertEqual(replacement.videoOutput.screenName,window.screen?.localizedName)
+        replacement.updateDisplay(name:"Stale screen",currentHeadroom:1,potentialHeadroom:1)
+        NotificationCenter.default.post(name:NSWindow.didChangeScreenNotification,object:window)
+        XCTAssertEqual(replacement.videoOutput.screenName,window.screen?.localizedName)
+        replacement.updateDisplay(name:"Stale screen",currentHeadroom:1,potentialHeadroom:1)
+        NotificationCenter.default.post(name:NSApplication.didChangeScreenParametersNotification,object:nil)
+        XCTAssertEqual(replacement.videoOutput.screenName,window.screen?.localizedName)
+        window.contentView=nil
+        XCTAssertNil(replacement.videoOutput.screenName)
+        NotificationCenter.default.post(name:NSApplication.didChangeScreenParametersNotification,object:nil)
+        XCTAssertNil(replacement.videoOutput.screenName)
+        window.close()
+    }
 }

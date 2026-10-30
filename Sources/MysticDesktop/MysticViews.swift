@@ -13,7 +13,7 @@ public struct StreamingView: View {
                 VideoSurface(presenter: presenter,capture:model.inputCapture)
                     .overlay(alignment:.topLeading) {
                         if model.showLatencyHUD {
-                            LatencyHUD(snapshot:model.videoTelemetry,mode:presenter.pacingMode)
+                            LatencyHUD(snapshot:model.videoTelemetry,mode:presenter.pacingMode,output:presenter.videoOutput)
                                 .padding(12).allowsHitTesting(false)
                         }
                     }
@@ -103,12 +103,20 @@ private final class WindowProbe: NSView {
 private struct LatencyHUD: View {
     let snapshot: VideoTelemetrySnapshot?
     let mode: FramePacingMode
+    let output: VideoOutputState
     private func milliseconds(_ value: Int64) -> String { String(format:"%.2f",Double(value)/1000) }
     private func rate(_ value: Double?) -> String { value.map { String(format:"%.1f",$0) } ?? "—" }
     var body: some View {
         VStack(alignment:.leading,spacing:8) {
             Text("Video latency · \(mode.label)").font(.headline)
             Text("Decoded \(rate(snapshot?.decodedFPS)) fps · Enqueued \(rate(snapshot?.enqueuedFPS)) fps")
+            Text("Source \(output.transfer) · \(output.colorPrimaries) · \(output.outputDescription)")
+            if output.isHDR {
+                Text("HDR metadata: mastering \(output.hasMasteringMetadata ? "present" : "absent") · light levels \(output.hasContentLightMetadata ? "present" : "absent")")
+            }
+            if let screen=output.screenName {
+                Text("\(screen) · EDR headroom \(rate(output.currentHeadroom))× current / \(rate(output.potentialHeadroom))× potential")
+            }
             Grid(alignment:.leading,horizontalSpacing:14,verticalSpacing:4) {
                 GridRow {
                     Text("Rolling 600 frames")
