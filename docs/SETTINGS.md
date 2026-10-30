@@ -76,6 +76,12 @@ enabling sync. Host permissions decide which directions are available. Automatic
 sync pauses outside the active stream window; existing/background copies stay
 local. See [CLIPBOARD.md](CLIPBOARD.md).
 
+Playback follows macOS's default audio output. Audio settings report output
+state, device/rate, restarts and discarded frames, alongside decode/render counts.
+Output changes rebuild only audio and keep local volume/mute. If bounded automatic
+retries run out, Retry Audio appears here and in the stream toolbar. A device
+change also starts recovery again. See [AUDIO.md](AUDIO.md) and [PLAYTEST.md](PLAYTEST.md).
+
 
 Frame Pacing defaults to Low Latency; Balanced adds approximately one frame of
 buffering for steadier cadence. The setting applies to the next stream and is

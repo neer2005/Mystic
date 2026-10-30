@@ -82,6 +82,9 @@ public final class ConnectionModel {
     }
     public private(set) var microphoneStatus="Microphone off"
     public private(set) var audioStatus = "Audio idle"
+    public private(set) var audioOutputStatus: AudioOutputStatus = .idle
+    public var canRetryAudio: Bool { phase == .streaming && audioOutputStatus == .unavailable }
+    public func retryAudioOutput() { if canRetryAudio { audioPlayer?.retryOutput() } }
 
     public private(set) var phase: Phase = .idle
     public private(set) var status = "Enter your host’s LAN address to connect."
@@ -390,7 +393,7 @@ public final class ConnectionModel {
         telemetry = nil; videoTelemetry = nil
         rendererMetricsMonitor?.cancel();rendererMetricsMonitor=nil
         controllerFeedbackMonitor?.cancel();controllerFeedbackMonitor=nil
-        statisticsMonitor?.cancel(); statisticsMonitor = nil; audioStatus = "Audio stopped"
+        statisticsMonitor?.cancel(); statisticsMonitor = nil; audioStatus = "Audio stopped";audioOutputStatus = .idle
         operation?.cancel(); connection?.cancel(); connection = nil; pairingPIN = nil
         host = nil; apps = []; selectedAppID = nil
         guard let session else {
@@ -415,7 +418,10 @@ public final class ConnectionModel {
                 self.processMediaSnapshot(snapshot)
 
                 let stats = player.statistics
-                self.audioStatus = "Audio: \(stats.decodedPackets) packets, \(stats.concealedPackets) concealed, \(stats.renderedFrames) frames played, \(stats.queuedFrames/48) ms queued"
+                self.audioOutputStatus=stats.outputStatus
+                let route=stats.outputDevice.map { " · "+$0 } ?? ""
+                let rate=stats.outputSampleRate.map { String(format:" · %.1f kHz",$0/1000) } ?? ""
+                self.audioStatus = "\(stats.outputStatus.label)\(route)\(rate): \(stats.decodedPackets) packets, \(stats.concealedPackets) concealed, \(stats.renderedFrames) frames rendered, \(stats.queuedFrames/48) ms queued · \(stats.outputRestarts) output restarts · \(stats.discardedOutputFrames) frames discarded during output changes"
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
         }

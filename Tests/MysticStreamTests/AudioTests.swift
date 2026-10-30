@@ -91,4 +91,35 @@ final class AudioTests: XCTestCase {
         XCTAssertEqual(player.statistics.decodedPackets,0)
         player.setVolume(.nan,muted:false)
     }
+    func testNewMutedEngineIsSilentFromItsFirstSample() throws {
+        let graph=try AudioPipeline(volume:0,manualRendering:true)
+        defer { graph.stop() }
+        let buffer=try XCTUnwrap(AVAudioPCMBuffer(pcmFormat:graph.engine.manualRenderingFormat,frameCapacity:512))
+        let data=Array(repeating:Float(0.5),count:1024)
+        _=data.withUnsafeBufferPointer { mystic_pcm_ring_write(graph.render.ring,$0.baseAddress,512) }
+        XCTAssertEqual(try graph.engine.renderOffline(512,to:buffer),.success)
+        let channels=try XCTUnwrap(buffer.floatChannelData)
+        XCTAssertTrue((0..<512).allSatisfy { channels[0][$0] == 0 && channels[1][$0] == 0 })
+    }
+    func testNativeMixerConvertsStreamRateToCommonOutputRates() throws {
+        for rate in [16_000.0,44_100.0,96_000.0] {
+            let graph=try AudioPipeline(volume:1,manualRendering:true,manualSampleRate:rate)
+            defer { graph.stop() }
+            XCTAssertEqual(graph.sampleRate,rate)
+            let buffer=try XCTUnwrap(AVAudioPCMBuffer(pcmFormat:graph.engine.manualRenderingFormat,frameCapacity:256))
+            let data=Array(repeating:Float(0.25),count:2048)
+            _=data.withUnsafeBufferPointer { mystic_pcm_ring_write(graph.render.ring,$0.baseAddress,1024) }
+            XCTAssertEqual(try graph.engine.renderOffline(256,to:buffer),.success)
+            let channels=try XCTUnwrap(buffer.floatChannelData)
+            XCTAssertTrue((0..<256).allSatisfy { channels[0][$0].isFinite && channels[1][$0].isFinite })
+            XCTAssertGreaterThan((0..<256).map { abs(channels[0][$0]) }.max() ?? 0,0.1)
+        }
+    }
+    func testNativeOutputMonitorCanBeRestartedAndStoppedWithoutChangingDevices() throws {
+        let monitor=AudioOutputMonitor()
+        defer { monitor.stop() }
+        try monitor.start(changed:{})
+        try monitor.refresh();monitor.stop();monitor.stop()
+        try monitor.start(changed:{});try monitor.refresh()
+    }
 }

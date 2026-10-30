@@ -36,7 +36,8 @@ rather than rewritten.
 - [ ] AV1 hardware validation on a supported Mac (current Mac reports no hardware decoder)
 - [x] AVAudioEngine audio (bundled libopus), concealment, stereo/surround downmix, volume/mute
 - [x] Live stereo listening confirmed on Desktop
-- [ ] Output-device switch and live surround validation
+- [x] Audio default-output/device monitoring, bounded recovery/manual retry, decoder continuity and mute-safe restarts (automated checks; physical switching validation pending)
+- [ ] Live surround/downmix validation and discrete multichannel output
 - [x] Keyboard/mouse mapping, window capture/release, and bounded engine delivery
 - [x] Live keyboard shortcut, pointer clicking/scrolling, relative capture, and release chord verified on Desktop
 - [x] GameController input: DualSense/Xbox extended-profile mapping, bounded delivery and lifecycle (snapshot tested; physical host acceptance pending)
