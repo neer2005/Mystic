@@ -13,9 +13,15 @@ When enabled, the selected bitrate is its ceiling on hosts with live bitrate
 control. Both switches apply to the next session. See [NETWORK.md](NETWORK.md). Appearance, accessibility, and input-capture behavior follow the existing
 system/application behavior; there are no duplicate system preference switches.
 
-Stream Details edits the same saved defaults as Settings. These are shared app
-preferences, not per-app or per-host overrides. Starting a stream captures video
-and channel layout for that session. Those UI controls and Restore Defaults are
+Stream Details offers global defaults, host defaults, or custom game video
+settings. Games follow host defaults initially; a host without custom settings
+follows global defaults. Use Edit Host Defaults to customize a host, or select
+Custom game settings to save a separate video setup for the selected game.
+Choosing Use global defaults for a game bypasses host overrides. See
+[PROFILES.md](PROFILES.md) for inheritance and reset behavior.
+
+Starting a stream captures resolved video settings
+and channel layout for that session. Those UI controls and Restore Global Defaults are
 disabled while a session is starting, running or disconnecting. Volume and mute
 apply immediately to the audio player. The HUD toggle remains available in the
 stream window and in General settings. Discovery does not automatically connect.
@@ -31,8 +37,8 @@ and 120; bitrate is clamped to 5–150 Mbps, volume to 0–1, and enum-like fiel
 supported options. Non-finite volume values return to 0.8. Codec/HDR preferences
 never bypass the decoder capability or host-app checks at launch.
 
-Restore Defaults resets stream/library defaults while keeping the current Settings
-pane. It does not change host entries, identity, pairings, or certificates. The
+Restore Global Defaults resets stream/library defaults while keeping the current Settings
+pane. It preserves host/game profiles, host entries, identity, pairings, and certificates. The
 last pane survives window close and app restart. Search/filter text is transient;
 view mode and sort order persist. Filtering reconciles the selected app so Start
 Stream cannot launch an app hidden by the filter. Different view modes preserve

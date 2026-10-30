@@ -88,9 +88,9 @@ public struct HostLibraryView: View {
                         .buttonStyle(.borderedProminent).disabled(!model.canPlay)
                         .keyboardShortcut(.return,modifiers:[])
                 }
-                Section("Video") { VideoPreferencesView(model:model) }
+                Section("Video") { GameVideoPreferencesView(model:model) }
                 Section("Audio") { AudioPreferencesView(model:model) }
-                Section { Text("Changes are saved as defaults for future streams. Video and channel layout are fixed while streaming.").font(.caption).foregroundStyle(.secondary) }
+                Section { Text("Video settings are saved for future streams. Audio, microphone and clipboard settings remain global. Video and channel layout are fixed while streaming.").font(.caption).foregroundStyle(.secondary) }
             } else { Section { Text("Select an app to see stream options.").foregroundStyle(.secondary) } }
             Section("Controls") {
                 Text("Click the video to control the host. Capture Mouse enables relative movement for games.")

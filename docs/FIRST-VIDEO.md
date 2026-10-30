@@ -33,8 +33,9 @@ executable, or use `Mystic-Package` to run the package test suite.
    applications. Rubylight reports a clear permission error if launching is denied.
    Mystic does not change these permissions automatically.
 4. Select Desktop for initial validation. Start at 1080p60, 20 Mbps, Automatic
-   codec, HDR off in Stream Details. Choose Start Stream. Shared defaults are also
-   available in Mystic → Settings (Command–Comma).
+   codec, HDR off. Choose Use global defaults in Stream Details and set these in
+   Mystic → Settings (Command–Comma), or choose Custom game settings to save a
+   setup for Desktop on this host. Choose Start Stream. See [PROFILES.md](PROFILES.md).
 5. The stream opens in a separate native window. Full Screen toggles a native
    fullscreen space. Disconnect stops the local stream and leaves the host app
    running; reconnecting and selecting the same app uses Nightjar's resume path.

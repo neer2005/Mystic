@@ -107,9 +107,10 @@ These choices follow Apple's [sidebar guidance](https://developer.apple.com/desi
 and [Liquid Glass adoption guidance](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass).
 The design principle is to let standard components acquire current system styling.
 
-Shared stream settings persist and apply to future streams. Stream Details edits
-the same defaults as Settings; per-app overrides, box-art retrieval, a recent-app
-collection, and a collapsible detail inspector remain later polish. Video and host
+Global stream settings persist in Settings. Stream Details selects global defaults,
+host defaults or a custom game profile, with an inherited-value summary and a
+separate host-defaults editor; see [PROFILES.md](PROFILES.md). Box-art retrieval,
+a recent-app collection, and a collapsible detail inspector remain later polish. Video and host
 channel layout are fixed during a stream; local volume/mute and HUD visibility
 remain live. See [SETTINGS.md](SETTINGS.md) for storage and validation.
 

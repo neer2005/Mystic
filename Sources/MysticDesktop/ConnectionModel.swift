@@ -16,6 +16,7 @@ public final class ConnectionModel {
     public let discovery: HostDiscovery
     public var selectedAppID: Int32?
     public let settings: AppSettings
+    public let profiles: StreamProfilesStore
     public var resolution: String {
         get { settings.value.resolution }
         set { settings.update { $0.resolution=newValue } }
@@ -170,12 +171,13 @@ public final class ConnectionModel {
                     case .notDetermined: return await AVCaptureDevice.requestAccess(for:.audio)
                     default:return false
                     }
-                },preferences: (any HostPreferencesStorage)? = HostPreferences(),settings: AppSettings? = nil,discovery: HostDiscovery = HostDiscovery(),
+                },preferences: (any HostPreferencesStorage)? = HostPreferences(),settings: AppSettings? = nil,profiles: StreamProfilesStore? = nil,discovery: HostDiscovery = HostDiscovery(),
                 makeHost: @escaping @Sendable (String, UInt16, ClientIdentity, String?) throws -> any HostService = {
                     try HostConnection(address: $0, port: $1, identity: $2, certificate: $3)
                 }) {
         self.microphonePermission=microphonePermission
         self.settings=settings ?? AppSettings(storage:rememberHost ? SettingsPreferences() : nil)
+        self.profiles=profiles ?? StreamProfilesStore(storage:rememberHost ? StreamProfilePreferences() : nil)
         self.savedHosts=SavedHosts(storage:rememberHost ? preferences : nil);self.discovery=discovery
         self.vault = vault; self.makeHost = makeHost; self.rememberHost = rememberHost
         address = savedHosts.hosts.first?.endpoint.address ?? UserDefaults.standard.string(forKey: "lastHost") ?? ""
@@ -262,18 +264,19 @@ public final class ConnectionModel {
     public func play() {
         guard canPlay, let connection, let app = selectedApp, let capabilities else { return }
         do {
-            let dims = resolution.split(separator: "x").compactMap { UInt32($0) }
+            let video=effectiveVideoSettings
+            let dims = video.resolution.split(separator: "x").compactMap { UInt32($0) }
             guard dims.count == 2 else { throw HostConnectionError("Invalid stream resolution.") }
             var mask: UInt32 = capabilities.supportedFormats
-            switch codec {
+            switch video.codec {
             case "h264": mask &= 0xF
             case "hevc": mask &= 0xF00
             case "av1": mask &= 0xF000
             default: break
             }
-            mask &= hdr ? 0xAA00 : ~UInt32(0xAA00)
+            mask &= video.hdr ? 0xAA00 : ~UInt32(0xAA00)
             guard mask != 0 else { throw HostConnectionError("This Mac has no verified hardware decoder for the selected codec and HDR mode.") }
-            guard !hdr || app.hdrSupported else { throw HostConnectionError("This app does not advertise HDR support.") }
+            guard !video.hdr || app.hdrSupported else { throw HostConnectionError("This app does not advertise HDR support.") }
             var options = LaunchOptions(app: app)
             switch audioLayout {
             case "5.1": options.channelCount = 6; options.channelMask = 0x3F
@@ -282,17 +285,17 @@ public final class ConnectionModel {
             }
             options.gamepadMask = UInt16((1 << min(4,GCController.controllers().filter { $0.extendedGamepad != nil }.count))-1)
             options.clipboardSync=clipboardSync
-            options.width = dims[0]; options.height = dims[1]; options.fps = fps; options.hdr = hdr
+            options.width = dims[0]; options.height = dims[1]; options.fps = video.fps; options.hdr = video.hdr
             var config = StreamConfiguration()
-            config.width = Int32(dims[0]); config.height = Int32(dims[1]); config.fps = Int32(fps)
-            config.bitrateKbps = bitrateMbps * 1000; config.supportedVideoFormats = mask
-            config.colorSpace = hdr ? 2 : 1; config.colorRange = 0
+            config.width = Int32(dims[0]); config.height = Int32(dims[1]); config.fps = Int32(video.fps)
+            config.bitrateKbps = video.bitrateMbps * 1000; config.supportedVideoFormats = mask
+            config.colorSpace = video.hdr ? 2 : 1; config.colorRange = 0
             config.microphone = microphoneEnabled
             config.channelCount = options.channelCount; config.channelMask = options.channelMask
             recovery = StreamRecovery();recovering = false;hadVideo = false;connectedAt = nil
             let plan = StreamPlan(app:app,options:options,configuration:config,
-                adaptive:settings.value.adaptiveBitrate ?? false,reconnect:settings.value.automaticReconnect ?? true,
-                hostID:host?.uniqueID ?? "",framePacing:framePacing)
+                adaptive:video.adaptiveBitrate,reconnect:settings.value.automaticReconnect ?? true,
+                hostID:host?.uniqueID ?? "",framePacing:video.framePacing)
             self.plan = plan
             launchStream(plan,connection:connection,capabilities:capabilities)
         } catch { fail(error.localizedDescription) }

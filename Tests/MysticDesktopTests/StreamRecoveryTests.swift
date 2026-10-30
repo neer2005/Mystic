@@ -7,6 +7,43 @@ import MysticStream
 
 @MainActor
 final class StreamRecoveryTests: XCTestCase {
+    func testReconnectKeepsResolvedGameProfileWhenStoredProfilesAndGlobalsChange() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
+        let model=try await running(host,sessions,clock) { model in
+            model.gameVideoSource = .custom
+            var video=model.effectiveVideoSettings
+            video.resolution="2560x1440";video.fps=120;video.bitrateMbps=55
+            video.codec="h264";video.framePacing = .balanced;video.adaptiveBitrate=true
+            model.updateGameVideo(video)
+        }
+        let original=try XCTUnwrap(sessions.all[0].configuration)
+        XCTAssertEqual(original.width,2560);XCTAssertEqual(original.height,1440)
+        XCTAssertEqual(original.fps,120);XCTAssertEqual(original.bitrateKbps,55_000)
+        XCTAssertEqual(original.supportedVideoFormats & ~UInt32(0xF),0)
+        XCTAssertEqual(model.presenter?.pacingMode,.balanced)
+        let key=try XCTUnwrap(model.hostProfileKey),game=try XCTUnwrap(model.gameProfileKey)
+        // Another settings writer may update persistence while a stream is active.
+        model.profiles.update { try $0.setGame(source:.global,video:nil,host:key,game:game) }
+        model.settings.update { $0.resolution="1280x720";$0.fps=60;$0.bitrateMbps=10;$0.framePacing="lowLatency";$0.adaptiveBitrate=false }
+        // User-facing setters reject edits while a session is active.
+        model.gameVideoSource = .custom
+        XCTAssertEqual(model.gameVideoSource,.global)
+        model.updateHostVideo(StreamVideoSettings(),hostKey:key)
+        XCTAssertNil(model.profiles.value.hostVideo(for:key))
+        model.processMediaSnapshot(picture())
+        try await wait { sessions.all[0].begun == 1 }
+        sessions.all[0].emit(.terminated(code:-100))
+        try await wait { sessions.all.count == 2 && model.phase == .streaming }
+        let resumed=try XCTUnwrap(sessions.all[1].configuration)
+        XCTAssertEqual(resumed.width,original.width);XCTAssertEqual(resumed.height,original.height)
+        XCTAssertEqual(resumed.fps,original.fps);XCTAssertEqual(resumed.bitrateKbps,original.bitrateKbps)
+        XCTAssertEqual(resumed.supportedVideoFormats,original.supportedVideoFormats)
+        XCTAssertEqual(resumed.colorSpace,original.colorSpace)
+        XCTAssertEqual(model.presenter?.pacingMode,.balanced)
+        XCTAssertTrue(host.launches[1].resumeOnly)
+        model.processMediaSnapshot(picture());try await wait { sessions.all[1].begun == 1 }
+        model.disconnect()
+    }
     func testReconnectKeepsOriginalOptionsAndIgnoresOldSessionCallbacks() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
         let model=try await running(host,sessions,clock,pacing:.balanced)
@@ -139,7 +176,8 @@ final class StreamRecoveryTests: XCTestCase {
         }
     }
     private func running(_ host: RecoveryHost,_ sessions: RecoverySessions,_ clock: RecoveryClock,
-                         reconnect: Bool = true,adaptive: Bool = false,pacing: FramePacingMode = .lowLatency) async throws -> ConnectionModel {
+                         reconnect: Bool = true,adaptive: Bool = false,pacing: FramePacingMode = .lowLatency,
+                         configure: (ConnectionModel) -> Void = { _ in }) async throws -> ConnectionModel {
         let model=ConnectionModel(vault:RecoveryVault(),rememberHost:false,makeHost:{ _,_,_,_ in host })
         model.makeSession={ _,_ in sessions.make() }
         model.nowMillis={ clock.now }
@@ -149,6 +187,7 @@ final class StreamRecoveryTests: XCTestCase {
         guard model.capabilities?.supportedFormats ?? 0 != 0 else { throw XCTSkip("No hardware video decoder") }
         model.address="127.0.0.1";model.connect()
         try await wait { model.phase == .ready }
+        configure(model)
         model.play();try await wait { model.phase == .streaming }
         return model
     }
@@ -179,6 +218,8 @@ private final class RecoverySession: StreamSessionService, @unchecked Sendable {
     init(startup:StreamStartFailure?) { self.startup=startup }
     private let lock=NSLock();private var event:(@Sendable (EngineEvent)->Void)?
     private var stopCount=0,beginCount=0;private var rate:UInt32?
+    private var storedConfiguration:StreamConfiguration?
+    var configuration:StreamConfiguration? { lock.withLock { storedConfiguration } }
     var nextRate:UInt32? { get { lock.withLock { rate } } set { lock.withLock { rate=newValue } } }
     var stops:Int { lock.withLock { stopCount } }
     var begun:Int { lock.withLock { beginCount } }
@@ -186,7 +227,7 @@ private final class RecoverySession: StreamSessionService, @unchecked Sendable {
     func start(host:String,launch:LaunchedStream,configuration:StreamConfiguration,decoder:VideoToolboxDecoder,audio:AudioPlayer,
                event:@escaping @Sendable (EngineEvent)->Void,failure:@escaping @Sendable (StreamStartFailure)->Void,
                microphoneMuted:Bool,microphoneStatus:@escaping @Sendable (String)->Void) {
-        lock.withLock { self.event=event }
+        lock.withLock { self.event=event;self.storedConfiguration=configuration }
         if let startup { failure(startup) } else { event(.connected) }
     }
     func stop(completion:@escaping @Sendable ()->Void) { lock.withLock { stopCount+=1 };completion() }
