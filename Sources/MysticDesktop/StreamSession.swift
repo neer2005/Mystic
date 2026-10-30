@@ -30,6 +30,7 @@ protocol StreamSessionService: AnyObject, Sendable {
                failure: @escaping @Sendable (StreamStartFailure) -> Void,
                microphoneMuted: Bool, microphoneStatus: @escaping @Sendable (String) -> Void)
     func stop(completion: @escaping @Sendable () -> Void)
+    func clipboardStep(active: Bool,baseline: Bool,text: String?) async throws -> ClipboardSyncResult
     func takeControllerFeedback() async -> [ControllerFeedback]
     func requestVideoRecovery()
     func setMicrophoneMuted(_ muted: Bool)
@@ -37,6 +38,12 @@ protocol StreamSessionService: AnyObject, Sendable {
     func beginAdaptiveBitrate(ceiling: UInt32, current: UInt32) async -> Bool
     func suggestedBitrate(decodeMillis: Float) async -> UInt32?
     func appliedBitrate(requested: UInt32, applied: UInt32) async
+}
+
+extension StreamSessionService {
+    func clipboardStep(active: Bool,baseline: Bool,text: String?) async throws -> ClipboardSyncResult {
+        ClipboardSyncResult(available:false,text:nil)
+    }
 }
 
 /// Owns one engine on one worker queue. Interrupt may be called while start blocks;
@@ -108,6 +115,14 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
     func takeControllerFeedback() async -> [ControllerFeedback] {
         await withCheckedContinuation { continuation in queue.async { [self] in
             continuation.resume(returning:acceptingInput ? engine.takeControllerFeedback() : [])
+        } }
+    }
+    func clipboardStep(active: Bool,baseline: Bool,text: String?) async throws -> ClipboardSyncResult {
+        try await withCheckedThrowingContinuation { continuation in queue.async { [self] in
+            do {
+                guard acceptingInput else { throw HostConnectionError("No stream is running.") }
+                continuation.resume(returning:try engine.clipboardStep(active:active,baseline:baseline,text:text))
+            } catch { continuation.resume(throwing:error) }
         } }
     }
     private static func nowMillis() -> UInt64 { DispatchTime.now().uptimeNanoseconds/1_000_000 }

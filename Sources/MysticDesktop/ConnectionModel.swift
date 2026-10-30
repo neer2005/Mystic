@@ -56,6 +56,16 @@ public final class ConnectionModel {
         get { settings.value.microphoneEnabled ?? false }
         set { settings.update { $0.microphoneEnabled=newValue } }
     }
+    public var clipboardSync: Bool {
+        get { settings.value.clipboardSync ?? false }
+        set { settings.update { $0.clipboardSync=newValue } }
+    }
+    public private(set) var clipboardStatus="Clipboard sharing idle"
+    public private(set) var clipboardBusy=false
+    public var canSendClipboard: Bool { phase == .streaming && clipboard?.canSend == true && !clipboardBusy }
+    public var canReadClipboard: Bool { phase == .streaming && clipboard?.canRead == true && !clipboardBusy }
+    public func sendClipboardToHost() { clipboard?.sendTextToHost() }
+    public func copyHostClipboard() { clipboard?.copyTextFromHost() }
     public var microphoneMuted=false { didSet { session?.setMicrophoneMuted(microphoneMuted) } }
     public var automaticReconnect: Bool {
         get { settings.value.automaticReconnect ?? true }
@@ -108,6 +118,7 @@ public final class ConnectionModel {
     @ObservationIgnored private let vault: any CredentialsStorage
     @ObservationIgnored private let makeHost: @Sendable (String, UInt16, ClientIdentity, String?) throws -> any HostService
     @ObservationIgnored private var connection: (any HostService)?
+    @ObservationIgnored private var clipboard: StreamClipboard?
     @ObservationIgnored private var session: (any StreamSessionService)?
     @ObservationIgnored private var decoder: VideoToolboxDecoder?
     @ObservationIgnored private var audioPlayer: AudioPlayer?
@@ -264,6 +275,7 @@ public final class ConnectionModel {
             default: break
             }
             options.gamepadMask = UInt16((1 << min(4,GCController.controllers().filter { $0.extendedGamepad != nil }.count))-1)
+            options.clipboardSync=clipboardSync
             options.width = dims[0]; options.height = dims[1]; options.fps = fps; options.hdr = hdr
             var config = StreamConfiguration()
             config.width = Int32(dims[0]); config.height = Int32(dims[1]); config.fps = Int32(fps)
@@ -330,6 +342,16 @@ public final class ConnectionModel {
                     microphoneMuted:self.microphoneMuted,microphoneStatus:{ [weak self] message in
                         Task { @MainActor in guard let self,self.generation == token else { return };self.microphoneStatus=message }
                     })
+                self.clipboard?.stop()
+                self.clipboard=StreamClipboard(host:connection,
+                    canRead:launch.clipboardRead ?? self.host?.clipboardRead ?? false,
+                    canSend:launch.clipboardWrite ?? self.host?.clipboardWrite ?? false,
+                    syncEnabled:options.clipboardSync,isActive:{ [weak self] in self?.generation == token && self?.phase == .streaming && self?.inputCapture?.clipboardActive == true },
+                    step:{ active,baseline,text in try await session.clipboardStep(active:active,baseline:baseline,text:text) },
+                    report:{ [weak self] message,busy in
+                        guard let self,self.generation == token else { return }
+                        self.clipboardStatus=message;self.clipboardBusy=busy
+                    })
                 self.adaptationActive = adaptive && launch.runtimeBitrate == true
                 self.bitrateStatus = !adaptive ? "Fixed bitrate: \(config.bitrateKbps/1000) Mbps" :
                     (launch.runtimeBitrate == true ? "Automatic bitrate: waiting for video…" : "Automatic bitrate unavailable on this host; using fixed bitrate.")
@@ -350,6 +372,7 @@ public final class ConnectionModel {
     }
     #endif
     public func disconnect() {
+        clipboard?.stop();clipboard=nil;clipboardBusy=false;clipboardStatus="Clipboard sharing idle"
         plan=nil;recovering=false;hadVideo=false;connectedAt=nil;recovery=StreamRecovery()
         bitrateTask?.cancel();bitrateTask=nil;adaptationActive=false;bitrateStatus="Fixed bitrate"
         inputCapture?.setAvailable(false);inputCapture = nil
@@ -406,6 +429,7 @@ public final class ConnectionModel {
         case .connected:
             connectedAt=nowMillis();inputCapture?.setAvailable(true);phase = .streaming
             if let session { monitorControllerFeedback(session,token:token) }
+            clipboard?.start()
             status = "Streaming \(plan?.app.name ?? selectedApp?.name ?? "video")."
         case .stageStarting(let stage): status = "Starting \(stage.name)…"
         case .stageComplete: break
@@ -443,6 +467,7 @@ public final class ConnectionModel {
         guard let delay=recovery.nextDelay(nowMillis:now,connectedMillis:duration) else {
             endRecovery("Could not restore the stream within the retry limit. \(message)");return
         }
+        clipboard?.stop();clipboard=nil;clipboardBusy=false;clipboardStatus="Clipboard sharing paused during recovery"
         recovering=true;phase = .reconnecting;errorMessage=nil
         status="Connection interrupted. Reconnecting in \(delay/1000) seconds…"
         generation=UUID();let token=generation

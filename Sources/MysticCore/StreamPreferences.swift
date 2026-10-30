@@ -12,6 +12,7 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public var muted = false
     public var automaticReconnect: Bool? = nil // Missing in older documents; defaults on.
     public var adaptiveBitrate: Bool? = nil // Missing in older documents; defaults off.
+    public var clipboardSync: Bool? = nil // Missing in older documents; defaults off.
     public var microphoneEnabled: Bool? = nil // Missing in older documents; defaults off.
     public var showLatencyHUD = false
     public var libraryLayout = "grid"

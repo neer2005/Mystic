@@ -13,6 +13,8 @@ public struct HostInfo: Codable, Sendable, Equatable {
     public let appVersion: String?
     public let codecSupport: UInt32
     public let currentGame: Int32
+    public var clipboardRead: Bool? = nil
+    public var clipboardWrite: Bool? = nil
 }
 public struct HostApp: Codable, Identifiable, Sendable, Equatable {
     public let id: Int32
@@ -35,6 +37,7 @@ public struct LaunchOptions: Codable, Sendable {
     public var channelMask: UInt16 = 3
     public var gamepadMask: UInt16 = 0
     public var resumeOnly = false
+    public var clipboardSync = false
     public init(app: HostApp) { appID = app.id; appUUID = app.uuid }
 }
 public struct LaunchedStream: Codable, Sendable {
@@ -44,6 +47,8 @@ public struct LaunchedStream: Codable, Sendable {
     public let key: [UInt8]
     public let iv: [UInt8]
     public var runtimeBitrate: Bool? = nil
+    public var clipboardRead: Bool? = nil
+    public var clipboardWrite: Bool? = nil
 }
 public struct HostConnectionError: Error, LocalizedError, Sendable {
     public let message: String
@@ -58,12 +63,16 @@ public protocol HostService: AnyObject, Sendable {
     func apps() async throws -> [HostApp]
     func launch(_ options: LaunchOptions) async throws -> LaunchedStream
     func setBitrate(kbps: UInt32) async throws -> UInt32
+    func clipboardText() async throws -> String
+    func sendClipboardText(_ text: String) async throws
     /// Permanently cancels this connection, including in-flight pairing and launch requests.
     func cancel()
 }
 
 public extension HostService {
     func setBitrate(kbps: UInt32) async throws -> UInt32 { throw HostConnectionError("This host does not support live bitrate changes.") }
+    func clipboardText() async throws -> String { throw HostConnectionError("This host does not support clipboard text transfer.") }
+    func sendClipboardText(_ text: String) async throws { throw HostConnectionError("This host does not support clipboard text transfer.") }
 }
 
 /// A worker queue owns blocking Nightjar calls. Cancellation is the sole concurrent operation.
@@ -100,6 +109,18 @@ public final class HostConnection: HostService, @unchecked Sendable {
         struct Applied: Decodable, Sendable { let kbps: UInt32 }
         let applied: Applied = try await request("bitrate",json:String(decoding:JSONEncoder().encode(["kbps":kbps]),as:UTF8.self))
         return applied.kbps
+    }
+    public func clipboardText() async throws -> String {
+        struct Copy: Decodable, Sendable { let text: String }
+        let result: Copy = try await request("clipboardRead",json:"{}")
+        try ClipboardText.validate(result.text,limit:ClipboardText.manualLimit)
+        return result.text
+    }
+    public func sendClipboardText(_ text: String) async throws {
+        try ClipboardText.validate(text,limit:ClipboardText.manualLimit)
+        struct Sent: Decodable, Sendable { let sent: Bool }
+        let result: Sent = try await request("clipboardWrite",json:String(decoding:JSONEncoder().encode(["text":text]),as:UTF8.self))
+        guard result.sent else { throw HostConnectionError("The host did not accept clipboard text.") }
     }
     private func request<T: Decodable & Sendable>(_ operation: String, json: String) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in

@@ -30,6 +30,15 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(loaded.value.bitrateMbps,70);XCTAssertTrue(loaded.value.hdr)
         XCTAssertNil(loaded.error)
     }
+    func testClipboardSyncDefaultsOffAndPersistsWithoutResettingOtherPreferences() {
+        let storage=MemorySettingsPreferences(),settings=AppSettings(storage:storage)
+        settings.update { $0.bitrateMbps=45 }
+        let model=ConnectionModel(rememberHost:false,settings:AppSettings(storage:storage))
+        XCTAssertFalse(model.clipboardSync);XCTAssertEqual(model.bitrateMbps,45)
+        model.clipboardSync=true
+        let loaded=ConnectionModel(rememberHost:false,settings:AppSettings(storage:storage))
+        XCTAssertTrue(loaded.clipboardSync);XCTAssertEqual(loaded.bitrateMbps,45)
+    }
     func testCorruptAndFutureSettingsFallBackAndRecover() {
         let storage=MemorySettingsPreferences()
         for data in [Data("not JSON".utf8),Data(repeating:0,count:65_537),Data("{\"version\":99,\"preferences\":{}}".utf8)] {

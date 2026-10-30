@@ -12,7 +12,11 @@ public struct MysticSettingsView: View {
                         Picker("View",selection:setting(\.libraryLayout)) { Text("Grid").tag("grid");Text("List").tag("list") }
                         Picker("Sort Apps",selection:setting(\.librarySort)) { Text("Name").tag("name");Text("Host Order").tag("host") }
                     }
-                    Section("Streaming") { Toggle("Show Latency HUD",isOn:$model.showLatencyHUD) }
+                    Section("Streaming") {
+                        Toggle("Show Latency HUD",isOn:$model.showLatencyHUD)
+                        Toggle("Sync Clipboard Text",isOn:$model.clipboardSync).disabled(model.hasSession || model.isBusy)
+                        Text("Off by default. Shares new plain-text copies only while the stream window is active. Files and images stay on the Mac.").font(.caption).foregroundStyle(.secondary)
+                    }
                     Section { Text("Choose a host from the library sidebar to start. Interrupted streams can reconnect automatically when enabled in Network.").foregroundStyle(.secondary) }
                 }.tabItem { Label("General",systemImage:"gearshape") }.tag("general")
                 Form {

@@ -34,7 +34,7 @@ fn host_envelope(result: Result<Value, HostError>) -> *mut c_char {
 pub struct MysticHost {
     client: HostClient,
 }
-fn envelope(result: Result<Value, String>) -> *mut c_char {
+pub(crate) fn envelope(result: Result<Value, String>) -> *mut c_char {
     let value = match result {
         Ok(v) => json!({"ok": true, "value": v}),
         Err(e) => json!({"ok": false, "error": e}),
@@ -175,6 +175,22 @@ impl MysticHost {
                     .map_err(HostError::from)?;
                 Ok(Value::Array(apps.into_iter().filter(|a| a.control == AppControl::None).map(|a|json!({"id":a.id,"name":a.name,"uuid":a.uuid,"hdrSupported":a.hdr_supported})).collect()))
             }
+            "clipboardRead" | "clipboardWrite" => {
+                let i=self.client.server_info_https().map_err(HostError::from)?;
+                let (read,write)=clipboard_permissions(&i);
+                if operation == "clipboardRead" {
+                    if !read { return Err("The host does not allow reading its clipboard.".into()); }
+                    let text=self.client.clipboard().map_err(HostError::from)?;
+                    crate::clipboard::validate_text(&text,crate::clipboard::MANUAL_LIMIT)?;
+                    Ok(json!({"text":text}))
+                } else {
+                    if !write { return Err("The host does not allow setting its clipboard.".into()); }
+                    let text=field(&v,"text")?;
+                    crate::clipboard::validate_text(text,crate::clipboard::MANUAL_LIMIT)?;
+                    self.client.send_clipboard(text).map_err(HostError::from)?;
+                    Ok(json!({"sent":true}))
+                }
+            }
             "bitrate" => {
                 let i = self.client.server_info_https().map_err(HostError::from)?;
                 if !i.capabilities.has(Feature::RuntimeBitrate) { return Err("This host does not support live bitrate changes.".into()); }
@@ -219,6 +235,7 @@ impl MysticHost {
                     height,
                     fps,
                     hdr,
+                    clipboard_sync: v["clipboardSync"].as_bool().unwrap_or(false),
                     audio,
                     ri_key: key,
                     ri_key_id: key_id,
@@ -236,18 +253,26 @@ impl MysticHost {
                 Ok(
                     json!({"rtspURL":launched.rtsp_session_url,"appVersion":i.app_version,
                     "codecSupport":i.server_codec_mode_support,"key":key,"iv":iv,
-                    "runtimeBitrate":i.capabilities.has(Feature::RuntimeBitrate)}),
+                    "runtimeBitrate":i.capabilities.has(Feature::RuntimeBitrate),
+                    "clipboardRead":clipboard_permissions(&i).0,"clipboardWrite":clipboard_permissions(&i).1}),
                 )
             }
             _ => Err("unknown host operation".into()),
         }
     }
 }
+fn clipboard_permissions(i: &nightjar_core::http::ServerInfo) -> (bool,bool) {
+    use nightjar_core::http::{PERMISSION_CLIPBOARD_READ,PERMISSION_CLIPBOARD_SET};
+    if !i.capabilities.has(Feature::Clipboard) { return (false,false); }
+    let permission=i.capabilities.evidence().map_or(0,|e|e.permission.max(0) as u32);
+    (permission & PERMISSION_CLIPBOARD_READ != 0,permission & PERMISSION_CLIPBOARD_SET != 0)
+}
 fn host_info_value(i: &nightjar_core::http::ServerInfo, has_local_pin: bool) -> Value {
     // Another address can recognize our identity without having a local certificate pin.
     // Offer PIN pairing for that endpoint instead of attempting unpinned HTTPS.
     json!({"name":i.hostname,"uniqueID":i.unique_id,"paired":i.paired && has_local_pin,
-        "appVersion":i.app_version,"codecSupport":i.server_codec_mode_support,"currentGame":i.current_game})
+        "appVersion":i.app_version,"codecSupport":i.server_codec_mode_support,"currentGame":i.current_game,
+        "clipboardRead":has_local_pin && clipboard_permissions(i).0,"clipboardWrite":has_local_pin && clipboard_permissions(i).1})
 }
 fn dimension(v: &Value, name: &str, max: u32) -> Result<u32, String> {
     v[name]
@@ -265,6 +290,20 @@ mod tests {
         assert!(!HostError::from(nightjar_core::http::Error::CertificateMismatch).retryable);
         assert!(!HostError::from(nightjar_core::http::Error::NotPaired).retryable);
         assert!(!HostError::from(nightjar_core::http::Error::Status { code: 401, message: "denied".into() }).retryable);
+    }
+    #[test]
+    fn clipboard_permissions_are_directional_and_need_a_local_pin_for_the_ui() {
+        use nightjar_core::http::{PERMISSION_VIEW,PERMISSION_CLIPBOARD_READ,PERMISSION_CLIPBOARD_SET};
+        for (permissions,expected) in [(PERMISSION_VIEW,(false,false)),
+            (PERMISSION_VIEW | PERMISSION_CLIPBOARD_READ,(true,false)),
+            (PERMISSION_VIEW | PERMISSION_CLIPBOARD_SET,(false,true)),
+            (PERMISSION_VIEW | PERMISSION_CLIPBOARD_READ | PERMISSION_CLIPBOARD_SET,(true,true))] {
+            let xml=format!(r#"<root status_code="200"><hostname>PC</hostname><uniqueid>host1</uniqueid><PairStatus>1</PairStatus><Permission>{permissions}</Permission><state>SUNSHINE_SERVER_FREE</state></root>"#);
+            let info=nightjar_core::http::ServerInfo::parse(&xml,47989).unwrap();
+            assert_eq!(clipboard_permissions(&info),expected);
+            assert_eq!(host_info_value(&info,false)["clipboardRead"],false);
+            assert_eq!(host_info_value(&info,false)["clipboardWrite"],false);
+        }
     }
     #[test]
     fn paired_alias_requires_its_own_local_pin() {

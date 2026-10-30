@@ -137,3 +137,13 @@ poll API returns owned motor values and the arrival epoch. New arrivals clear a
 slot's pending feedback, and Swift rejects old epochs after release/slot reuse.
 The existing callback/configuration struct layouts are unchanged. No PCM haptics,
 controller audio, LEDs or DualSense adaptive trigger resistance is advertised.
+
+## Clipboard text (additive ABI 2)
+
+Host JSON operations `clipboardRead` and `clipboardWrite` use Nightjar's pinned
+HTTPS text endpoint and independently enforce current read/set permissions.
+`mystic_session_clipboard_step` bridges the shared `ClipboardSync` rules through
+bounded JSON, with a foreground baseline and at most one pending incoming text.
+It never holds the clipboard mutex while sending control messages. The old ABI
+layouts stay unchanged. Swift owns the pasteboard and discards stale results.
+See `docs/CLIPBOARD.md` for behavior and validation.
