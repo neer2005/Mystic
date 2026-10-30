@@ -17,10 +17,11 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public var discoveryEnabled = true
     public var settingsPane = "general"
     public init() {}
-    public static let resolutions = ["1280x720","1920x1080","2560x1440","3024x1964","3456x2234","3840x2160"]
+    public static let resolutions = ["1280x720","1920x1080","2560x1440","3024x1890","3024x1964","3456x2234","3840x2160"]
     public static func resolutionLabel(_ resolution: String) -> String {
         let dimensions=resolution.replacingOccurrences(of:"x",with:" × ")
         switch resolution {
+        case "3024x1890": return "\(dimensions) (MacBook Pro 14-inch, 16:10)"
         case "3024x1964": return "\(dimensions) (MacBook Pro 14-inch)"
         case "3456x2234": return "\(dimensions) (MacBook Pro 16-inch)"
         default:return dimensions

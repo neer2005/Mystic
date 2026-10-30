@@ -16,7 +16,7 @@ struct StreamPreferencesTests {
         #expect(preferences.validated().volume == 0 && preferences.validated().bitrateMbps == 5)
     }
     @Test func nativeMacBookResolutionsSurviveValidationAndStorage() throws {
-        for resolution in ["3024x1964","3456x2234"] {
+        for resolution in ["3024x1890","3024x1964","3456x2234"] {
             var preferences=StreamPreferences();preferences.resolution=resolution
             let loaded=try JSONDecoder().decode(StreamPreferences.self,from:JSONEncoder().encode(preferences))
             #expect(loaded.validated().resolution == resolution)

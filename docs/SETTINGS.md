@@ -19,7 +19,8 @@ and library defaults and the last-viewed Settings pane. Credentials remain in
 Keychain and saved hosts retain their separate catalog. Invalid or future-version
 settings fall back to defaults with a message in Settings. Reads are bounded to
 64 KiB. Supported resolutions are 720p, 1080p, 1440p, 2160p, and MacBook Pro native
-3024×1964 (14-inch) / 3456×2234 (16-inch); frame rates are 60
+3024×1964 (14-inch) / 3456×2234 (16-inch), plus the 14-inch 16:10 option
+3024×1890 for fullscreen below the camera housing; frame rates are 60
 and 120; bitrate is clamped to 5–150 Mbps, volume to 0–1, and enum-like fields to
 supported options. Non-finite volume values return to 0.8. Codec/HDR preferences
 never bypass the decoder capability or host-app checks at launch.

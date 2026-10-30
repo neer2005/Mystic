@@ -107,7 +107,7 @@ final class ConnectionModelTests: XCTestCase {
     }
     func testSavedStreamDefaultsReachHostLaunch() async throws {
         let storage=MemorySettingsPreferences(),settings=AppSettings(storage:storage)
-        settings.update { $0.resolution="3024x1964";$0.fps=120;$0.audioLayout="5.1";$0.codec="h264" }
+        settings.update { $0.resolution="3024x1890";$0.fps=120;$0.audioLayout="5.1";$0.codec="h264" }
         let restarted=AppSettings(storage:storage),mock=MockHost(paired:true)
         let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,settings:restarted,makeHost:{ _,_,_,_ in mock })
         await model.prepare()
@@ -115,7 +115,7 @@ final class ConnectionModelTests: XCTestCase {
         model.address="127.0.0.1";model.port="47989";model.connect();try await settle(model)
         model.play();try await settle(model)
         let launch=try XCTUnwrap(mock.launchedOptions)
-        XCTAssertEqual(launch.width,3024);XCTAssertEqual(launch.height,1964);XCTAssertEqual(launch.fps,120)
+        XCTAssertEqual(launch.width,3024);XCTAssertEqual(launch.height,1890);XCTAssertEqual(launch.fps,120)
         XCTAssertEqual(launch.channelCount,6);XCTAssertEqual(launch.channelMask,0x3F)
         model.disconnect()
     }
