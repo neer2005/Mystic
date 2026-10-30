@@ -14,14 +14,15 @@ feedback now crosses a bounded polling bridge to native Core Haptics; see
 `INPUT.md` and `PLAYTEST.md`. Manual clipboard text sharing and opt-in foreground
 sync are covered in `CLIPBOARD.md`. Native Low Latency/Balanced presentation
 and its diagnostic counters are covered in `FRAME-PACING.md`. Display-aware native
-HDR/EDR requests and color metadata diagnostics are covered in `HDR.md`. See
+HDR/EDR requests and color metadata diagnostics are covered in `HDR.md`. Saved host
+and game video profiles and their launch/recovery snapshot are covered in `PROFILES.md`. See
 `engine/README.md` for scope and revision-update rules.
 
 Verified on macOS arm64 with Xcode 27:
 
 - `bash engine/scripts/test-c-abi.sh`: 25 Rust tests passed, release archive built,
   C smoke test passed with all six struct layouts matching.
-- `swift test --disable-sandbox`: 172 tests passed; four AV1 hardware tests skipped
+- `swift test --disable-sandbox`: 186 tests passed; four AV1 hardware tests skipped
   because this Mac has no hardware AV1 decoder.
 - `bash scripts/build-macos-app.sh`: local `.build/Mystic.app` rebuilt with persistent
   Apple Development signing and strict signature verification; see `SIGNING.md`.

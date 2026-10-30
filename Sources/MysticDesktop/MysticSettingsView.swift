@@ -21,7 +21,7 @@ public struct MysticSettingsView: View {
                 }.tabItem { Label("General",systemImage:"gearshape") }.tag("general")
                 Form {
                     Section("Stream Defaults") { VideoPreferencesView(model:model) }
-                    Section { Text("Only hardware-verified formats can start a stream. HDR also requires support from the selected host app.").foregroundStyle(.secondary) }
+                    Section { Text("These are global defaults. Choose host or game settings in Stream Details to override them. Only hardware-verified formats can start a stream; HDR also requires support from the host app.").foregroundStyle(.secondary) }
                 }.tabItem { Label("Video",systemImage:"display") }.tag("video")
                 Form {
                     Section("Playback") { AudioPreferencesView(model:model) }
@@ -42,7 +42,8 @@ public struct MysticSettingsView: View {
             }.formStyle(.grouped)
             Divider()
             HStack {
-                Button("Restore Defaults") { model.settings.restoreDefaults() }.disabled(model.hasSession || model.isBusy)
+                Button("Restore Global Defaults") { model.settings.restoreDefaults() }.disabled(model.hasSession || model.isBusy)
+                    .help("Resets global settings. Saved host and game profiles are kept.")
                 Spacer()
                 if let error=model.settings.error { Text(error).font(.caption).foregroundStyle(.red) }
             }.padding(16)
@@ -57,29 +58,38 @@ public struct MysticSettingsView: View {
 
 struct VideoPreferencesView: View {
     @Bindable var model: ConnectionModel
-    private var locked: Bool { model.hasSession || model.isBusy }
+    var body: some View {
+        VideoSettingsFields(value:Binding(get:{ model.settings.value.videoSettings },
+            set:{ video in model.settings.update { $0.videoSettings=video } }),
+            locked:model.hasSession || model.isBusy)
+    }
+}
+
+struct VideoSettingsFields: View {
+    @Binding var value: StreamVideoSettings
+    var locked: Bool
     var body: some View {
         Group {
-            Picker("Resolution",selection:$model.resolution) {
+            Picker("Resolution",selection:$value.resolution) {
                 ForEach(StreamPreferences.resolutions,id:\.self) { resolution in
                     Text(StreamPreferences.resolutionLabel(resolution)).tag(resolution)
                 }
             }
-            Picker("Frame Rate",selection:$model.fps) { Text("60 fps").tag(UInt32(60));Text("120 fps").tag(UInt32(120)) }
-            Picker("Frame Pacing",selection:$model.framePacing) {
+            Picker("Frame Rate",selection:$value.fps) { Text("60 fps").tag(UInt32(60));Text("120 fps").tag(UInt32(120)) }
+            Picker("Frame Pacing",selection:$value.framePacing) {
                 ForEach(FramePacingMode.allCases,id:\.self) { mode in Text(mode.label).tag(mode) }
             }
-            Text(model.framePacing == .lowLatency ? "Presents decoded frames without intentional buffering." : "Uses about one frame of buffering to absorb arrival jitter.")
+            Text(value.framePacing == .lowLatency ? "Presents decoded frames without intentional buffering." : "Uses about one frame of buffering to absorb arrival jitter.")
                 .font(.caption).foregroundStyle(.secondary)
-            Picker("Codec",selection:$model.codec) {
+            Picker("Codec",selection:$value.codec) {
                 Text("Automatic").tag("auto");Text("H.264").tag("h264");Text("HEVC").tag("hevc");Text("AV1").tag("av1")
             }
-            Stepper("Bitrate: \(model.bitrateMbps) Mbps",value:$model.bitrateMbps,in:5...150,step:5)
-            Toggle("Automatic Bitrate",isOn:$model.adaptiveBitrate)
-            if model.adaptiveBitrate {
+            Stepper("Bitrate: \(value.bitrateMbps) Mbps",value:$value.bitrateMbps,in:5...150,step:5)
+            Toggle("Automatic Bitrate",isOn:$value.adaptiveBitrate)
+            if value.adaptiveBitrate {
                 Text("Adjusts bitrate up to the selected limit when the host supports live changes.").font(.caption).foregroundStyle(.secondary)
             }
-            Toggle("HDR",isOn:$model.hdr)
+            Toggle("HDR",isOn:$value.hdr)
             Text("Requests 10-bit HDR from supported host apps. HDR video uses the stream window’s display; macOS maps it to SDR on displays without HDR headroom.")
                 .font(.caption).foregroundStyle(.secondary)
         }.disabled(locked)

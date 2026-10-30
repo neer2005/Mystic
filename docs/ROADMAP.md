@@ -24,6 +24,7 @@ rather than rewritten.
 
 - [x] Minimal SwiftPM macOS app target: manual host, library, stream window, connect/disconnect commands
 - [x] Native three-pane shell and Settings scene: search, grid/list, sort/filter, shared saved stream defaults (live Desktop launch verified)
+- [x] Saved host/game video profiles with global/host inheritance and immutable reconnect settings (automated checks; live UI validation pending)
 - [x] Wire host launch credentials and RTSP session lifecycle through engine to decoder
 - [x] VideoToolbox H.264/HEVC/AV1 implementation with per-profile hardware probes
 - [x] Display-layer presenter and native fullscreen control

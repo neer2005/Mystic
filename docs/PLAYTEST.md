@@ -81,6 +81,25 @@ that adaptation is unavailable and continue at the fixed rate.
 4. Disconnect and start a stream at the other frame rate. Check smoothness, correct
    sizing, continuing counters and image clearing when you disconnect again.
 
+## Host and game profiles
+
+1. Set global Video defaults to 1080p60. Connect a paired host and select a game.
+   It should initially use host defaults, displaying the same global values.
+2. Open Edit Host Defaults, turn off Use global defaults, and choose 1440p120.
+   Close the editor and select another game. Both should inherit the host values.
+3. Select Custom game settings for one game and choose a different resolution,
+   bitrate or pacing mode. Switch games and return; only that game should have
+   the custom values. Quit/reopen Mystic and reconnect to confirm persistence.
+4. For another game choose Use global defaults. Change Settings → Video and
+   check that game follows the change while the custom game remains fixed.
+   Restore Global Defaults should preserve the custom host and game profiles.
+5. Start a stream with the custom profile, verify host geometry/HDR and the HUD's
+   pacing mode, then interrupt the network. Recovery should keep the same setup.
+   Video profile controls should be locked until the stream stops.
+6. Reset the custom game with Use host defaults. In the host editor enable Use
+   global defaults. The game should now follow globals. Connect another host and
+   confirm its games have separate choices, even if the apps have the same names.
+
 ## HDR / EDR
 
 1. Enable HDR in Video settings and start an HDR-capable host app on an HDR/EDR
