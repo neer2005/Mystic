@@ -13,7 +13,7 @@ public struct MysticSettingsView: View {
                         Picker("Sort Apps",selection:setting(\.librarySort)) { Text("Name").tag("name");Text("Host Order").tag("host") }
                     }
                     Section("Streaming") { Toggle("Show Latency HUD",isOn:$model.showLatencyHUD) }
-                    Section { Text("Hosts are never connected automatically. Choose a host from the library sidebar.").foregroundStyle(.secondary) }
+                    Section { Text("Choose a host from the library sidebar to start. Interrupted streams can reconnect automatically when enabled in Network.").foregroundStyle(.secondary) }
                 }.tabItem { Label("General",systemImage:"gearshape") }.tag("general")
                 Form {
                     Section("Stream Defaults") { VideoPreferencesView(model:model) }
@@ -24,6 +24,11 @@ public struct MysticSettingsView: View {
                     Section { Text("Volume and mute apply immediately. Surround host audio is mixed to stereo on this Mac.").foregroundStyle(.secondary) }
                 }.tabItem { Label("Audio",systemImage:"speaker.wave.2") }.tag("audio")
                 Form {
+                    Section("Stream Recovery") {
+                        Toggle("Reconnect Interrupted Streams",isOn:$model.automaticReconnect)
+                            .disabled(model.hasSession || model.isBusy)
+                        Text("Retries a dropped stream for up to one minute. Disconnect cancels recovery.").foregroundStyle(.secondary)
+                    }
                     Section("Host Discovery") {
                         Toggle("Discover Hosts on the Local Network",isOn:setting(\.discoveryEnabled))
                         Text(model.discovery.status).font(.caption).foregroundStyle(.secondary)
@@ -61,6 +66,10 @@ struct VideoPreferencesView: View {
                 Text("Automatic").tag("auto");Text("H.264").tag("h264");Text("HEVC").tag("hevc");Text("AV1").tag("av1")
             }
             Stepper("Bitrate: \(model.bitrateMbps) Mbps",value:$model.bitrateMbps,in:5...150,step:5)
+            Toggle("Automatic Bitrate",isOn:$model.adaptiveBitrate)
+            if model.adaptiveBitrate {
+                Text("Adjusts bitrate up to the selected limit when the host supports live changes.").font(.caption).foregroundStyle(.secondary)
+            }
             Toggle("HDR",isOn:$model.hdr)
         }.disabled(locked)
     }

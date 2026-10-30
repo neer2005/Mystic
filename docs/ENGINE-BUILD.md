@@ -3,6 +3,26 @@
 Tracking whether Nightjar's `nightjar-core` builds and behaves on the Mac, which is the
 gate for Mystic Phase 1.
 
+## Nightjar 4.0.1 sync (2026-10-30)
+
+Mystic now pins Nightjar `461e403b0a1fde4a1e447f73c65c505ab61e84ea`, matching
+the local Nightjar checkout. Its expanded Opus mapping is adapted to Mystic's
+existing eight-channel ABI; unsupported audio layouts/codecs fail before Swift
+callbacks. Automatic reconnect and opt-in bitrate adaptation now use the pinned
+Nightjar shared policies; see `NETWORK.md` for behavior and limits. See
+`engine/README.md` for scope and revision-update rules.
+
+Verified on macOS arm64 with Xcode 27:
+
+- `bash engine/scripts/test-c-abi.sh`: 17 Rust tests passed, release archive built,
+  C smoke test passed with all six struct layouts matching.
+- `swift test --disable-sandbox`: 132 tests passed; four AV1 hardware tests skipped
+  because this Mac has no hardware AV1 decoder.
+- `bash scripts/build-macos-app.sh`: local `.build/Mystic.app` rebuilt and signed.
+
+Live streaming against a host has not been revalidated for this revision.
+The earlier engine investigation below records the original baseline.
+
 ## Verified: macOS 27, Apple silicon (2026-10-27)
 
 ```

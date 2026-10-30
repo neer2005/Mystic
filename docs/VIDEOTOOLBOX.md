@@ -36,7 +36,7 @@ exists. Unknown formats and packed-chroma layouts fail setup.
 
 ## Capability and fidelity contract
 
-The format bits match the pinned Nightjar revision `f449b5d`. The probe requires
+The format bits match the pinned Nightjar revision `461e403b` (4.0.1). The probe requires
 hardware session creation, verifies hardware selection, decodes a synthetic
 fixture, checks dimensions, IOSurface, exact pixel format and PTS, checks color
 transfer metadata, and enqueues the result in a display layer. H.264, HEVC, AV1,

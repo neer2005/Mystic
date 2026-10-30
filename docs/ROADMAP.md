@@ -29,6 +29,7 @@ rather than rewritten.
 - [x] Display-layer presenter and native fullscreen control
 - [x] Live Desktop video, disconnect/resume, saved pairing across app restart, native fullscreen, 1080p → 720p session change
 - [x] Live simulated reference-loss/IDR recovery on 4K/120 HEVC 10-bit Desktop
+- [x] Bounded automatic reconnect and opt-in automatic bitrate using Nightjar shared policies (automated lifecycle/policy tests; live network validation pending)
 - [ ] Controlled UDP packet loss/FEC recovery and visual HDR validation
 - [ ] AV1 hardware validation on a supported Mac (current Mac reports no hardware decoder)
 - [x] AVAudioEngine audio (bundled libopus), concealment, stereo/surround downmix, volume/mute

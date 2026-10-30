@@ -29,6 +29,9 @@ public struct StreamingView: View {
         .frame(minWidth: 640, minHeight: 360)
         .toolbar {
             ToolbarItem { Text(model.status).font(.caption).lineLimit(1) }
+            if model.adaptiveBitrate {
+                ToolbarItem { Text(model.bitrateStatus).font(.caption).lineLimit(1) }
+            }
             if let capture = model.inputCapture {
                 ToolbarItem { Text(capture.status).font(.caption).help("Control–Option–Shift–Escape releases input. Switching apps also releases it.") }
                 ToolbarItem { Button("Control Desktop",systemImage:"cursorarrow") { capture.controlDesktop() }.disabled(!capture.available) }

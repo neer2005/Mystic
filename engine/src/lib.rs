@@ -22,9 +22,10 @@
 mod host;
 mod audio;
 mod microphone;
+mod policy;
 
 use std::ffi::{c_char, c_void, CStr, CString};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use nightjar_core::input::{InputError, InputQueue};
 use nightjar_core::sdp::{AudioConfiguration, StreamConfig, StreamLocation};
@@ -199,6 +200,8 @@ impl MysticStreamConfig {
             remote_input_aes_iv: self.remote_input_aes_iv,
             video_capabilities: self.video_capabilities,
             audio_capabilities: self.audio_capabilities,
+            // ABI 2 carries Opus configuration only; passthrough needs a new ABI.
+            audio_passthrough: 0,
             haptics_pcm: self.haptics_pcm,
             microphone: self.microphone,
             pyrowave_records_supported: self.pyrowave_records_supported,
@@ -262,10 +265,13 @@ unsafe impl Sync for MysticCallbacks {}
 struct VideoAdapter {
     callbacks: MysticCallbacks,
     submitted: u64,
+    network: Arc<Mutex<policy::NetworkTiming>>,
 }
 
 impl VideoDecoder for VideoAdapter {
     fn setup(&mut self, setup: &VideoSetup) -> Result<(), i32> {
+        self.network.lock().unwrap_or_else(|e| e.into_inner()).setup(
+            setup.format, setup.width.max(0) as u32, setup.height.max(0) as u32, setup.fps.max(0) as u32);
         let plain = MysticVideoSetup {
             format: setup.format,
             width: setup.width,
@@ -293,6 +299,7 @@ impl VideoDecoder for VideoAdapter {
     }
 
     fn submit(&mut self, frame: &Frame) -> DecodeStatus {
+        self.network.lock().unwrap_or_else(|e| e.into_inner()).frame(frame.rtp_timestamp, frame.receive_time_us);
         let Some(f) = self.callbacks.video_submit else {
             return DecodeStatus::Ok;
         };
@@ -340,6 +347,16 @@ struct AudioAdapter {
 
 impl AudioRenderer for AudioAdapter {
     fn init(&mut self, setup: &AudioSetup) -> Result<(), i32> {
+        // Nightjar supports 12-channel audio; ABI 2 and the Swift renderer support up to 8.
+        // Never truncate an active channel or feed passthrough packets to the Opus decoder.
+        if setup.codec != rubylight_protocol::audio_ext::CODEC_OPUS
+            || !matches!(setup.configuration.channel_count, 2 | 6 | 8)
+            || setup.opus.channel_count != setup.configuration.channel_count
+        {
+            return Err(MYSTIC_ERR_UNIMPLEMENTED);
+        }
+        let mut mapping = [0; 8];
+        mapping.copy_from_slice(&setup.opus.mapping[..8]);
         let plain = MysticAudioSetup {
             channel_count: setup.configuration.channel_count,
             channel_mask: setup.configuration.channel_mask,
@@ -348,7 +365,7 @@ impl AudioRenderer for AudioAdapter {
             sample_rate: setup.opus.sample_rate,
             streams: setup.opus.streams,
             coupled_streams: setup.opus.coupled_streams,
-            mapping: setup.opus.mapping,
+            mapping,
         };
         match self.callbacks.audio_init {
             Some(f) => match unsafe { f(self.callbacks.user, &plain) } {
@@ -448,6 +465,8 @@ pub struct MysticSession {
     session: Option<Session>,
     interrupt: Interrupt,
     last_error: Option<CString>,
+    network: Arc<Mutex<policy::NetworkTiming>>,
+    bitrate: Option<policy::Bitrate>,
 }
 
 fn write_error(buffer: *mut c_char, capacity: usize, message: &str) {
@@ -500,6 +519,8 @@ pub extern "C" fn mystic_session_new() -> *mut MysticSession {
         session: None,
         interrupt: Interrupt::default(),
         last_error: None,
+        network: Arc::new(Mutex::new(policy::NetworkTiming::default())),
+        bitrate: None,
     }))
 }
 
@@ -562,6 +583,8 @@ pub unsafe extern "C" fn mystic_session_start(
         write_error(error_buffer, error_capacity, "session already started");
         return MYSTIC_ERR_INVALID_ARGUMENT;
     }
+    handle.bitrate = None;
+    *handle.network.lock().unwrap_or_else(|e| e.into_inner()) = policy::NetworkTiming::default();
 
     let host_info = HostInfo {
         address: CStr::from_ptr(address).to_string_lossy().into_owned(),
@@ -592,6 +615,7 @@ pub unsafe extern "C" fn mystic_session_start(
     let video: Box<dyn VideoDecoder> = Box::new(VideoAdapter {
         callbacks,
         submitted: 0,
+        network: handle.network.clone(),
     });
     let audio: Box<dyn AudioRenderer> = Box::new(AudioAdapter { callbacks });
     let listener = Arc::new(ListenerAdapter { callbacks });
@@ -626,6 +650,7 @@ pub unsafe extern "C" fn mystic_session_stop(handle: *mut MysticSession) -> i32 
     let Some(handle) = handle.as_mut() else {
         return MYSTIC_ERR_INVALID_ARGUMENT;
     };
+    handle.bitrate = None;
     match handle.session.take() {
         Some(session) => {
             session.stop();
@@ -828,7 +853,8 @@ mod tests {
         let setup = AudioSetup {
             configuration: AudioConfiguration { channel_count: 6, channel_mask: 0x3f },
             opus: nightjar_core::rtsp::OpusConfig { sample_rate: 48000, channel_count: 6,
-                streams: 4, coupled_streams: 2, mapping: [0,4,1,5,2,3,6,7] },
+                streams: 4, coupled_streams: 2, mapping: [0,4,1,5,2,3,6,7,8,9,10,11] },
+            codec: rubylight_protocol::audio_ext::CODEC_OPUS,
             packet_duration_ms: 10, samples_per_frame: 480,
         };
         assert_eq!(adapter.init(&setup), Ok(()));
@@ -836,6 +862,26 @@ mod tests {
         assert_eq!(captured.packet_duration_ms, 10); assert_eq!(captured.samples_per_frame, 480);
         assert_eq!(captured.sample_rate, 48000); assert_eq!(captured.streams, 4);
         assert_eq!(captured.coupled_streams, 2); assert_eq!(captured.mapping, [0,4,1,5,2,3,6,7]);
+
+        let mut surround = setup;
+        surround.configuration = AudioConfiguration::SURROUND_71;
+        surround.opus.channel_count = 8;
+        assert_eq!(adapter.init(&surround), Ok(()));
+        assert_eq!(captured.channel_count, 8);
+        assert_eq!(captured.mapping, [0,4,1,5,2,3,6,7]);
+
+        let mut unsupported = setup;
+        unsupported.configuration = AudioConfiguration::SURROUND_714;
+        unsupported.opus.channel_count = 12;
+        assert_eq!(adapter.init(&unsupported), Err(MYSTIC_ERR_UNIMPLEMENTED));
+        for codec in [rubylight_protocol::audio_ext::CODEC_PCM,
+                      rubylight_protocol::audio_ext::CODEC_AC3,
+                      rubylight_protocol::audio_ext::CODEC_EAC3] {
+            unsupported = setup;
+            unsupported.codec = codec;
+            assert_eq!(adapter.init(&unsupported), Err(MYSTIC_ERR_UNIMPLEMENTED));
+        }
+        assert_eq!(captured.channel_count, 8, "unsupported setups must not reach Swift");
     }
 
     #[test]

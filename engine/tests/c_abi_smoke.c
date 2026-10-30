@@ -156,6 +156,17 @@ int main(void) {
     mystic_pcm_ring_free(ring);
     mystic_pcm_ring_free(NULL);
 
+    MysticRecovery *recovery = mystic_recovery_new();
+    CHECK(recovery != NULL, "shared recovery policy is allocated");
+    CHECK(mystic_recovery_next(recovery, 0, 0) == 1000, "recovery starts with a one-second delay");
+    CHECK(mystic_recovery_remaining(recovery, 60000) == 0, "recovery expires after one minute");
+    CHECK(!mystic_recovers_termination(-100, false) && mystic_recovers_termination(-100, true),
+          "recovery requires prior video");
+    CHECK(mystic_session_bitrate_begin(handle, 20000, 20000, 0) == MYSTIC_ERR_INVALID_ARGUMENT,
+          "adaptation cannot start without a session");
+    CHECK(mystic_session_bitrate_sample(NULL, -1, 0) == 0, "null adaptation sample holds the rate");
+    mystic_recovery_free(recovery);
+    mystic_recovery_free(NULL);
     mystic_session_free(handle);
     mystic_session_free(NULL); /* documented no-op */
     printf("  ok: free(NULL) is a no-op\n");

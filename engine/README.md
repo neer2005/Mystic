@@ -3,6 +3,23 @@
 C ABI over Nightjar's `nightjar-core` streaming engine, so the Swift app never has to
 implement a Rust trait.
 
+## Nightjar revision
+
+Pinned to Nightjar 4.0.1, `461e403b0a1fde4a1e447f73c65c505ab61e84ea`
+(synced 2026-10-30). `nightjar-core`, `rubylight-protocol`,
+and `nightjar-policy` must use the same revision; commit the updated `Cargo.lock`
+with all three pins.
+
+This brings in upstream engine fixes, including HEVC prefix-SEI preservation,
+FEC loss reporting for hosts that negotiate it, session-start failure reporting,
+and encrypted microphone setup diagnostics. New Nightjar application features
+still require their own Mystic integration.
+
+Mystic retains ABI 2: Opus stereo, 5.1 and 7.1. The bridge copies the first eight
+entries from Nightjar's expanded 12-entry mapping only for supported layouts and
+rejects 7.1.4 or passthrough setups before invoking Swift. Passthrough negotiation
+stays disabled. No C struct layout or Swift binding changes are required.
+
 ## What it does
 
 `nightjar-core` exposes Rust traits — `VideoDecoder`, `AudioRenderer`, `Listener` — and a
@@ -100,3 +117,12 @@ capture-ring/mono-Opus encoder functions. Start/stop, conversion, encoding and s
 are serialized by the Swift session worker. The audio IO producer only writes the
 ring's atomic sample storage. Microphone packets use Nightjar's encrypted transport;
 the front end does not construct encryption or silently send unencrypted audio.
+
+## Network policies (additive ABI 2)
+
+`MysticRecovery` wraps Nightjar's shared recovery budget. Session bitrate calls
+wrap its adaptive controller and read real receiver counters plus frame timing.
+Call these on their owning actor/worker; no policy call is a real-time audio
+callback. No existing C layouts change. Swift serializes samples and applied
+rates on the session worker, and performs host HTTP requests separately. See
+`docs/NETWORK.md` from the repository root for defaults, behavior and limits.

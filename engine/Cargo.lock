@@ -292,15 +292,17 @@ name = "mystic-ffi"
 version = "0.1.0"
 dependencies = [
  "nightjar-core",
+ "nightjar-policy",
  "opus",
  "rand_core",
+ "rubylight-protocol",
  "serde_json",
 ]
 
 [[package]]
 name = "nightjar-core"
 version = "0.1.0"
-source = "git+https://github.com/RamazanKara/nightjar?rev=f449b5d56e3402237e2121229a487de96f4de82a#f449b5d56e3402237e2121229a487de96f4de82a"
+source = "git+https://github.com/RamazanKara/nightjar?rev=461e403b0a1fde4a1e447f73c65c505ab61e84ea#461e403b0a1fde4a1e447f73c65c505ab61e84ea"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -317,6 +319,14 @@ dependencies = [
  "serde",
  "serde_json",
  "socket2",
+]
+
+[[package]]
+name = "nightjar-policy"
+version = "0.1.0"
+source = "git+https://github.com/RamazanKara/nightjar?rev=461e403b0a1fde4a1e447f73c65c505ab61e84ea#461e403b0a1fde4a1e447f73c65c505ab61e84ea"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -563,7 +573,7 @@ dependencies = [
 [[package]]
 name = "rubylight-protocol"
 version = "0.1.0"
-source = "git+https://github.com/RamazanKara/nightjar?rev=f449b5d56e3402237e2121229a487de96f4de82a#f449b5d56e3402237e2121229a487de96f4de82a"
+source = "git+https://github.com/RamazanKara/nightjar?rev=461e403b0a1fde4a1e447f73c65c505ab61e84ea#461e403b0a1fde4a1e447f73c65c505ab61e84ea"
 
 [[package]]
 name = "rustls"
@@ -608,7 +618,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 [[package]]
 name = "rusty_enet"
 version = "0.4.0"
-source = "git+https://github.com/RamazanKara/nightjar?rev=f449b5d56e3402237e2121229a487de96f4de82a#f449b5d56e3402237e2121229a487de96f4de82a"
+source = "git+https://github.com/RamazanKara/nightjar?rev=461e403b0a1fde4a1e447f73c65c505ab61e84ea#461e403b0a1fde4a1e447f73c65c505ab61e84ea"
 dependencies = [
  "js-sys",
 ]

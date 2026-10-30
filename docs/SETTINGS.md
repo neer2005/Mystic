@@ -3,8 +3,10 @@
 Open Mystic → Settings with Command–Comma. General controls the default library
 view, app sort order, and latency HUD visibility. Video contains resolution, frame
 rate, bitrate, codec and HDR. Audio contains the host channel layout, local volume
-and mute, plus opt-in Mac microphone forwarding with a separate microphone mute. Network enables or disables local host discovery while the library is
-open. Appearance, accessibility, and input-capture behavior follow the existing
+and mute, plus opt-in Mac microphone forwarding with a separate microphone mute. Network controls interrupted-stream recovery and local host discovery while the library is
+open. Automatic reconnect defaults on; automatic bitrate in Video defaults off.
+When enabled, the selected bitrate is its ceiling on hosts with live bitrate
+control. Both switches apply to the next session. See [NETWORK.md](NETWORK.md). Appearance, accessibility, and input-capture behavior follow the existing
 system/application behavior; there are no duplicate system preference switches.
 
 Stream Details edits the same saved defaults as Settings. These are shared app

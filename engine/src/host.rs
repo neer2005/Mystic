@@ -1,9 +1,35 @@
 //! Additive host-control bridge: protocol and certificate verification remain in Nightjar.
-use nightjar_core::http::{AppControl, ClientIdentity, HostClient, LaunchRequest, PairResult};
+use nightjar_core::http::{Feature, AppControl, ClientIdentity, HostClient, LaunchRequest, PairResult};
 use rand_core::{OsRng, RngCore};
 use serde_json::{json, Value};
 use std::ffi::{c_char, CStr, CString};
 use std::sync::Arc;
+
+struct HostError { message: String, retryable: bool }
+impl From<String> for HostError {
+    fn from(message: String) -> Self { Self { message, retryable: false } }
+}
+impl From<&str> for HostError {
+    fn from(message: &str) -> Self { message.to_owned().into() }
+}
+impl From<nightjar_core::http::Error> for HostError {
+    fn from(error: nightjar_core::http::Error) -> Self {
+        let retryable = matches!(&error, nightjar_core::http::Error::Io(e)
+            if matches!(e.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::ConnectionRefused
+                | std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+                | std::io::ErrorKind::NotConnected | std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::NetworkUnreachable | std::io::ErrorKind::HostUnreachable
+                | std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::AddrNotAvailable));
+        Self { message: error.to_string(), retryable }
+    }
+}
+fn host_envelope(result: Result<Value, HostError>) -> *mut c_char {
+    match result {
+        Ok(value) => envelope(Ok(value)),
+        Err(error) => CString::new(json!({"ok":false,"error":error.message,"retryable":error.retryable}).to_string())
+            .expect("JSON contains no literal NUL").into_raw(),
+    }
+}
 
 pub struct MysticHost {
     client: HostClient,
@@ -99,7 +125,7 @@ pub unsafe extern "C" fn mystic_host_request(
     operation: *const c_char,
     request: *const c_char,
 ) -> *mut c_char {
-    envelope((|| {
+    host_envelope((|| {
         let host = host.as_ref().ok_or("null host")?;
         let request: Value =
             serde_json::from_str(text(request)?).map_err(|_| "invalid request JSON")?;
@@ -107,16 +133,16 @@ pub unsafe extern "C" fn mystic_host_request(
     })())
 }
 impl MysticHost {
-    fn info(&self) -> Result<nightjar_core::http::ServerInfo, String> {
+    fn info(&self) -> Result<nightjar_core::http::ServerInfo, HostError> {
         // Never use Nightjar's HTTP fallback for an already pinned host.
         if self.client.server_certificate_pem().is_some() {
             self.client.server_info_https()
         } else {
             self.client.server_info_http(true)
         }
-        .map_err(|e| e.to_string())
+        .map_err(HostError::from)
     }
-    fn request(&self, operation: &str, v: Value) -> Result<Value, String> {
+    fn request(&self, operation: &str, v: Value) -> Result<Value, HostError> {
         match operation {
             "info" => {
                 let i = self.info()?;
@@ -128,7 +154,7 @@ impl MysticHost {
                     return Err("PIN must be four digits".into());
                 }
                 let i = self.info()?;
-                match self.client.pair(&i, pin).map_err(|e| e.to_string())? {
+                match self.client.pair(&i, pin).map_err(HostError::from)? {
                     PairResult::Paired {
                         server_certificate_pem,
                     } => Ok(json!({"certificate":server_certificate_pem,"uniqueID":i.unique_id})),
@@ -138,19 +164,26 @@ impl MysticHost {
                     PairResult::AlreadyInProgress => {
                         Err("Another device is pairing. Try again when it finishes.".into())
                     }
-                    PairResult::Failed(reason) => Err(format!("Pairing failed: {reason:?}")),
+                    PairResult::Failed(reason) => Err(format!("Pairing failed: {reason:?}").into()),
                 }
             }
             "apps" => {
-                let i = self.client.server_info_https().map_err(|e| e.to_string())?;
+                let i = self.client.server_info_https().map_err(HostError::from)?;
                 let apps = self
                     .client
                     .app_list(&i.capabilities)
-                    .map_err(|e| e.to_string())?;
+                    .map_err(HostError::from)?;
                 Ok(Value::Array(apps.into_iter().filter(|a| a.control == AppControl::None).map(|a|json!({"id":a.id,"name":a.name,"uuid":a.uuid,"hdrSupported":a.hdr_supported})).collect()))
             }
+            "bitrate" => {
+                let i = self.client.server_info_https().map_err(HostError::from)?;
+                if !i.capabilities.has(Feature::RuntimeBitrate) { return Err("This host does not support live bitrate changes.".into()); }
+                let kbps = v["kbps"].as_u64().filter(|v| (1..=150_000).contains(v)).ok_or("invalid bitrate")? as u32;
+                let applied = self.client.set_bitrate(kbps).map_err(HostError::from)?;
+                Ok(json!({"kbps":applied}))
+            }
             "launch" => {
-                let i = self.client.server_info_https().map_err(|e| e.to_string())?;
+                let i = self.client.server_info_https().map_err(HostError::from)?;
                 let app_id = v["appID"]
                     .as_i64()
                     .and_then(|n| i32::try_from(n).ok())
@@ -160,6 +193,9 @@ impl MysticHost {
                 let height = dimension(&v, "height", 4320)?;
                 let fps = dimension(&v, "fps", 240)?;
                 let hdr = v["hdr"].as_bool().unwrap_or(false);
+                if v["resumeOnly"].as_bool().unwrap_or(false) && i.current_game != app_id {
+                    return Err("The original app is no longer running on the host.".into());
+                }
                 // Refuse to replace an unrelated running application.
                 if i.current_game != 0 && i.current_game != app_id {
                     return Err("A different app is running on the host. End it on the host before launching another.".into());
@@ -193,13 +229,14 @@ impl MysticHost {
                 } else {
                     self.client.launch(&request, &i)
                 }
-                .map_err(|e| e.to_string())?;
+                .map_err(HostError::from)?;
                 let launched = result.ok_or("The host declined to start the stream.")?;
                 let mut iv = [0u8; 16];
                 iv[..4].copy_from_slice(&key_id.to_be_bytes());
                 Ok(
                     json!({"rtspURL":launched.rtsp_session_url,"appVersion":i.app_version,
-                    "codecSupport":i.server_codec_mode_support,"key":key,"iv":iv}),
+                    "codecSupport":i.server_codec_mode_support,"key":key,"iv":iv,
+                    "runtimeBitrate":i.capabilities.has(Feature::RuntimeBitrate)}),
                 )
             }
             _ => Err("unknown host operation".into()),
@@ -222,6 +259,13 @@ fn dimension(v: &Value, name: &str, max: u32) -> Result<u32, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_transport_errors_allow_a_recovery_retry() {
+        assert!(HostError::from(nightjar_core::http::Error::Io(std::io::ErrorKind::TimedOut.into())).retryable);
+        assert!(!HostError::from(nightjar_core::http::Error::CertificateMismatch).retryable);
+        assert!(!HostError::from(nightjar_core::http::Error::NotPaired).retryable);
+        assert!(!HostError::from(nightjar_core::http::Error::Status { code: 401, message: "denied".into() }).retryable);
+    }
     #[test]
     fn paired_alias_requires_its_own_local_pin() {
         let mut info = nightjar_core::http::ServerInfo::parse(

@@ -41,6 +41,18 @@ final class AppSettingsTests: XCTestCase {
             XCTAssertEqual(AppSettings(storage:storage).value.volume,0.5)
         }
     }
+    func testRecoveryAndBitratePreferencesMigrateWithoutResettingOlderSettings() throws {
+        let storage=MemorySettingsPreferences(),settings=AppSettings(storage:storage)
+        settings.update { $0.bitrateMbps=55;$0.codec="hevc" }
+        let model=ConnectionModel(rememberHost:false,settings:AppSettings(storage:storage))
+        XCTAssertTrue(model.automaticReconnect)
+        XCTAssertFalse(model.adaptiveBitrate)
+        XCTAssertEqual(model.bitrateMbps,55)
+        model.automaticReconnect=false;model.adaptiveBitrate=true
+        let loaded=ConnectionModel(rememberHost:false,settings:AppSettings(storage:storage))
+        XCTAssertFalse(loaded.automaticReconnect);XCTAssertTrue(loaded.adaptiveBitrate)
+        XCTAssertEqual(loaded.codec,"hevc");XCTAssertEqual(loaded.bitrateMbps,55)
+    }
     func testSharedModelBindingsAndDiscoveryLifecycle() {
         let storage=MemorySettingsPreferences(),settings=AppSettings(storage:storage),transport=CountingDiscovery()
         let model=ConnectionModel(rememberHost:false,settings:settings,discovery:HostDiscovery(transport:transport))

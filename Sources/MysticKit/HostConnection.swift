@@ -34,6 +34,7 @@ public struct LaunchOptions: Codable, Sendable {
     public var channelCount: UInt8 = 2
     public var channelMask: UInt16 = 3
     public var gamepadMask: UInt16 = 0
+    public var resumeOnly = false
     public init(app: HostApp) { appID = app.id; appUUID = app.uuid }
 }
 public struct LaunchedStream: Codable, Sendable {
@@ -42,10 +43,12 @@ public struct LaunchedStream: Codable, Sendable {
     public let codecSupport: UInt32
     public let key: [UInt8]
     public let iv: [UInt8]
+    public var runtimeBitrate: Bool? = nil
 }
 public struct HostConnectionError: Error, LocalizedError, Sendable {
     public let message: String
-    public init(_ message: String) { self.message = message }
+    public let retryable: Bool
+    public init(_ message: String, retryable: Bool = false) { self.message = message;self.retryable=retryable }
     public var errorDescription: String? { message }
 }
 
@@ -54,8 +57,13 @@ public protocol HostService: AnyObject, Sendable {
     func pair(pin: String) async throws -> PairedHost
     func apps() async throws -> [HostApp]
     func launch(_ options: LaunchOptions) async throws -> LaunchedStream
+    func setBitrate(kbps: UInt32) async throws -> UInt32
     /// Permanently cancels this connection, including in-flight pairing and launch requests.
     func cancel()
+}
+
+public extension HostService {
+    func setBitrate(kbps: UInt32) async throws -> UInt32 { throw HostConnectionError("This host does not support live bitrate changes.") }
 }
 
 /// A worker queue owns blocking Nightjar calls. Cancellation is the sole concurrent operation.
@@ -88,6 +96,11 @@ public final class HostConnection: HostService, @unchecked Sendable {
     public func launch(_ options: LaunchOptions) async throws -> LaunchedStream {
         try await request("launch", json: String(decoding: JSONEncoder().encode(options), as: UTF8.self))
     }
+    public func setBitrate(kbps: UInt32) async throws -> UInt32 {
+        struct Applied: Decodable, Sendable { let kbps: UInt32 }
+        let applied: Applied = try await request("bitrate",json:String(decoding:JSONEncoder().encode(["kbps":kbps]),as:UTF8.self))
+        return applied.kbps
+    }
     private func request<T: Decodable & Sendable>(_ operation: String, json: String) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { [self] in
@@ -96,14 +109,14 @@ public final class HostConnection: HostService, @unchecked Sendable {
             }
         }
     }
-    private struct Envelope<T: Decodable>: Decodable { let ok: Bool; let value: T?; let error: String? }
+    private struct Envelope<T: Decodable>: Decodable { let ok: Bool; let value: T?; let error: String?;let retryable: Bool? }
     private static func decode<T: Decodable>(_ pointer: UnsafeMutablePointer<CChar>?) throws -> T {
         guard let pointer else { throw HostConnectionError("The engine returned no response.") }
         defer { mystic_string_free(pointer) }
         let bytes = Data(bytes: pointer, count: strlen(pointer))
         let envelope = try JSONDecoder().decode(Envelope<T>.self, from: bytes)
         guard envelope.ok, let result = envelope.value else {
-            throw HostConnectionError(envelope.error ?? "The host request failed.")
+            throw HostConnectionError(envelope.error ?? "The host request failed.",retryable:envelope.retryable ?? false)
         }
         return result
     }

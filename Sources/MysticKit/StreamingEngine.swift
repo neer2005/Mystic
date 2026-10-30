@@ -129,6 +129,18 @@ public final class StreamingEngine {
         self.handle = handle
     }
 
+    /// Serialized on the same worker as start/stop and input.
+    public func beginAdaptiveBitrate(ceiling: UInt32, current: UInt32, nowMillis: UInt64) -> Bool {
+        mystic_session_bitrate_begin(handle,ceiling,current,nowMillis) == 0
+    }
+    public func suggestedBitrate(decodeMillis: Float, nowMillis: UInt64) -> UInt32? {
+        let kbps=mystic_session_bitrate_sample(handle,decodeMillis,nowMillis)
+        return kbps == 0 ? nil : kbps
+    }
+    public func appliedBitrate(requested: UInt32, applied: UInt32, nowMillis: UInt64) {
+        mystic_session_bitrate_applied(handle,requested,applied,nowMillis)
+    }
+
     deinit {
         if let handle {
             // Stop first: free() must not race with a running callback.

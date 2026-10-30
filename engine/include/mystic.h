@@ -253,6 +253,22 @@ void mystic_mic_free(MysticMic *mic);
 bool mystic_session_microphone_available(const MysticSession *session);
 int32_t mystic_session_send_microphone(const MysticSession *session, const uint8_t *packet, size_t length);
 
+/* Shared Nightjar policies. Serialized owner-thread calls; monotonic milliseconds.
+ * Recovery next returns -1 when exhausted, otherwise a delay in ms.
+ * Bitrate sample returns 0 to hold; only one request is allowed until applied.
+ * Stop using a bitrate policy after an HTTP failure (do not report a fictitious applied rate).
+ */
+typedef struct MysticRecovery MysticRecovery;
+MysticRecovery *mystic_recovery_new(void);
+void mystic_recovery_free(MysticRecovery *policy);
+bool mystic_recovers_termination(int32_t code, bool video_started);
+bool mystic_recovers_startup(int32_t stage, int32_t code);
+int64_t mystic_recovery_next(MysticRecovery *policy, uint64_t now_ms, uint64_t connected_ms);
+uint64_t mystic_recovery_remaining(const MysticRecovery *policy, uint64_t now_ms);
+int32_t mystic_session_bitrate_begin(MysticSession *session, uint32_t ceiling, uint32_t current, uint64_t now_ms);
+uint32_t mystic_session_bitrate_sample(MysticSession *session, float decode_ms, uint64_t now_ms);
+void mystic_session_bitrate_applied(MysticSession *session, uint32_t requested, uint32_t applied, uint64_t now_ms);
+
 /* Reserved for a future ABI; returns MYSTIC_ERR_UNIMPLEMENTED in v1. */
 int32_t mystic_frame_buffers(const MysticFrame *frame, MysticFrameBuffer *out, size_t capacity);
 

@@ -3,9 +3,44 @@ import MysticKit
 import MysticStream
 import MysticCore
 
+struct StreamStartFailure: Sendable {
+    let message: String
+    let stage: Stage?
+    let code: Int32?
+    var retryable: Bool {
+        guard let stage,let code else { return false }
+        return StreamRecovery.recoversStartup(stage:stage,code:code)
+    }
+}
+private final class StartupFailureRecord: @unchecked Sendable {
+    private let lock=NSLock()
+    private var failedStage: (Stage,Int32)?
+    func receive(_ event: EngineEvent) {
+        if case let .stageFailed(stage,code)=event { lock.withLock { failedStage=(stage,code) } }
+    }
+    func failure(_ error: any Error) -> StreamStartFailure {
+        let value=lock.withLock { failedStage }
+        return StreamStartFailure(message:String(describing:error),stage:value?.0,code:value?.1)
+    }
+}
+
+protocol StreamSessionService: AnyObject, Sendable {
+    func start(host: String, launch: LaunchedStream, configuration: StreamConfiguration,
+               decoder: VideoToolboxDecoder, audio: AudioPlayer, event: @escaping @Sendable (EngineEvent) -> Void,
+               failure: @escaping @Sendable (StreamStartFailure) -> Void,
+               microphoneMuted: Bool, microphoneStatus: @escaping @Sendable (String) -> Void)
+    func stop(completion: @escaping @Sendable () -> Void)
+    func requestVideoRecovery()
+    func setMicrophoneMuted(_ muted: Bool)
+    func send(_ event: RemoteInputEvent) -> Bool
+    func beginAdaptiveBitrate(ceiling: UInt32, current: UInt32) async -> Bool
+    func suggestedBitrate(decodeMillis: Float) async -> UInt32?
+    func appliedBitrate(requested: UInt32, applied: UInt32) async
+}
+
 /// Owns one engine on one worker queue. Interrupt may be called while start blocks;
 /// stop/free are serialized after start returns. A fresh instance is used on reconnect.
-final class StreamSession: @unchecked Sendable {
+final class StreamSession: StreamSessionService, @unchecked Sendable {
     private let queue = DispatchQueue(label: "Mystic.StreamSession")
     private let engine: StreamingEngine
     private let recoveryRequests = KeyframeRequestGate()
@@ -20,14 +55,15 @@ final class StreamSession: @unchecked Sendable {
     }
     func start(host: String, launch: LaunchedStream, configuration: StreamConfiguration,
                decoder: VideoToolboxDecoder, audio: AudioPlayer, event: @escaping @Sendable (EngineEvent) -> Void,
-               failure: @escaping @Sendable (String) -> Void,
+               failure: @escaping @Sendable (StreamStartFailure) -> Void,
                microphoneMuted: Bool = false,microphoneStatus: @escaping @Sendable (String) -> Void = { _ in }) {
         queue.async { [self] in
+            let startup=StartupFailureRecord()
             do {
                 guard let version = launch.appVersion else { throw HostConnectionError("The host did not report its application version.") }
                 try engine.start(host: host, appVersion: version, rtspSessionURL: launch.rtspURL,
                     serverCodecModeSupport: launch.codecSupport, configuration: configuration,
-                    video: decoder, audio: audio, onEvent: event)
+                    video: decoder, audio: audio, onEvent: { value in startup.receive(value);event(value) })
                 acceptingInput = true
                 if configuration.microphone {
                     if engine.microphoneAvailable {
@@ -39,7 +75,7 @@ final class StreamSession: @unchecked Sendable {
                         catch { microphoneStatus("Microphone unavailable: \(error.localizedDescription)") }
                     } else { microphoneStatus("Host did not negotiate encrypted microphone passthrough.") }
                 } else { microphoneStatus("Microphone off") }
-            } catch { failure(String(describing: error)) }
+            } catch { failure(startup.failure(error)) }
         }
     }
     func stop(completion: @escaping @Sendable () -> Void = {}) {
@@ -52,6 +88,23 @@ final class StreamSession: @unchecked Sendable {
             engine.stop(); completion()
         }
     }
+    func beginAdaptiveBitrate(ceiling: UInt32, current: UInt32) async -> Bool {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            continuation.resume(returning:acceptingInput && engine.beginAdaptiveBitrate(ceiling:ceiling,current:current,nowMillis:Self.nowMillis()))
+        } }
+    }
+    func suggestedBitrate(decodeMillis: Float) async -> UInt32? {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            continuation.resume(returning:acceptingInput ? engine.suggestedBitrate(decodeMillis:decodeMillis,nowMillis:Self.nowMillis()) : nil)
+        } }
+    }
+    func appliedBitrate(requested: UInt32, applied: UInt32) async {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            if acceptingInput { engine.appliedBitrate(requested:requested,applied:applied,nowMillis:Self.nowMillis()) }
+            continuation.resume()
+        } }
+    }
+    private static func nowMillis() -> UInt64 { DispatchTime.now().uptimeNanoseconds/1_000_000 }
     /// May be called from a decoder callback, including while start is still returning.
     func requestVideoRecovery() {
         guard recoveryRequests.offer() else { return }
