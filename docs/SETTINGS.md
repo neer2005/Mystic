@@ -82,6 +82,13 @@ Output changes rebuild only audio and keep local volume/mute. If bounded automat
 retries run out, Retry Audio appears here and in the stream toolbar. A device
 change also starts recovery again. See [AUDIO.md](AUDIO.md) and [PLAYTEST.md](PLAYTEST.md).
 
+Host Channels can request Stereo, 5.1 or 7.1 for the next stream. On an output with
+a configured 5.1/7.1 speaker layout, surround stays discrete, including LFE and
+separate side/rear channels. Other outputs fall back to stereo with a reason in
+the audio status. The mode is re-evaluated when outputs change; the host channel
+request stays fixed until the next stream. Stereo remains the default. This is
+decoded PCM output, not Dolby/DTS passthrough or headphone spatialization.
+
 
 Frame Pacing defaults to Low Latency; Balanced adds approximately one frame of
 buffering for steadier cadence. The setting applies to the next stream and is

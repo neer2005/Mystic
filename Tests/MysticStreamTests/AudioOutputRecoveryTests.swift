@@ -2,18 +2,19 @@ import XCTest
 import Foundation
 import CMystic
 import MysticKit
+import MysticCore
 @testable import MysticStream
 
 final class AudioOutputRecoveryTests: XCTestCase {
     private let info=AudioSetupInfo(channelCount:2,channelMask:3,packetDurationMs:5,samplesPerFrame:240)
-    private func packets() throws -> [Data] {
+    private func packets(_ name: String = "stereo") throws -> [Data] {
         struct Fixture: Decodable { let packets: [Data] }
-        let url=try XCTUnwrap(Bundle.module.url(forResource:"audio-stereo",withExtension:"json",subdirectory:"Fixtures"))
+        let url=try XCTUnwrap(Bundle.module.url(forResource:"audio-"+name,withExtension:"json",subdirectory:"Fixtures"))
         return try JSONDecoder().decode(Fixture.self,from:Data(contentsOf:url)).packets
     }
     private func player(_ outputs: TestAudioOutputs,_ monitor: TestAudioOutputMonitor,
                         retryDelay: TimeInterval = 0.01,routeDelay: TimeInterval = 0.02) -> AudioPlayer {
-        AudioPlayer(monitor:monitor,makeOutput:{ try outputs.make(gain:$0,changed:$1) },retryDelay:retryDelay,routeDelay:routeDelay)
+        AudioPlayer(monitor:monitor,makeOutput:{ info,gain,reason,changed in try outputs.make(info:info,gain:gain,reason:reason,changed:changed) },retryDelay:retryDelay,routeDelay:routeDelay)
     }
     private func wait(_ condition: () -> Bool) async throws {
         for _ in 0..<300 { if condition() { return };try await Task.sleep(for:.milliseconds(5)) }
@@ -123,6 +124,57 @@ final class AudioOutputRecoveryTests: XCTestCase {
         XCTAssertEqual(player.statistics.outputStatus,.playing)
         player.cleanup()
     }
+    func testSurroundToHeadphonesAndBackRebuildsRoutingAndRetainsMute() async throws {
+        let speakers: [AudioSpeaker]=[.left,.right,.center,.lfe,.surroundLeft,.surroundRight,.rearLeft,.rearRight]
+        let outputs=TestAudioOutputs(),monitor=TestAudioOutputMonitor(),player=player(outputs,monitor)
+        let info=AudioSetupInfo(channelCount:8,channelMask:0x63F,packetDurationMs:5,samplesPerFrame:240,
+            streams:8,coupledStreams:0,mapping:[0,1,2,3,4,5,6,7])
+        outputs.route(name:"HDMI 7.1",rate:48_000,speakers:speakers)
+        try player.setup(info);player.start()
+        let packets=try packets("surround71"),first=try XCTUnwrap(outputs.all.first)
+        XCTAssertEqual(player.statistics.outputLayout,"7.1 discrete");XCTAssertEqual(first.render.channels,8)
+        packets[0].withUnsafeBytes { player.play($0) }
+        player.setVolume(0.25,muted:true)
+        outputs.route(name:"Headphones",rate:44_100);monitor.emit()
+        try await wait { outputs.all.count == 2 && player.statistics.outputStatus == .playing }
+        let headphones=try XCTUnwrap(outputs.all.last)
+        XCTAssertEqual(headphones.render.channels,2);XCTAssertEqual(player.statistics.outputLayout,"7.1 → stereo")
+        XCTAssertNotNil(player.statistics.stereoFallbackReason)
+        packets[1].withUnsafeBytes { player.play($0) }
+        XCTAssertTrue(headphones.read(240).allSatisfy { $0 == 0 })
+        outputs.route(name:"HDMI 7.1",rate:96_000,speakers:speakers);monitor.emit()
+        try await wait { outputs.all.count == 3 && player.statistics.outputStatus == .playing }
+        let surround=try XCTUnwrap(outputs.all.last)
+        XCTAssertEqual(surround.render.channels,8);XCTAssertNil(player.statistics.stereoFallbackReason)
+        packets[2].withUnsafeBytes { player.play($0) }
+        XCTAssertTrue(surround.read(240).allSatisfy { $0 == 0 })
+        player.setVolume(0.25,muted:false)
+        packets[3].withUnsafeBytes { player.play($0) }
+        let audible=surround.read(240)
+        for channel in 0..<8 { XCTAssertTrue((128..<240).contains { abs(audible[$0*8+channel]) > 0.001 }) }
+        first.changed();try await Task.sleep(for:.milliseconds(35))
+        XCTAssertEqual(outputs.attempts,3);XCTAssertEqual(player.statistics.decodedPackets,4)
+        XCTAssertEqual(player.statistics.decodeErrors,0)
+        player.cleanup()
+    }
+    func testFailedSurroundGraphFallsBackAndItsLateCallbackCannotRestartPlayback() async throws {
+        let outputs=TestAudioOutputs(),monitor=TestAudioOutputMonitor(),player=player(outputs,monitor)
+        outputs.route(name:"Receiver",rate:48_000,speakers:AudioSpeaker.allCases)
+        outputs.failures=1
+        let info=AudioSetupInfo(channelCount:8,channelMask:0x63F,packetDurationMs:5,samplesPerFrame:240,
+            streams:8,coupledStreams:0,mapping:[0,1,2,3,4,5,6,7])
+        try player.setup(info);player.start()
+        XCTAssertEqual(outputs.attempts,2)
+        XCTAssertEqual(player.statistics.outputStatus,.playing)
+        XCTAssertEqual(player.statistics.outputLayout,"7.1 → stereo")
+        XCTAssertEqual(player.statistics.stereoFallbackReason,"Multichannel playback could not start on this output")
+        try XCTUnwrap(outputs.allCallbacks.first)()
+        try await Task.sleep(for:.milliseconds(40))
+        XCTAssertEqual(outputs.attempts,2)
+        monitor.emit()
+        try await wait { outputs.attempts == 3 && player.statistics.outputLayout == "7.1 discrete" }
+        player.cleanup()
+    }
 }
 
 private final class TestAudioOutputMonitor: AudioOutputMonitoring,@unchecked Sendable {
@@ -143,20 +195,27 @@ private final class TestAudioOutputs: @unchecked Sendable {
     private let lock=NSLock()
     private var outputs: [TestAudioOutput] = []
     private var failureCount=0,count=0,name="Speakers",rate=48_000.0
+    private var speakers: [AudioSpeaker]?
+    private var callbacks: [@Sendable () -> Void] = []
+    var allCallbacks: [@Sendable () -> Void] { lock.withLock { callbacks } }
     var failures: Int { get { lock.withLock { failureCount } } set { lock.withLock { failureCount=newValue } } }
     var attempts: Int { lock.withLock { count } }
     var all: [TestAudioOutput] { lock.withLock { outputs } }
-    func route(name: String,rate: Double) { lock.withLock { self.name=name;self.rate=rate } }
-    func make(gain: Float,changed: @escaping @Sendable () -> Void) throws -> TestAudioOutput {
+    func route(name: String,rate: Double,speakers: [AudioSpeaker]? = nil) { lock.withLock { self.name=name;self.rate=rate;self.speakers=speakers } }
+    func make(info: AudioSetupInfo,gain: Float,reason: String?,changed: @escaping @Sendable () -> Void) throws -> TestAudioOutput {
         try lock.withLock {
             count += 1
+            callbacks.append(changed)
             if failureCount > 0 { failureCount -= 1;throw AudioPlaybackError("Device unavailable") }
-            let output=try TestAudioOutput(gain:gain,name:name,rate:rate,changed:changed)
+            let routing=try AudioChannelRouting(channelCount:Int(info.channelCount),channelMask:info.channelMask,
+                destination:reason == nil ? speakers : nil,fallbackReason:reason)
+            let output=try TestAudioOutput(gain:gain,name:name,rate:rate,routing:routing,changed:changed)
             outputs.append(output);return output
         }
     }
 }
 private final class TestAudioOutput: AudioOutputPipeline,@unchecked Sendable {
+    let routing: AudioChannelRouting
     let render: AudioRenderState
     let device: AudioOutputDevice?
     let sampleRate: Double
@@ -164,16 +223,18 @@ private final class TestAudioOutput: AudioOutputPipeline,@unchecked Sendable {
     let changed: @Sendable () -> Void
     private let lock=NSLock();private var stopCount=0
     var stops: Int { lock.withLock { stopCount } }
-    init(gain: Float,name: String,rate: Double,changed: @escaping @Sendable () -> Void) throws {
-        render=try AudioRenderState(initialGain:gain);initialGain=gain
+    init(gain: Float,name: String,rate: Double,routing: AudioChannelRouting,changed: @escaping @Sendable () -> Void) throws {
+        self.routing=routing;render=try AudioRenderState(initialGain:gain,channels:routing.outputChannels);initialGain=gain
         device=AudioOutputDevice(id:1,name:name);sampleRate=rate;self.changed=changed
     }
     func stop() { lock.withLock { stopCount += 1 } }
     func read(_ frames: Int) -> [Float] {
-        var left=Array(repeating:Float(0),count:frames),right=left
-        _=left.withUnsafeMutableBufferPointer { l in right.withUnsafeMutableBufferPointer { r in
-            mystic_pcm_ring_read(render.ring,l.baseAddress,r.baseAddress,UInt32(frames))
-        } }
-        return (0..<frames).flatMap { [left[$0],right[$0]] }
+        let count=routing.outputChannels
+        let samples=UnsafeMutablePointer<Float>.allocate(capacity:frames*count)
+        samples.initialize(repeating:0,count:frames*count)
+        defer { samples.deallocate() }
+        let planes: [UnsafeMutablePointer<Float>?]=(0..<count).map { samples.advanced(by:$0*frames) }
+        _=planes.withUnsafeBufferPointer { mystic_pcm_ring_read_planar(render.ring,$0.baseAddress,UInt32(count),UInt32(frames)) }
+        return (0..<frames).flatMap { frame in (0..<count).map { samples[$0*frames+frame] } }
     }
 }

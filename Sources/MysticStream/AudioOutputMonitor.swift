@@ -44,6 +44,12 @@ final class AudioOutputMonitor: AudioOutputMonitoring, @unchecked Sendable {
             }
             device.append(try register(object:id,selector:kAudioDevicePropertyStreamConfiguration,
                 scope:kAudioDevicePropertyScopeOutput,changed:changed))
+            var speakers=Self.address(kAudioDevicePropertyPreferredChannelLayout,scope:kAudioDevicePropertyScopeOutput)
+            if AudioObjectHasProperty(id,&speakers),let registration=try? register(object:id,selector:kAudioDevicePropertyPreferredChannelLayout,
+                scope:kAudioDevicePropertyScopeOutput,changed:changed) {
+                // An optional speaker-layout listener must not disable device/route monitoring.
+                device.append(registration)
+            }
             observedDevice=id
         } catch { remove(&device);throw error }
     }

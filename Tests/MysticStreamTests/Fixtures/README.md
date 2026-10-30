@@ -12,3 +12,14 @@ original synthetic, per-channel sine waves. The channel map in each JSON is
 permuted from Ogg Vorbis order to Windows speaker-mask order, matching Nightjar's
 consumer contract. Regenerate with `scripts/generate-audio-fixtures.py`; the data
 is also CC0-1.0. No microphone recordings or third-party audio are included.
+
+`audio-surround71.json` is another CC0-1.0 synthetic fixture, generated with the
+repository's pinned libopus through `engine/examples/generate-surround-fixture.rs`:
+
+```sh
+cargo run --manifest-path engine/Cargo.toml --example generate-surround-fixture > Tests/MysticStreamTests/Fixtures/audio-surround71.json
+```
+
+Its independent mono Opus streams preserve eight distinct tones in Windows
+FL/FR/FC/LFE/BL/BR/SL/SR order. It tests channel identity, including LFE and both
+surround pairs, without relying on a physical multichannel device.

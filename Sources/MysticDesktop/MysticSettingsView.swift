@@ -25,7 +25,7 @@ public struct MysticSettingsView: View {
                 }.tabItem { Label("Video",systemImage:"display") }.tag("video")
                 Form {
                     Section("Playback") { AudioPreferencesView(model:model) }
-                    Section { Text("Volume and mute apply immediately. Surround host audio is mixed to stereo on this Mac.").foregroundStyle(.secondary) }
+                    Section { Text("Volume and mute apply immediately. Surround plays on a configured multichannel output, with stereo fallback for other devices.").foregroundStyle(.secondary) }
                 }.tabItem { Label("Audio",systemImage:"speaker.wave.2") }.tag("audio")
                 Form {
                     Section("Stream Recovery") {
@@ -100,7 +100,7 @@ struct AudioPreferencesView: View {
     @Bindable var model: ConnectionModel
     var body: some View {
         Picker("Host Channels",selection:$model.audioLayout) {
-            Text("Stereo").tag("stereo");Text("5.1 → Stereo").tag("5.1");Text("7.1 → Stereo").tag("7.1")
+            Text("Stereo").tag("stereo");Text("5.1").tag("5.1");Text("7.1").tag("7.1")
         }.disabled(model.hasSession || model.isBusy)
         Toggle("Mute",isOn:$model.muted)
         Slider(value:$model.volume,in:0...1) { Text("Volume") }

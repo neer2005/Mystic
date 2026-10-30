@@ -168,6 +168,15 @@ int main(void) {
     mystic_pcm_ring_set_gain(ring, 0);
     mystic_pcm_ring_free(ring);
     mystic_pcm_ring_free(NULL);
+    MysticPCMRing *surround = mystic_pcm_ring_new_channels(128, 128, 8);
+    float multichannel[32], planar[8][8], *planes[8];
+    for (int ch=0;ch<8;ch++) planes[ch]=planar[ch];
+    for (int i=0;i<32;i++) multichannel[i]=(float)i;
+    CHECK(surround != NULL, "multichannel PCM ring is created through additive ABI");
+    CHECK(mystic_pcm_ring_write(surround,multichannel,4)==4, "multichannel ring accepts eight channels");
+    CHECK(mystic_pcm_ring_read_planar(surround,planes,8,8)==4, "multichannel ring renders planar output");
+    CHECK(planar[7][3]==31 && planar[0][4]==0, "multichannel ring preserves last channel and zero-fills underruns");
+    mystic_pcm_ring_free(surround);
 
     char *clipboard_result = mystic_session_clipboard_step(handle, "{\"active\":false}");
     CHECK(clipboard_result != NULL && strstr(clipboard_result, "\"ok\":false") != NULL,

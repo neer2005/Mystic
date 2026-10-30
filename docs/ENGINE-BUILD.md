@@ -16,14 +16,15 @@ sync are covered in `CLIPBOARD.md`. Native Low Latency/Balanced presentation
 and its diagnostic counters are covered in `FRAME-PACING.md`. Display-aware native
 HDR/EDR requests and color metadata diagnostics are covered in `HDR.md`. Saved host
 and game video profiles and their launch/recovery snapshot are covered in `PROFILES.md`.
-Default audio-output monitoring and bounded recovery are covered in `AUDIO.md`. See
+Default audio-output monitoring, bounded recovery and discrete 5.1/7.1 PCM output
+with stereo fallback are covered in `AUDIO.md`. See
 `engine/README.md` for scope and revision-update rules.
 
 Verified on macOS arm64 with Xcode 27:
 
-- `bash engine/scripts/test-c-abi.sh`: 25 Rust tests passed, release archive built,
+- `bash engine/scripts/test-c-abi.sh`: 28 Rust tests passed, release archive built,
   C smoke test passed with all six struct layouts matching.
-- `swift test --disable-sandbox`: 194 tests passed; four AV1 hardware tests skipped
+- `swift test --disable-sandbox`: 206 tests passed; four AV1 hardware tests skipped
   because this Mac has no hardware AV1 decoder.
 - `bash scripts/build-macos-app.sh`: local `.build/Mystic.app` rebuilt with persistent
   Apple Development signing and strict signature verification; see `SIGNING.md`.

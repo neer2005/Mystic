@@ -421,7 +421,9 @@ public final class ConnectionModel {
                 self.audioOutputStatus=stats.outputStatus
                 let route=stats.outputDevice.map { " · "+$0 } ?? ""
                 let rate=stats.outputSampleRate.map { String(format:" · %.1f kHz",$0/1000) } ?? ""
-                self.audioStatus = "\(stats.outputStatus.label)\(route)\(rate): \(stats.decodedPackets) packets, \(stats.concealedPackets) concealed, \(stats.renderedFrames) frames rendered, \(stats.queuedFrames/48) ms queued · \(stats.outputRestarts) output restarts · \(stats.discardedOutputFrames) frames discarded during output changes"
+                let layout=stats.outputLayout.map { " · "+$0 } ?? ""
+                let fallback=stats.stereoFallbackReason.map { " ("+$0+")" } ?? ""
+                self.audioStatus = "\(stats.outputStatus.label)\(route)\(rate)\(layout)\(fallback): \(stats.decodedPackets) packets, \(stats.concealedPackets) concealed, \(stats.renderedFrames) frames rendered, \(stats.queuedFrames/48) ms queued · \(stats.outputRestarts) output restarts · \(stats.discardedOutputFrames) frames discarded during output changes"
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
         }
