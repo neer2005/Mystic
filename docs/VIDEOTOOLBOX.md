@@ -75,10 +75,13 @@ recovery before the next submission. See [RECOVERY.md](RECOVERY.md). Recovery di
 New parameter sets rebuild the session; keyframe dimension changes are accepted.
 
 PTS conversion uses integer microseconds relative to the first frame of a session.
-The presenter anchors a render synchronizer to the first accepted image and uses
-the macOS 27 receiver API for backpressure. A mailbox coalesces waiting images to
-the newest frame; stale images and timestamps outside a 100 ms scheduling window
-are dropped. It retains at most one waiting image plus an enqueue in progress.
+The presenter uses a render synchronizer and the macOS 27 receiver API for
+backpressure. Low Latency retimes decoded samples to the current renderer clock;
+Balanced maps source cadence with one frame of buffering. A mailbox coalesces
+waiting images and retains at most one waiting image plus a drain/enqueue in
+progress. Bounded waits, stale-image drops, stall/rate-change reanchoring and
+repeated-timestamp-discontinuity recovery are described in [FRAME-PACING.md](FRAME-PACING.md).
+The HUD separates presenter decisions/queue depth from renderer-reported drops.
 
 Stop/cleanup invalidate session generations, cancel pending presentation work,
 and clear the displayed image. Old callbacks cannot contaminate a new generation.

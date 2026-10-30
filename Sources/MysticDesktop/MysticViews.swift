@@ -13,7 +13,7 @@ public struct StreamingView: View {
                 VideoSurface(presenter: presenter,capture:model.inputCapture)
                     .overlay(alignment:.topLeading) {
                         if model.showLatencyHUD {
-                            LatencyHUD(snapshot:model.videoTelemetry)
+                            LatencyHUD(snapshot:model.videoTelemetry,mode:presenter.pacingMode)
                                 .padding(12).allowsHitTesting(false)
                         }
                     }
@@ -102,11 +102,12 @@ private final class WindowProbe: NSView {
 /// Read-only overlay; pointer and keyboard events continue to the streaming view.
 private struct LatencyHUD: View {
     let snapshot: VideoTelemetrySnapshot?
+    let mode: FramePacingMode
     private func milliseconds(_ value: Int64) -> String { String(format:"%.2f",Double(value)/1000) }
     private func rate(_ value: Double?) -> String { value.map { String(format:"%.1f",$0) } ?? "—" }
     var body: some View {
         VStack(alignment:.leading,spacing:8) {
-            Text("Video latency").font(.headline)
+            Text("Video latency · \(mode.label)").font(.headline)
             Text("Decoded \(rate(snapshot?.decodedFPS)) fps · Enqueued \(rate(snapshot?.enqueuedFPS)) fps")
             Grid(alignment:.leading,horizontalSpacing:14,verticalSpacing:4) {
                 GridRow {
@@ -125,6 +126,11 @@ private struct LatencyHUD: View {
             }
             if let snapshot {
                 Text("Submitted \(snapshot.submitted) · Decoded \(snapshot.decoded) · Enqueued \(snapshot.enqueued)")
+                let presentation=snapshot.presentation
+                Text("Presenter queue \(presentation.queueDepth)/2 · Peak \(presentation.peakQueueDepth) · Late \(presentation.lateFrames)")
+                Text("Presenter drops \(presentation.droppedFrames) · Superseded \(presentation.drops[.superseded,default:0]) · Late \(presentation.drops[.late,default:0])")
+                Text("Order/time \(presentation.drops[.outOfOrder,default:0] + presentation.drops[.invalidTimestamp,default:0]) · Reset discards \(presentation.drops[.reset,default:0]) · Enqueue errors \(presentation.drops[.enqueueFailure,default:0])")
+                Text("Timeline resets \(presentation.resynchronizations) · Renderer drops \(presentation.rendererDroppedFrames.map(String.init) ?? "—") · Corrupt \(presentation.rendererCorruptedFrames.map(String.init) ?? "—")")
             } else { Text("Waiting for video measurements…") }
             Text("Enqueue ends at renderer acceptance.\nNetwork transit and screen latency unavailable.")
                 .foregroundStyle(.secondary)

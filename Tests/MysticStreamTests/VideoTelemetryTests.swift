@@ -3,6 +3,25 @@ import MysticCore
 @testable import MysticStream
 
 final class VideoTelemetryTests: XCTestCase {
+    func testPresentationCountersAndRendererMetricsRejectOldGenerations() {
+        let telemetry=VideoTelemetry();telemetry.activate(generation:1)
+        telemetry.presentationQueue(generation:1,depth:2)
+        telemetry.presentationDrop(generation:1,reason:.superseded,count:3)
+        telemetry.rendererMetrics(generation:1,dropped:5,corrupted:1)
+        telemetry.activate(generation:2)
+        telemetry.presentationQueue(generation:1,depth:2)
+        telemetry.presentationDrop(generation:1,reason:.late,count:99)
+        telemetry.presentationLate(generation:1);telemetry.presentationResynchronize(generation:1)
+        telemetry.rendererMetrics(generation:1,dropped:999,corrupted:999)
+        let snapshot=telemetry.snapshot().presentation
+        XCTAssertEqual(snapshot.queueDepth,0);XCTAssertEqual(snapshot.peakQueueDepth,2)
+        XCTAssertEqual(snapshot.droppedFrames,3);XCTAssertEqual(snapshot.lateFrames,0)
+        XCTAssertEqual(snapshot.resynchronizations,0);XCTAssertNil(snapshot.rendererDroppedFrames)
+        telemetry.presentationQueue(generation:2,depth:1)
+        telemetry.rendererMetrics(generation:2,dropped:7,corrupted:0)
+        XCTAssertEqual(telemetry.snapshot().presentation.queueDepth,1)
+        XCTAssertEqual(telemetry.snapshot().presentation.rendererDroppedFrames,7)
+    }
     func testGenerationGateRejectsAllStaleMeasurementPaths() {
         let telemetry=VideoTelemetry()
         telemetry.activate(generation:3)

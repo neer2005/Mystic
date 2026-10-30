@@ -5,6 +5,19 @@ import MysticCore
 
 @MainActor
 final class AppSettingsTests: XCTestCase {
+    func testFramePacingMigratesDefaultsAndPersistsWithoutResettingVideoSettings() {
+        let storage=MemorySettingsPreferences(),settings=AppSettings(storage:storage)
+        settings.update { $0.fps=120;$0.bitrateMbps=55 }
+        let model=ConnectionModel(rememberHost:false,settings:AppSettings(storage:storage))
+        XCTAssertEqual(model.framePacing,.lowLatency)
+        model.framePacing = .balanced
+        let restored=ConnectionModel(rememberHost:false,settings:AppSettings(storage:storage))
+        XCTAssertEqual(restored.framePacing,.balanced);XCTAssertEqual(restored.fps,120)
+        XCTAssertEqual(restored.bitrateMbps,55)
+        restored.settings.update { $0.framePacing="unsupported" }
+        XCTAssertEqual(restored.framePacing,.lowLatency)
+        XCTAssertEqual(restored.fps,120)
+    }
     func testEditsPersistAcrossRestartAndRestoreDefaultsKeepsPane() {
         let storage=MemorySettingsPreferences()
         let settings=AppSettings(storage:storage)

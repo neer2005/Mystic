@@ -66,6 +66,11 @@ struct VideoPreferencesView: View {
                 }
             }
             Picker("Frame Rate",selection:$model.fps) { Text("60 fps").tag(UInt32(60));Text("120 fps").tag(UInt32(120)) }
+            Picker("Frame Pacing",selection:$model.framePacing) {
+                ForEach(FramePacingMode.allCases,id:\.self) { mode in Text(mode.label).tag(mode) }
+            }
+            Text(model.framePacing == .lowLatency ? "Presents decoded frames without intentional buffering." : "Uses about one frame of buffering to absorb arrival jitter.")
+                .font(.caption).foregroundStyle(.secondary)
             Picker("Codec",selection:$model.codec) {
                 Text("Automatic").tag("auto");Text("H.264").tag("h264");Text("HEVC").tag("hevc");Text("AV1").tag("av1")
             }
