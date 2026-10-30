@@ -111,6 +111,13 @@ crates. CMake and Rust 1.82+ are required; no system libopus install is needed.
 The PCM ring reader is allocation/lock free and is called by the AVAudioEngine
 source node. See `docs/AUDIO.md` from the repository root for lifecycle details.
 
+The additive `mystic_pcm_ring_new_channels` and `mystic_pcm_ring_read_planar` symbols
+support 1–8 interleaved producer channels and planar render output. The original
+constructor/reader remain stereo-compatible; all existing structs and function
+signatures are unchanged. Rebuild the archive and Swift app together to link the
+new symbols. The real-time reader uses no allocation/lock, zero-fills underruns,
+and applies the same frame gain to every channel.
+
 
 ABI 2 also has additive microphone availability/sending functions and bounded
 capture-ring/mono-Opus encoder functions. Start/stop, conversion, encoding and sends

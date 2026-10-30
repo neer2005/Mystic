@@ -37,7 +37,8 @@ rather than rewritten.
 - [x] AVAudioEngine audio (bundled libopus), concealment, stereo/surround downmix, volume/mute
 - [x] Live stereo listening confirmed on Desktop
 - [x] Audio default-output/device monitoring, bounded recovery/manual retry, decoder continuity and mute-safe restarts (automated checks; physical switching validation pending)
-- [ ] Live surround/downmix validation and discrete multichannel output
+- [x] Discrete 5.1/7.1 PCM output with configured-speaker routing and automatic stereo fallback (automated checks; physical speaker validation pending)
+- [ ] Live surround speaker identity/downmix validation
 - [x] Keyboard/mouse mapping, window capture/release, and bounded engine delivery
 - [x] Live keyboard shortcut, pointer clicking/scrolling, relative capture, and release chord verified on Desktop
 - [x] GameController input: DualSense/Xbox extended-profile mapping, bounded delivery and lifecycle (snapshot tested; physical host acceptance pending)

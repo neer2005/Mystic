@@ -72,6 +72,7 @@ pub unsafe extern "C" fn mystic_opus_free(p: *mut MysticOpus) {
 
 pub struct MysticPCMRing {
     samples: Box<[AtomicU32]>,
+    channels: usize,
     capacity: u64,
     max_queued: u64,
     write: AtomicU64,
@@ -94,15 +95,27 @@ pub struct MysticPCMStats {
 }
 #[no_mangle]
 pub extern "C" fn mystic_pcm_ring_new(capacity: u32, max_queued: u32) -> *mut MysticPCMRing {
+    mystic_pcm_ring_new_channels(capacity, max_queued, 2)
+}
+#[no_mangle]
+pub extern "C" fn mystic_pcm_ring_new_channels(
+    capacity: u32,
+    max_queued: u32,
+    channels: u32,
+) -> *mut MysticPCMRing {
     if !(128..=65536).contains(&capacity)
         || !capacity.is_power_of_two()
         || max_queued == 0
         || max_queued > capacity
+        || !(1..=8).contains(&channels)
     {
         return std::ptr::null_mut();
     }
     Box::into_raw(Box::new(MysticPCMRing {
-        samples: (0..capacity * 2).map(|_| AtomicU32::new(0)).collect(),
+        samples: (0..capacity * channels)
+            .map(|_| AtomicU32::new(0))
+            .collect(),
+        channels: channels as usize,
         capacity: u64::from(capacity),
         max_queued: u64::from(max_queued),
         gain: AtomicU32::new(1f32.to_bits()),
@@ -131,9 +144,13 @@ pub unsafe extern "C" fn mystic_pcm_ring_write(
         .saturating_sub(write.wrapping_sub(r.read.load(Acquire)));
     let count = u64::from(frames).min(available);
     for i in 0..count {
-        let slot = ((write + i) & (r.capacity - 1)) * 2;
-        r.samples[slot as usize].store((*pcm.add(i as usize * 2)).to_bits(), Relaxed);
-        r.samples[slot as usize + 1].store((*pcm.add(i as usize * 2 + 1)).to_bits(), Relaxed);
+        let slot = ((write + i) & (r.capacity - 1)) as usize * r.channels;
+        for channel in 0..r.channels {
+            r.samples[slot + channel].store(
+                (*pcm.add(i as usize * r.channels + channel)).to_bits(),
+                Relaxed,
+            );
+        }
     }
     r.write.store(write.wrapping_add(count), Release);
     r.written.fetch_add(count, Relaxed);
@@ -147,13 +164,32 @@ pub unsafe extern "C" fn mystic_pcm_ring_read(
     right: *mut f32,
     frames: u32,
 ) -> u32 {
-    if left.is_null() || right.is_null() || frames > 65536 {
+    let planes = [left, right];
+    mystic_pcm_ring_read_planar(p, planes.as_ptr(), 2, frames)
+}
+/// Caller supplies `channels` non-null planes, each holding at least `frames` floats.
+/// Fixed-size plane tables and scalar atomics keep the render path allocation/lock free.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_pcm_ring_read_planar(
+    p: *mut MysticPCMRing,
+    planes: *const *mut f32,
+    channels: u32,
+    frames: u32,
+) -> u32 {
+    if planes.is_null() || !(1..=8).contains(&channels) || frames > 65536 {
         return 0;
     }
-    // The caller always receives initialized output, including an empty/invalid ring.
-    std::ptr::write_bytes(left, 0, frames as usize);
-    std::ptr::write_bytes(right, 0, frames as usize);
+    let planes = std::slice::from_raw_parts(planes, channels as usize);
+    if planes.iter().any(|plane| plane.is_null()) {
+        return 0;
+    }
+    for &plane in planes {
+        std::ptr::write_bytes(plane, 0, frames as usize);
+    }
     let Some(r) = p.as_ref() else { return 0 };
+    if r.channels != channels as usize {
+        return 0;
+    }
     let write = r.write.load(Acquire);
     let mut read = r.read.load(Relaxed);
     let mut available = write.wrapping_sub(read);
@@ -173,9 +209,10 @@ pub unsafe extern "C" fn mystic_pcm_ring_read(
         } else {
             target_gain
         };
-        let slot = ((read + i) & (r.capacity - 1)) * 2;
-        *left.add(i as usize) = f32::from_bits(r.samples[slot as usize].load(Relaxed)) * gain;
-        *right.add(i as usize) = f32::from_bits(r.samples[slot as usize + 1].load(Relaxed)) * gain;
+        let slot = ((read + i) & (r.capacity - 1)) as usize * r.channels;
+        for (channel, &plane) in planes.iter().enumerate() {
+            *plane.add(i as usize) = f32::from_bits(r.samples[slot + channel].load(Relaxed)) * gain;
+        }
     }
     r.current_gain.store(target_gain.to_bits(), Relaxed);
     r.read.store(read.wrapping_add(count), Release);
@@ -220,6 +257,112 @@ pub unsafe extern "C" fn mystic_pcm_ring_free(p: *mut MysticPCMRing) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn multichannel_ring_preserves_planes_catchup_gain_and_bounds() {
+        unsafe {
+            assert!(mystic_pcm_ring_new_channels(128, 128, 0).is_null());
+            assert!(mystic_pcm_ring_new_channels(128, 128, 9).is_null());
+            for channels in [6usize, 8] {
+                let ring = mystic_pcm_ring_new_channels(128, 64, channels as u32);
+                let input: Vec<f32> = (0..128 * channels).map(|n| n as f32).collect();
+                assert_eq!(mystic_pcm_ring_write(ring, input.as_ptr(), 128), 128);
+                let mut planes = vec![vec![-1f32; 80]; channels];
+                let pointers: Vec<*mut f32> = planes.iter_mut().map(|p| p.as_mut_ptr()).collect();
+                assert_eq!(
+                    mystic_pcm_ring_read_planar(ring, pointers.as_ptr(), channels as u32, 80),
+                    64
+                );
+                for channel in 0..channels {
+                    for frame in 0..64 {
+                        assert_eq!(
+                            planes[channel][frame],
+                            ((frame + 64) * channels + channel) as f32
+                        );
+                    }
+                    assert!(planes[channel][64..].iter().all(|v| *v == 0.));
+                }
+                let stats = mystic_pcm_ring_stats(ring);
+                assert_eq!(stats.dropped_frames, 64);
+                assert_eq!(stats.underrun_frames, 16);
+                mystic_pcm_ring_set_gain(ring, 0.);
+                mystic_pcm_ring_write(ring, input.as_ptr(), 128);
+                mystic_pcm_ring_read_planar(ring, pointers.as_ptr(), channels as u32, 64);
+                assert!(planes.iter().all(|plane| plane[63] == 0.));
+                mystic_pcm_ring_free(ring);
+            }
+        }
+    }
+    #[test]
+    fn multichannel_read_rejects_mismatched_or_missing_planes_without_consuming() {
+        unsafe {
+            let ring = mystic_pcm_ring_new_channels(128, 128, 8);
+            let input = [0.25f32; 64];
+            mystic_pcm_ring_write(ring, input.as_ptr(), 8);
+            let mut l = [1f32; 8];
+            let mut r = l;
+            assert_eq!(
+                mystic_pcm_ring_read(ring, l.as_mut_ptr(), r.as_mut_ptr(), 8),
+                0
+            );
+            assert_eq!(l, [0.; 8]);
+            assert_eq!(r, [0.; 8]);
+            let pointers = [std::ptr::null_mut(); 8];
+            assert_eq!(
+                mystic_pcm_ring_read_planar(ring, pointers.as_ptr(), 8, 8),
+                0
+            );
+            assert_eq!(mystic_pcm_ring_stats(ring).queued_frames, 8);
+            mystic_pcm_ring_free(ring);
+        }
+    }
+    #[test]
+    fn eight_channel_spsc_ordering() {
+        use std::sync::Arc;
+        unsafe {
+            let ring: Arc<MysticPCMRing> =
+                Arc::from(Box::from_raw(mystic_pcm_ring_new_channels(1024, 1024, 8)));
+            let producer = ring.clone();
+            let thread = std::thread::spawn(move || {
+                for frame in 0..10000 {
+                    let samples: [f32; 8] = std::array::from_fn(|ch| (frame * 8 + ch) as f32);
+                    while mystic_pcm_ring_write(
+                        Arc::as_ptr(&producer) as *mut _,
+                        samples.as_ptr(),
+                        1,
+                    ) == 0
+                    {
+                        std::thread::yield_now();
+                    }
+                }
+            });
+            let mut planes = [[0f32; 64]; 8];
+            let pointers: [*mut f32; 8] = std::array::from_fn(|ch| planes[ch].as_mut_ptr());
+            let mut received = 0;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while received < 10000 {
+                assert!(std::time::Instant::now() < deadline);
+                let count = mystic_pcm_ring_read_planar(
+                    Arc::as_ptr(&ring) as *mut _,
+                    pointers.as_ptr(),
+                    8,
+                    64,
+                );
+                for frame in 0..count as usize {
+                    for channel in 0..8 {
+                        assert_eq!(
+                            planes[channel][frame],
+                            ((received + frame) * 8 + channel) as f32
+                        );
+                    }
+                }
+                received += count as usize;
+                if count == 0 {
+                    std::thread::yield_now();
+                }
+            }
+            thread.join().unwrap();
+        }
+    }
     #[test]
     fn ring_bounds_catchup_and_zero_fill() {
         unsafe {

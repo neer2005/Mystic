@@ -26,8 +26,38 @@ software/version, and whether the Mac uses Wi-Fi or Ethernet.
    old output notifications do not interrupt it. Repeat with the microphone enabled
    to check Bluetooth profile changes and separate microphone forwarding.
 
-Playback still downmixes surround streams to stereo. These checks do not validate
-discrete 5.1/7.1 speaker output, passthrough or microphone echo cancellation.
+For a surround stream, the audio status should also follow changes between
+discrete output and stereo fallback. Passthrough and microphone echo cancellation
+are not part of these checks.
+
+## Discrete surround
+
+1. Connect an HDMI/USB multichannel output and configure its speakers in macOS
+   Audio MIDI Setup. Select it as the Mac's default output. The host must also
+   have a working surround output configuration. Mystic does not configure either
+   system's speakers or transmit Dolby/DTS bitstreams.
+2. Choose 5.1 in Mystic's Audio settings and start a new stream. Check the audio
+   status for “5.1 discrete”, the expected device and sample rate. If it reports
+   stereo fallback, record the reason and confirm the Mac's configured layout.
+3. Play speaker-identification audio on the host with host/receiver spatial or
+   upmix effects disabled. Check front left/right, center/dialogue, LFE and both
+   surround speakers individually. Verify balance, missing channels, swapped
+   speakers, distortion and audio/video alignment. Match the host's channel test;
+   audible sound alone is not proof of correct mapping.
+4. With a configured 7.1 output, repeat on a 7.1 stream. Check the side pair and
+   rear pair separately; they must not be swapped or duplicated. Repeat a 5.1
+   stream on the 7.1 output: it should not invent an extra rear pair.
+5. Change to headphones or an ordinary stereo output midstream. The status should
+   change to stereo downmix and retain center/surround content appropriately.
+   Change back to the multichannel output: discrete routing should return without
+   a host reconnect. A 7.1 stream on a 5.1 output deliberately falls back to stereo.
+6. Repeat output changes with Mystic muted and with low volume. Every channel
+   should retain mute/volume, with no startup burst. Change the output rate in
+   Audio MIDI Setup, and recheck speaker identity after recovery.
+7. Disconnect/reconnect the stream and repeat after app restart. Record host and
+   Mac channel settings, speaker layout/device, stream channel request, actual
+   output mode/fallback reason and which speaker failed. A generic interface with
+   unlabeled channels or more than eight outputs uses stereo fallback.
 
 ## Controller input and rumble
 

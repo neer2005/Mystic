@@ -3,6 +3,7 @@ import Foundation
 import AVFoundation
 import CMystic
 import MysticKit
+import MysticCore
 @testable import MysticStream
 
 final class AudioTests: XCTestCase {
@@ -52,11 +53,11 @@ final class AudioTests: XCTestCase {
             XCTAssertGreaterThan(energy(pcm,channel:channel,frequency:450),energy(pcm,channel:channel,frequency:550)*3)
         }
     }
-    private func energy(_ pcm:[Float],channel:Int,frequency:Double)->Double {
+    private func energy(_ pcm:[Float],channel:Int,frequency:Double,channels:Int = 2)->Double {
         var real=0.0,imaginary=0.0
-        for i in 960..<pcm.count/2 {
+        for i in 960..<pcm.count/channels {
             let phase=2*Double.pi*frequency*Double(i)/48000
-            real += Double(pcm[i*2+channel])*cos(phase); imaginary += Double(pcm[i*2+channel])*sin(phase)
+            real += Double(pcm[i*channels+channel])*cos(phase); imaginary += Double(pcm[i*channels+channel])*sin(phase)
         }
         return real*real+imaginary*imaginary
     }
@@ -121,5 +122,108 @@ final class AudioTests: XCTestCase {
         try monitor.start(changed:{})
         try monitor.refresh();monitor.stop();monitor.stop()
         try monitor.start(changed:{});try monitor.refresh()
+    }
+    func testDiscreteOpusTonesKeepEverySpeakerIncludingLFEAndDistinctSideRearPairs() throws {
+        let speakers: [AudioSpeaker]=[.left,.right,.center,.lfe,.surroundLeft,.surroundRight,.rearLeft,.rearRight]
+        for name in ["surround51","surround71"] {
+            let fixture=try fixture(name),channels=Int(fixture.channelCount)
+            let route=try AudioChannelRouting(channelCount:channels,channelMask:fixture.channelMask,destination:Array(speakers.prefix(channels)))
+            XCTAssertTrue(route.isDiscrete)
+            let decoder=try OpusAudioDecoder(fixture.info)
+            var pcm: [Float] = []
+            for packet in fixture.packets {
+                try packet.withUnsafeBytes { try decoder.decode($0,routing:route) { samples,frames in
+                    XCTAssertEqual(samples.count,frames*channels);pcm.append(contentsOf:samples)
+                } }
+            }
+            let sourceIndices=channels == 8 ? [0,1,2,3,6,7,4,5] : [0,1,2,3,4,5]
+            for channel in 0..<channels {
+                let expected=fixture.frequencies[sourceIndices[channel]]
+                let signal=energy(pcm,channel:channel,frequency:expected,channels:channels)
+                for frequency in fixture.frequencies where frequency != expected {
+                    XCTAssertGreaterThan(signal,energy(pcm,channel:channel,frequency:frequency,channels:channels)*3,"\(name) channel \(channel)")
+                }
+            }
+            try decoder.decode(nil,routing:route) { samples,frames in
+                XCTAssertEqual(samples.count,frames*channels);XCTAssertTrue(samples.allSatisfy(\.isFinite))
+            }
+        }
+    }
+    func testNativeSurroundRendererPreservesConfiguredSpeakerOrderAcrossRatesAndMute() throws {
+        let configurations: [[AudioSpeaker]]=[
+            [.left,.right,.center,.lfe,.surroundLeft,.surroundRight],
+            [.lfe,.right,.rearRight,.surroundLeft,.center,.rearLeft,.left,.surroundRight]
+        ]
+        for speakers in configurations {
+            for rate in [48_000.0,44_100.0,96_000.0] {
+                let channels=speakers.count
+                let info=AudioSetupInfo(channelCount:UInt8(channels),channelMask:channels == 6 ? 0x3F : 0x63F,packetDurationMs:5,samplesPerFrame:240,
+                    streams:UInt8(channels),coupledStreams:0,mapping:Array(0..<UInt8(channels)))
+                let graph=try AudioPipeline(volume:1,info:info,manualRendering:true,manualSampleRate:rate,manualSpeakers:speakers)
+                defer { graph.stop() }
+                XCTAssertTrue(graph.routing.isDiscrete);XCTAssertEqual(graph.render.channels,channels)
+                let format=graph.engine.manualRenderingFormat
+                XCTAssertEqual(format.channelCount,UInt32(channels))
+                let buffer=try XCTUnwrap(AVAudioPCMBuffer(pcmFormat:format,frameCapacity:512))
+                let source=(0..<channels).map { Float($0+1)*0.05 }
+                let data=(0..<1024).flatMap { _ in source }
+                XCTAssertEqual(data.withUnsafeBufferPointer { mystic_pcm_ring_write(graph.render.ring,$0.baseAddress,1024) },1024)
+                XCTAssertEqual(try graph.engine.renderOffline(512,to:buffer),.success)
+                let output=try XCTUnwrap(buffer.floatChannelData)
+                for channel in 0..<channels {
+                    XCTAssertEqual(output[channel][511],source[channel],accuracy:0.002,"\(channels)ch at \(rate) Hz")
+                }
+                mystic_pcm_ring_set_gain(graph.render.ring,0)
+                _=data.withUnsafeBufferPointer { mystic_pcm_ring_write(graph.render.ring,$0.baseAddress,1024) }
+                _=try graph.engine.renderOffline(512,to:buffer)
+                _=data.withUnsafeBufferPointer { mystic_pcm_ring_write(graph.render.ring,$0.baseAddress,1024) }
+                XCTAssertEqual(try graph.engine.renderOffline(512,to:buffer),.success)
+                for channel in 0..<channels { XCTAssertEqual(output[channel][511],0,accuracy:0.00001) }
+            }
+        }
+    }
+    func testNamedAndBitmapSpeakerLayoutsNeverConfuseSideAndRearSpeakers() throws {
+        let five=try XCTUnwrap(AVAudioChannelLayout(layoutTag:kAudioChannelLayoutTag_MPEG_5_1_A))
+        XCTAssertEqual(AudioSpeakerLayout(five)?.speakers,[.left,.right,.center,.lfe,.surroundLeft,.surroundRight])
+        let seven=try XCTUnwrap(AVAudioChannelLayout(layoutTag:kAudioChannelLayoutTag_MPEG_7_1_C))
+        XCTAssertEqual(AudioSpeakerLayout(seven)?.speakers,[.left,.right,.center,.lfe,.surroundLeft,.surroundRight,.rearLeft,.rearRight])
+        var bitmap=AudioChannelLayout()
+        bitmap.mChannelLayoutTag=kAudioChannelLayoutTag_UseChannelBitmap
+        bitmap.mChannelBitmap=AudioChannelBitmap(rawValue:0x63F)
+        let windows=withUnsafePointer(to:&bitmap) { AVAudioChannelLayout(layout:$0) }
+        XCTAssertEqual(AudioSpeakerLayout(windows)?.speakers,[.left,.right,.center,.lfe,.rearLeft,.rearRight,.surroundLeft,.surroundRight])
+        let unknown=try XCTUnwrap(AVAudioChannelLayout(layoutTag:kAudioChannelLayoutTag_DiscreteInOrder | 8))
+        XCTAssertNil(AudioSpeakerLayout(unknown))
+        let duplicates: [AudioSpeaker]=[.left,.right,.center,.lfe,.surroundLeft,.surroundLeft]
+        XCTAssertNil(AudioSpeakerLayout.configured(duplicates))
+    }
+    func testInsufficientDestinationFallsBackToStereoWithoutChangingNegotiation() throws {
+        let fixture=try fixture("surround71")
+        let graph=try AudioPipeline(volume:1,info:fixture.info,manualRendering:true,
+            manualSpeakers:[.left,.right,.center,.lfe,.surroundLeft,.surroundRight])
+        defer { graph.stop() }
+        XCTAssertFalse(graph.routing.isDiscrete);XCTAssertEqual(graph.render.channels,2)
+        XCTAssertEqual(graph.routing.inputChannels,8);XCTAssertNotNil(graph.routing.fallbackReason)
+        let decoder=try OpusAudioDecoder(fixture.info)
+        try fixture.packets[0].withUnsafeBytes { try decoder.decode($0,routing:graph.routing) { samples,frames in
+            XCTAssertEqual(samples.count,frames*2)
+            _=mystic_pcm_ring_write(graph.render.ring,samples.baseAddress,UInt32(frames))
+        } }
+        let buffer=try XCTUnwrap(AVAudioPCMBuffer(pcmFormat:graph.engine.manualRenderingFormat,frameCapacity:240))
+        XCTAssertEqual(try graph.engine.renderOffline(240,to:buffer),.success)
+    }
+    func testStereoOnSurroundOutputDoesNotInventCenterLFEOrSurroundChannels() throws {
+        let speakers: [AudioSpeaker]=[.left,.right,.center,.lfe,.surroundLeft,.surroundRight,.rearLeft,.rearRight]
+        let graph=try AudioPipeline(volume:1,manualRendering:true,manualSpeakers:speakers)
+        defer { graph.stop() }
+        XCTAssertEqual(graph.routing.label,"Stereo")
+        let data=(0..<1024).flatMap { _ in [Float(0.25),Float(-0.5)] }
+        _=data.withUnsafeBufferPointer { mystic_pcm_ring_write(graph.render.ring,$0.baseAddress,1024) }
+        let buffer=try XCTUnwrap(AVAudioPCMBuffer(pcmFormat:graph.engine.manualRenderingFormat,frameCapacity:512))
+        XCTAssertEqual(try graph.engine.renderOffline(512,to:buffer),.success)
+        let output=try XCTUnwrap(buffer.floatChannelData)
+        XCTAssertEqual(output[0][511],0.25,accuracy:0.00001)
+        XCTAssertEqual(output[1][511],-0.5,accuracy:0.00001)
+        for channel in 2..<8 { XCTAssertTrue((0..<512).allSatisfy { output[channel][$0] == 0 }) }
     }
 }

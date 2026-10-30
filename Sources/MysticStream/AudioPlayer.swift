@@ -3,6 +3,7 @@ import AVFoundation
 import AudioToolbox
 import CMystic
 import MysticKit
+import MysticCore
 
 public enum AudioOutputStatus: String, Sendable {
     case idle, playing, recovering, unavailable
@@ -28,11 +29,14 @@ public struct AudioPlaybackStats: Sendable {
     public let outputDevice: String?
     public let outputSampleRate: Double?
     public let outputRestarts: UInt64
+    public let outputLayout: String?
+    public let stereoFallbackReason: String?
     public let discardedOutputFrames: UInt64
 }
 
 protocol AudioOutputPipeline: AnyObject, Sendable {
     var render: AudioRenderState { get }
+    var routing: AudioChannelRouting { get }
     var device: AudioOutputDevice? { get }
     var sampleRate: Double { get }
     func stop()
@@ -43,7 +47,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
     private let queue = DispatchQueue(label:"Mystic.Audio")
     private let log: @Sendable (String) -> Void
     private let monitor: any AudioOutputMonitoring
-    private let makeOutput: @Sendable (Float,@escaping @Sendable () -> Void) throws -> any AudioOutputPipeline
+    private let makeOutput: @Sendable (AudioSetupInfo,Float,String?,@escaping @Sendable () -> Void) throws -> any AudioOutputPipeline
     private let retryDelay: TimeInterval,routeDelay: TimeInterval
     private var decoder: OpusAudioDecoder?
     private var pipeline: (any AudioOutputPipeline)?
@@ -57,12 +61,12 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
     private var retired=MysticPCMStats()
     private var decoded: UInt64=0,concealed: UInt64=0,errors: UInt64=0
     public convenience init(log: @escaping @Sendable (String) -> Void = { _ in }) {
-        self.init(monitor:AudioOutputMonitor(),makeOutput:{ gain,changed in
-            try AudioPipeline(volume:gain,configurationChanged:changed)
+        self.init(monitor:AudioOutputMonitor(),makeOutput:{ info,gain,reason,changed in
+            try AudioPipeline(volume:gain,info:info,forceStereoReason:reason,configurationChanged:changed)
         },log:log)
     }
     init(monitor: any AudioOutputMonitoring,
-         makeOutput: @escaping @Sendable (Float,@escaping @Sendable () -> Void) throws -> any AudioOutputPipeline,
+         makeOutput: @escaping @Sendable (AudioSetupInfo,Float,String?,@escaping @Sendable () -> Void) throws -> any AudioOutputPipeline,
          retryDelay: TimeInterval = 1,routeDelay: TimeInterval = 0.15,
          log: @escaping @Sendable (String) -> Void = { _ in }) {
         self.monitor=monitor;self.makeOutput=makeOutput;self.retryDelay=retryDelay;self.routeDelay=routeDelay;self.log=log
@@ -73,7 +77,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
             stopLocked();decoder=nil
             decoded=0;concealed=0;errors=0;starts=0;discarded=0;retired=MysticPCMStats()
             decoder=try OpusAudioDecoder(info)
-            log("Audio setup: Opus \(info.channelCount) channels at \(info.sampleRate) Hz, \(info.samplesPerFrame) samples/packet → stereo")
+            log("Audio setup: Opus \(info.channelCount) channels at \(info.sampleRate) Hz, \(info.samplesPerFrame) samples/packet")
         }
     }
     public func start() {
@@ -112,7 +116,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
         }
     }
     private func decode(_ decoder: OpusAudioDecoder,packet: UnsafeRawBufferPointer?) throws {
-        try decoder.decode(packet) { samples,frames in
+        try decoder.decode(packet,routing:pipeline?.routing) { samples,frames in
             if let pipeline { _=mystic_pcm_ring_write(pipeline.render.ring,samples.baseAddress,UInt32(frames)) }
             else { discarded += UInt64(frames) }
         }
@@ -141,7 +145,8 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
                 droppedFrames:retired.dropped_frames+s.dropped_frames,underrunFrames:retired.underrun_frames+s.underrun_frames,
                 outputStatus:status,outputDevice:pipeline?.device?.name,
                 outputSampleRate:sampleRate.flatMap { $0.isFinite && $0 > 0 ? $0 : nil },
-                outputRestarts:starts > 0 ? starts-1 : 0,discardedOutputFrames:discarded)
+                outputRestarts:starts > 0 ? starts-1 : 0,outputLayout:pipeline?.routing.label,
+                stereoFallbackReason:pipeline?.routing.fallbackReason,discardedOutputFrames:discarded)
         }
     }
     private func beginRecovery(delay: TimeInterval) {
@@ -157,20 +162,25 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
         }
         pending=work;queue.asyncAfter(deadline:.now()+delay,execute:work)
     }
-    private func attemptOutput(generation token: UInt64,recovery: UInt64,retries: Int) {
-        guard running,generation == token,recoveryRevision == recovery,pipeline == nil else { return }
+    private func attemptOutput(generation token: UInt64,recovery: UInt64,retries: Int,forceStereo: Bool = false) {
+        guard running,let decoder,generation == token,recoveryRevision == recovery,pipeline == nil else { return }
         outputRevision &+= 1
         let revision=outputRevision
         do {
-            let output=try makeOutput(muted ? 0 : volume) { [weak self] in
+            let output=try makeOutput(decoder.info,muted ? 0 : volume,forceStereo ? "Multichannel playback could not start on this output" : nil) { [weak self] in
                 self?.queue.async { [weak self] in
                     guard let self,self.running,self.generation == token,self.outputRevision == revision,self.pipeline != nil else { return }
                     self.beginRecovery(delay:self.routeDelay)
                 }
             }
             pipeline=output;starts += 1;status = .playing
-            log("Audio output ready: \(output.device?.name ?? "system output"), \(output.sampleRate) Hz stereo.")
+            log("Audio output ready: \(output.device?.name ?? "system output"), \(output.sampleRate) Hz · \(output.routing.label).")
         } catch {
+            if decoder.info.channelCount > 2,!forceStereo {
+                // A separate revision fences events queued by a failed surround graph.
+                attemptOutput(generation:token,recovery:recovery,retries:retries,forceStereo:true)
+                return
+            }
             if retries > 0 {
                 status = .recovering
                 scheduleAttempt(generation:token,recovery:recovery,retries:retries-1,delay:retryDelay)
@@ -197,53 +207,90 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
 
 final class AudioRenderState: @unchecked Sendable {
     let ring: OpaquePointer
-    init(initialGain: Float = 1) throws {
-        guard let ring = mystic_pcm_ring_new(8192,2880) else { throw AudioPlaybackError("Unable to allocate audio ring.") }
-        self.ring = ring
-        // Initialize render-side gain before the real-time consumer starts. A muted new
-        // route must not begin with the ring's default unity-to-zero ramp.
+    let channels: Int
+    init(initialGain: Float = 1,channels: Int = 2) throws {
+        guard (1...8).contains(channels),let ring=mystic_pcm_ring_new_channels(8192,2880,UInt32(channels)) else {
+            throw AudioPlaybackError("Unable to allocate audio ring.")
+        }
+        self.ring=ring;self.channels=channels
         mystic_pcm_ring_set_gain(ring,initialGain)
-        var left: Float=0,right: Float=0
-        _=mystic_pcm_ring_read(ring,&left,&right,0)
+        // Prime gain before the render thread owns the ring; zero frames touch no PCM.
+        var zero: Float=0
+        withUnsafeMutablePointer(to:&zero) { pointer in
+            var planes=(pointer,pointer,pointer,pointer,pointer,pointer,pointer,pointer)
+            withUnsafeBytes(of:&planes) { bytes in
+                _=mystic_pcm_ring_read_planar(ring,bytes.bindMemory(to:UnsafeMutablePointer<Float>?.self).baseAddress,UInt32(channels),0)
+            }
+        }
+    }
+    /// Only fixed stack storage and the C reader are used on the real-time thread.
+    func read(_ buffers: UnsafeMutableAudioBufferListPointer,frames: UInt32) -> UInt32? {
+        guard buffers.count == channels,frames <= 65_536 else { return nil }
+        typealias Plane=UnsafeMutablePointer<Float>?
+        var planes:(Plane,Plane,Plane,Plane,Plane,Plane,Plane,Plane)=(nil,nil,nil,nil,nil,nil,nil,nil)
+        return withUnsafeMutableBytes(of:&planes) { bytes in
+            let pointers=bytes.bindMemory(to:Plane.self)
+            for channel in 0..<channels {
+                let buffer=buffers[channel]
+                guard buffer.mNumberChannels == 1,buffer.mDataByteSize/4 >= frames,let data=buffer.mData else { return nil }
+                pointers[channel]=data.assumingMemoryBound(to:Float.self)
+            }
+            return mystic_pcm_ring_read_planar(ring,pointers.baseAddress,UInt32(channels),frames)
+        }
     }
     deinit { mystic_pcm_ring_free(ring) }
 }
 final class AudioPipeline: AudioOutputPipeline, @unchecked Sendable {
-    let engine = AVAudioEngine()
+    let engine: AVAudioEngine
     let render: AudioRenderState
     let source: AVAudioSourceNode
+    let routing: AudioChannelRouting
     var observer: NSObjectProtocol?
     private(set) var device: AudioOutputDevice?
     var sampleRate: Double { engine.isInManualRenderingMode ? engine.manualRenderingFormat.sampleRate : engine.outputNode.inputFormat(forBus:0).sampleRate }
-    init(volume: Float, manualRendering: Bool = false,manualSampleRate: Double = 48000,
+    init(volume: Float,info: AudioSetupInfo = AudioSetupInfo(channelCount:2,channelMask:3,packetDurationMs:5,samplesPerFrame:240),
+         manualRendering: Bool = false,manualSampleRate: Double = 48000,manualSpeakers: [AudioSpeaker]? = nil,
+         forceStereoReason: String? = nil,
          configurationChanged: (@Sendable () -> Void)? = nil) throws {
         if !manualRendering { try AudioOutputMonitor.requireAvailableOutput() }
-        let render = try AudioRenderState(initialGain:volume)
-        self.render = render
-        guard let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2) else {
-            throw AudioPlaybackError("Unable to create stereo PCM format.")
+        let engine=AVAudioEngine();self.engine=engine
+        let destination: AudioSpeakerLayout?
+        let targetRate: Double
+        if manualRendering {
+            destination=manualSpeakers.flatMap(AudioSpeakerLayout.configured)
+            targetRate=manualSampleRate
+        } else {
+            let hardware=engine.outputNode.inputFormat(forBus:0)
+            let id=engine.outputNode.withAUAudioUnit { $0.deviceID }
+            destination=AudioSpeakerLayout.device(id,channels:hardware.channelCount) ?? hardware.channelLayout.flatMap(AudioSpeakerLayout.init)
+            targetRate=hardware.sampleRate
         }
-        source = AVAudioSourceNode(format: format) { [render] silence, _, count, list in
-            let buffers = UnsafeMutableAudioBufferListPointer(list)
-            guard buffers.count == 2, let left = buffers[0].mData, let right = buffers[1].mData,
-                  buffers[0].mDataByteSize/4 >= count, buffers[1].mDataByteSize/4 >= count else {
-                for buffer in buffers { if let data = buffer.mData { memset(data,0,Int(buffer.mDataByteSize)) } }
-                silence.pointee = true
-                return kAudio_ParamError
+        let routing=try AudioChannelRouting(channelCount:Int(info.channelCount),channelMask:info.channelMask,
+            destination:forceStereoReason == nil ? destination?.speakers : nil,fallbackReason:forceStereoReason)
+        self.routing=routing
+        let render=try AudioRenderState(initialGain:volume,channels:routing.outputChannels);self.render=render
+        let layout=routing.isDiscrete ? destination!.layout : AVAudioChannelLayout(layoutTag:kAudioChannelLayoutTag_Stereo)!
+        let format=AVAudioFormat(standardFormatWithSampleRate:48000,channelLayout:layout)
+        source=AVAudioSourceNode(format:format) { [render] silence,_,count,list in
+            let buffers=UnsafeMutableAudioBufferListPointer(list)
+            guard let read=render.read(buffers,frames:count) else {
+                for buffer in buffers { if let data=buffer.mData { memset(data,0,Int(buffer.mDataByteSize)) } }
+                silence.pointee=true;return kAudio_ParamError
             }
-            let read = mystic_pcm_ring_read(render.ring, left.assumingMemoryBound(to: Float.self), right.assumingMemoryBound(to: Float.self), count)
-            silence.pointee = ObjCBool(read == 0)
-            return noErr
+            silence.pointee=ObjCBool(read == 0);return noErr
         }
         if manualRendering {
-            guard let output=AVAudioFormat(standardFormatWithSampleRate:manualSampleRate,channels:2) else {
-                throw AudioPlaybackError("Unable to create offline output format.")
-            }
+            let outputLayout=destination?.layout ?? AVAudioChannelLayout(layoutTag:kAudioChannelLayoutTag_Stereo)!
+            let output=AVAudioFormat(standardFormatWithSampleRate:targetRate,channelLayout:outputLayout)
             try engine.enableManualRenderingMode(.offline,format:output,maximumFrameCount:4096)
         }
         engine.attach(source)
-        try engine.connectNode(source, to: engine.mainMixerNode, format: format)
-        mystic_pcm_ring_set_gain(render.ring,volume)
+        try engine.connectNode(source,to:engine.mainMixerNode,format:format)
+        if routing.isDiscrete {
+            // Identical source/output speaker order avoids implicit surround remapping or upmixing.
+            let output=AVAudioFormat(standardFormatWithSampleRate:targetRate,channelLayout:layout)
+            try engine.connectNode(engine.mainMixerNode,to:engine.outputNode,format:output)
+        }
         engine.prepare()
         if let configurationChanged {
             observer=NotificationCenter.default.addObserver(forName:.AVAudioEngineConfigurationChange,object:engine,queue:nil) { _ in configurationChanged() }
@@ -255,7 +302,7 @@ final class AudioPipeline: AudioOutputPipeline, @unchecked Sendable {
         } catch { stop();throw error }
     }
     func stop() {
-        if let observer { NotificationCenter.default.removeObserver(observer); self.observer = nil }
+        if let observer { NotificationCenter.default.removeObserver(observer);self.observer=nil }
         engine.stop()
     }
     deinit { stop() }

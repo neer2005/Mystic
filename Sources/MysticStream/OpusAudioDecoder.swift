@@ -13,9 +13,9 @@ public struct AudioPlaybackError: Error, LocalizedError {
 final class OpusAudioDecoder {
     let info: AudioSetupInfo
     private let handle: OpaquePointer
-    private let matrix: StereoMixMatrix
+    private let stereoRouting: AudioChannelRouting
     private var pcm: [Float]
-    private var stereo: [Float] = Array(repeating: 0, count: 5760*2)
+    private var routed: [Float] = Array(repeating: 0, count: 5760*8)
     init(_ info: AudioSetupInfo) throws {
         let channels = Int(info.channelCount)
         guard (1...8).contains(channels), info.sampleRate == 48000, info.streams > 0,
@@ -27,7 +27,7 @@ final class OpusAudioDecoder {
               info.samplesPerFrame == info.packetDurationMs*48, info.samplesPerFrame <= 5760 else {
             throw AudioPlaybackError("Invalid negotiated Opus configuration.")
         }
-        matrix = try StereoMixMatrix(channelCount: channels, channelMask: info.channelMask)
+        stereoRouting = try AudioChannelRouting(channelCount:channels,channelMask:info.channelMask)
         var setup = MysticAudioSetup()
         setup.channel_count = info.channelCount; setup.channel_mask = info.channelMask
         setup.packet_duration_ms = info.packetDurationMs; setup.samples_per_frame = info.samplesPerFrame
@@ -41,8 +41,10 @@ final class OpusAudioDecoder {
         pcm = Array(repeating: 0, count: 5760*channels)
     }
     deinit { mystic_opus_free(handle) }
-    /// Calls `consume` before returning; its stereo pointer must not escape.
-    func decode(_ packet: UnsafeRawBufferPointer?, consume: (UnsafeBufferPointer<Float>, Int) -> Void) throws {
+    /// Calls `consume` before returning; its routed PCM pointer must not escape.
+    func decode(_ packet: UnsafeRawBufferPointer?,routing: AudioChannelRouting? = nil, consume: (UnsafeBufferPointer<Float>, Int) -> Void) throws {
+        let routing=routing ?? stereoRouting
+        guard routing.inputChannels == Int(info.channelCount),routing.channelMask == info.channelMask else { throw AudioPlaybackError("Audio route disagrees with negotiated channels.") }
         if let packet, packet.isEmpty || packet.count > 65536 { throw AudioPlaybackError("Invalid Opus packet length.") }
         let capacity: UInt32 = packet == nil ? info.samplesPerFrame : 5760
         let count = pcm.withUnsafeMutableBufferPointer { buffer in
@@ -51,9 +53,9 @@ final class OpusAudioDecoder {
         }
         guard count > 0 else { throw AudioPlaybackError("Opus decode failed (code \(count)).") }
         let mixed = pcm.withUnsafeBufferPointer { input in
-            stereo.withUnsafeMutableBufferPointer { output in matrix.mix(input, frames: Int(count), into: output) }
+            routed.withUnsafeMutableBufferPointer { output in routing.route(input, frames: Int(count), into: output) }
         }
         guard mixed else { throw AudioPlaybackError("Invalid decoded PCM samples.") }
-        stereo.withUnsafeBufferPointer { consume($0, Int(count)) }
+        routed.withUnsafeBufferPointer { consume(UnsafeBufferPointer(start:$0.baseAddress,count:Int(count)*routing.outputChannels), Int(count)) }
     }
 }

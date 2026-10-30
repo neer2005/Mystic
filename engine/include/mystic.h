@@ -211,7 +211,7 @@ char *mystic_host_request(const MysticHost *host, const char *operation, const c
 void mystic_host_cancel(const MysticHost *host);
 void mystic_host_free(MysticHost *host);
 
-/* Opus and real-time stereo PCM. Decoder calls must be serialized. No decoder call
+/* Opus and real-time PCM. Decoder calls must be serialized. No decoder call
  * retains packet or output pointers. Returns decoded frames, or a negative error.
  * A NULL packet means loss concealment; non-NULL empty packets are invalid.
  * The ring has exactly one producer and one consumer. Read allocates/locks nothing;
@@ -228,8 +228,13 @@ typedef struct {
     uint32_t queued_frames;
 } MysticPCMStats;
 MysticPCMRing *mystic_pcm_ring_new(uint32_t capacity_frames, uint32_t max_queued_frames);
-uint32_t mystic_pcm_ring_write(MysticPCMRing *ring, const float *interleaved_stereo, uint32_t frames);
+/* Additive ABI 2 extension: 1–8 channels. The original constructor/read remain stereo. */
+MysticPCMRing *mystic_pcm_ring_new_channels(uint32_t capacity_frames, uint32_t max_queued_frames, uint32_t channels);
+uint32_t mystic_pcm_ring_write(MysticPCMRing *ring, const float *interleaved_pcm, uint32_t frames);
 uint32_t mystic_pcm_ring_read(MysticPCMRing *ring, float *left, float *right, uint32_t frames);
+/* planes contains channels non-NULL pointers, each with capacity for frames floats.
+ * channels must match the ring. A mismatched valid plane list is zero-filled. */
+uint32_t mystic_pcm_ring_read_planar(MysticPCMRing *ring, float *const *planes, uint32_t channels, uint32_t frames);
 void mystic_pcm_ring_set_gain(MysticPCMRing *ring, float gain);
 MysticPCMStats mystic_pcm_ring_stats(const MysticPCMRing *ring);
 /* Free only after both producer and audio render callback have stopped. */
