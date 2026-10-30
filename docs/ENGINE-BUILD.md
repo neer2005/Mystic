@@ -23,7 +23,8 @@ Verified on macOS arm64 with Xcode 27:
   C smoke test passed with all six struct layouts matching.
 - `swift test --disable-sandbox`: 172 tests passed; four AV1 hardware tests skipped
   because this Mac has no hardware AV1 decoder.
-- `bash scripts/build-macos-app.sh`: local `.build/Mystic.app` rebuilt and signed.
+- `bash scripts/build-macos-app.sh`: local `.build/Mystic.app` rebuilt with persistent
+  Apple Development signing and strict signature verification; see `SIGNING.md`.
 
 Live streaming against a host has not been revalidated for this revision.
 The earlier engine investigation below records the original baseline.

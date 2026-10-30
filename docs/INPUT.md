@@ -80,9 +80,10 @@ opened the Windows browser's Find box. The user also confirmed pointer clicking,
 scrolling, relative Capture Mouse, and Control–Option–Shift–Escape returning
 control to the Mac. These checks used the existing Desktop stream.
 
-Development rebuilds are ad-hoc signed; macOS may ask again before allowing the
-rebuilt app to read its existing Keychain identity. The connection UI identifies
-that stage separately from host networking. No trust/pinning checks are bypassed.
+Development app builds use a persistent certificate; see [SIGNING.md](SIGNING.md).
+The first signed build may need new approval for existing Keychain items. The
+connection UI identifies that stage separately from host networking. No
+trust/pinning checks are bypassed.
 
 ## Controllers
 
