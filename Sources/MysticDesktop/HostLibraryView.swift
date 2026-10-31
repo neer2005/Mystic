@@ -53,6 +53,7 @@ public struct HostLibraryView: View {
     }
     @ViewBuilder private var library: some View {
         VStack(spacing:0) {
+            hostLibraryHeader
             if let notice=model.libraryNotice {
                 Label(notice,systemImage:"exclamationmark.triangle").font(.caption).foregroundStyle(.secondary).padding(12)
             }
@@ -84,24 +85,36 @@ public struct HostLibraryView: View {
         .searchable(text:$model.libraryQuery,prompt:"Search Apps")
         .searchFocused($searchFocused)
         .focusedSceneValue(\.librarySearchAction, { searchFocused=true })
-        .toolbar {
-            ToolbarItem { Button("Host Session",systemImage:"rectangle.connected.to.line.below") { showingHostSession=true }.disabled(model.phase != .ready || model.host?.paired != true) }
-            ToolbarItem { Button("Refresh Library",systemImage:"arrow.clockwise") { model.refreshLibrary() }.disabled(model.phase != .ready || model.host?.paired != true) }
-            ToolbarItem {
+    }
+    private var hostLibraryHeader: some View {
+        VStack(spacing:12) {
+            HStack {
+                Text("Library").font(.headline)
+                Spacer()
+                HStack(spacing:8) {
+                    Button("Host Session",systemImage:"rectangle.connected.to.line.below") { showingHostSession=true }
+                        .disabled(model.phase != .ready || model.host?.paired != true)
+                        .help("Session and graphics controls")
+                    Button("Refresh Library",systemImage:"arrow.clockwise") { model.refreshLibrary() }
+                        .disabled(model.phase != .ready || model.host?.paired != true)
+                        .help("Refresh this PC's library")
+                    Menu("Filter and Sort",systemImage:"line.3.horizontal.decrease") {
+                        Toggle("HDR Apps Only",isOn:$model.libraryHDROnly)
+                        Picker("Sort Apps",selection:setting(\.librarySort)) {
+                            Text("Name").tag("name");Text("Host Order").tag("host")
+                        }
+                    }.help("Filter and sort apps")
+                }.labelStyle(.iconOnly).buttonStyle(.bordered).controlSize(.small)
+            }
+            HStack {
+                Text("View").font(.caption).foregroundStyle(.secondary)
+                Spacer()
                 Picker("Library View",selection:setting(\.libraryLayout)) {
                     Label("Grid",systemImage:"square.grid.2x2").tag("grid")
                     Label("List",systemImage:"list.bullet").tag("list")
-                }.pickerStyle(.segmented).help("Choose Grid or List")
+                }.pickerStyle(.segmented).labelsHidden().frame(width:100).help("Choose Grid or List")
             }
-            ToolbarItem {
-                Menu("Filter and Sort",systemImage:"line.3.horizontal.decrease") {
-                    Toggle("HDR Apps Only",isOn:$model.libraryHDROnly)
-                    Picker("Sort Apps",selection:setting(\.librarySort)) {
-                        Text("Name").tag("name");Text("Host Order").tag("host")
-                    }
-                }.disabled(model.hasSession || model.isBusy)
-            }
-        }
+        }.padding(12)
     }
     private func setting<T>(_ key: WritableKeyPath<StreamPreferences,T>) -> Binding<T> {
         Binding(get:{ model.settings.value[keyPath:key] },set:{ value in model.settings.update { $0[keyPath:key]=value } })
