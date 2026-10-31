@@ -1,6 +1,7 @@
 # Native host session controls
 
-Host Session is available from the library and stream toolbars. While open, it reads
+Session and Graphics is available from the library and stream toolbars and from
+Stream → Session and Graphics… (⌘I). While open, it reads
 Rubylight's native session state every two seconds and displays game, owner, state,
 and host-provided action permissions. Unsupported hosts receive an explanation;
 ordinary local Disconnect remains available. Resume uses the existing launch/resume

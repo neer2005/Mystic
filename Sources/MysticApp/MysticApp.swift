@@ -11,16 +11,22 @@ struct MysticApp: App {
             .defaultSize(width: 1200, height: 720)
             .commands {
                 SidebarCommands()
+                // Show Toolbar and Customize Toolbar…; the stream toolbar keeps secondary items there.
+                ToolbarCommands()
                 LibraryCommands()
+                StreamCommands(model:model)
                 CommandGroup(after: .newItem) {
                     Button("Connect to Host") { model.connect() }.keyboardShortcut("k", modifiers: .command)
                         .disabled(model.isBusy || model.hasSession)
                     Button("Disconnect") { model.disconnect() }.keyboardShortcut("d", modifiers: [.command, .shift])
+                        .disabled(!model.canDisconnect)
                 }
             }
         Settings { MysticSettingsView(model:model) }
         Window("Mystic Stream", id: "stream") { StreamingView(model: model) }
             .windowManagerRole(.principal)
+            // Opened by starting a stream; an empty stream window from the Window menu has no use.
+            .commandsRemoved()
             .defaultSize(width: 1280, height: 720)
     }
 }

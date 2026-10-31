@@ -1,6 +1,8 @@
 # Video latency HUD
 
-Use **Latency HUD** in the stream window toolbar to show or hide the overlay.
+Use View → Show Latency HUD (⌥⌘L) to show or hide the overlay; a Latency HUD toolbar
+item is available through Customize Toolbar. The HUD also shows the current bitrate
+status.
 It updates once a second and lets pointer events through to the video. Hiding it
 keeps the bounded collectors active so reopening shows the current rolling window.
 The app creates a fresh collector on each stream and clears the snapshot on disconnect.

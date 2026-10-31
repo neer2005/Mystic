@@ -7,7 +7,7 @@ Work on a `codex/` feature branch. Run relevant checks, commit the completed wor
 ## Tasks
 
 - [ ] **Fix the resolution picker layout.** Keep the selected resolution concise; put display name and aspect ratio in secondary text. Ensure the picker indicator remains visible.
-- [ ] **Complete menu-bar commands.** Expose relevant library and streaming actions, including refresh, favourites, and input capture. Use context-sensitive availability and appropriate shortcuts.
+- [x] **Complete menu-bar commands.** Expose relevant library and streaming actions, including refresh, favourites, and input capture. Use context-sensitive availability and appropriate shortcuts.
 - [ ] **Unify library keyboard navigation.** Give Home and host libraries consistent arrow-key selection, visible focus, scrolling to selection, and Return-to-play behavior.
 - [ ] **Improve accessibility.** Expose favourite, availability, and running states on game cards. Test VoiceOver labels, focus order, status feedback, and Full Keyboard Access.
 - [ ] **Clarify the quit action.** Name the actual running game in the button and confirmation, especially when it differs from the selected game.
@@ -26,6 +26,16 @@ Work on a `codex/` feature branch. Run relevant checks, commit the completed wor
 - Destructive actions clearly identify their target.
 - VoiceOver exposes meaningful labels and states.
 - Provide before/after screenshots and a short validation report; identify anything that could not be tested.
+
+## Progress
+
+- 2026-10-31: Menu-bar commands and the stream toolbar were reworked (see the
+  implemented menus in `UI-DESIGN.md`). Checked in the running app against Big Dawg's
+  Desktop session: menu availability on Home, host library and stream; ⌘1/⌘2, ⌘R, ⌘I,
+  ⌥⌘L, ⌃⌘M and the ⌃⌥⇧⎋ release; Customize Toolbar; disconnect. Not yet checked:
+  full-screen toolbar behaviour, Mute Microphone with the microphone enabled, Retry
+  Audio with an unavailable output, VoiceOver for the new items. The streaming-interface
+  item below stays open for those.
 
 ## Review scope
 

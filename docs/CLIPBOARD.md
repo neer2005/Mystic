@@ -1,7 +1,8 @@
 # Clipboard text sharing
 
-The stream toolbar's Clipboard menu provides **Send Text to Host** and **Copy Host
-Text to Mac**. These are explicit actions; simply connecting or starting a stream
+The Stream menu provides **Send Clipboard Text to Host** and **Copy Host Clipboard
+Text to Mac**; the same actions are in the Clipboard toolbar item, which can be added
+with View → Customize Toolbar. These are explicit actions; simply connecting or starting a stream
 does not read or send clipboard contents. Host read and write permissions are
 checked separately. Unsupported/denied directions are disabled, and the bridge
 checks fresh pinned-HTTPS host permissions again before each manual request.
