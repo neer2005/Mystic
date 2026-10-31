@@ -25,6 +25,11 @@ struct HomeLibraryContent: View {
     }
     var body: some View {
         VStack(spacing:0) {
+            HStack {
+                Text("Library").font(.headline)
+                Spacer()
+                homeActions
+            }.padding(.horizontal,12).padding(.top,12)
             Picker("Collection",selection:$shelf) {
                 Text("All Games").tag("all");Text("Favourites").tag("favourites");Text("Recently Played").tag("recent")
             }.pickerStyle(.segmented).padding(12)
@@ -92,19 +97,22 @@ struct HomeLibraryContent: View {
         .onChange(of:filtered.map(\.id)) {
             if let id=model.selectedHomeGameID,!filtered.contains(where: { $0.id == id }) { model.selectedHomeGameID=filtered.first?.id }
         }
-        .toolbar {
-            ToolbarItem { Button("Refresh Home",systemImage:"arrow.clockwise") { Task { await model.refreshHome() } }.disabled(model.homeBusy || model.isBusy || model.hasSession) }
-            ToolbarItem {
-                Menu("Store",systemImage:"line.3.horizontal.decrease") {
-                    Picker("Store",selection:$store) {
-                        Text("All Stores").tag("all")
-                        ForEach(Array(Set(model.home.games.flatMap { $0.copies.compactMap(\.store) })).sorted(),id:\.self) { Text($0).tag($0) }
-                    }
-                }
-            }
-        }
         .task { await model.refreshHome() }
     }
+    private var homeActions: some View {
+        HStack(spacing:8) {
+            Button("Refresh Home",systemImage:"arrow.clockwise") { Task { await model.refreshHome() } }
+                .disabled(model.homeBusy || model.isBusy || model.hasSession)
+                .help("Refresh paired PC libraries")
+            Menu("Store",systemImage:"line.3.horizontal.decrease") {
+                Picker("Store",selection:$store) {
+                    Text("All Stores").tag("all")
+                    ForEach(Array(Set(model.home.games.flatMap { $0.copies.compactMap(\.store) })).sorted(),id:\.self) { Text($0).tag($0) }
+                }
+            }.help("Filter games by store")
+        }.labelStyle(.iconOnly).buttonStyle(.bordered).controlSize(.small)
+    }
+
 }
 
 struct HomeGameDetails: View {
