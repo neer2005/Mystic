@@ -22,6 +22,15 @@ public final class StreamRatesModel {
 
     public var launchKbps: UInt32 { UInt32(model.plan?.configuration.bitrateKbps ?? 10_000) }
     public var launchFPS: UInt32 { UInt32(model.plan?.configuration.fps ?? 60) }
+    /// Automatic bitrate owns the rate, so the health report offers no trial.
+    public var automaticActive: Bool { automatic }
+    /// The stream's bitrate as far as Mystic knows it: the last applied, else the launch request.
+    public var currentKbps: UInt32 { appliedKbps ?? launchKbps }
+    /// A health-report trial step was applied.
+    func noteTrial(kbps: UInt32,undo: Bool) {
+        appliedKbps=kbps
+        status=undo ? "Bitrate restored: \(kbps) kbps" : "Trial bitrate: \(kbps) kbps"
+    }
     public var canChange: Bool { model.phase == .streaming && !model.isBusy && (liveAvailable || httpBitrate) }
 
     /// Clears manual rate state; automatic bitrate is stopped separately.
@@ -61,8 +70,10 @@ public final class StreamRatesModel {
         guard fpsMilliHz == 0 || liveAvailable else { message="This host supports bitrate changes only.";return }
         let token=model.generation
         busy=true;message="Waiting for host confirmation…"
-        // Drain any older automatic write before sending the manual one.
+        // Drain any older automatic write before sending the manual one. A manual change also
+        // replaces a health-report trial.
         automatic=false
+        await session.trialClear()
         let pending=task
         await pending?.value
         guard model.generation == token else { return }

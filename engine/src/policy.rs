@@ -4,7 +4,7 @@ use nightjar_core::{control::ConnectionStatus, session::SessionStats};
 use nightjar_policy::{
     bitrate::{AdaptiveBitrateController, Codec},
     recovery::{self, Backoff},
-    stats::Stats,
+    stats::{LateFrames, Stats},
 };
 
 #[derive(Default)]
@@ -14,7 +14,11 @@ pub(crate) struct NetworkTiming {
     pub height: u32,
     pub fps: u32,
     last: Option<(u32, u64)>,
-    jitter: Option<f32>,
+    pub(crate) jitter: Option<f32>,
+    /// Frames late against the host's clock, for the stream doctor's bursts.
+    pub(crate) late: LateFrames,
+    /// Frames received since the doctor's last tick.
+    pub(crate) received: u64,
 }
 impl NetworkTiming {
     pub fn setup(&mut self, format: u32, width: u32, height: u32, fps: u32) {
@@ -26,7 +30,9 @@ impl NetworkTiming {
             ..Self::default()
         };
     }
-    pub fn frame(&mut self, rtp: u32, received: u64) {
+    pub fn frame(&mut self, rtp: u32, received: u64, processing_us: u32) {
+        self.late.push(rtp, processing_us, received, self.fps);
+        self.received += 1;
         if let Some((last_rtp, last_us)) = self.last {
             let ticks = rtp.wrapping_sub(last_rtp) as i32;
             if ticks > 0 && ticks <= 90_000 && received >= last_us {
@@ -270,10 +276,10 @@ mod tests {
     #[test]
     fn timing_handles_wrap_and_rejects_a_new_clock() {
         let mut n = NetworkTiming::default();
-        n.frame(u32::MAX - 1499, 1000);
-        n.frame(0, 17667);
+        n.frame(u32::MAX - 1499, 1000, 0);
+        n.frame(0, 17667, 0);
         assert!(n.jitter.unwrap() < 0.01);
-        n.frame(900_000, 18000);
+        n.frame(900_000, 18000, 0);
         assert!(n.jitter.is_none());
     }
 }

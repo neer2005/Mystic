@@ -80,7 +80,8 @@ Standard `Window`, `Help`. Every item backed by a `Commands` group.
   the focused library window and its selection.
 - **Stream:** Control Desktop, Capture Mouse ⌃⌘M, Release Input ⌃⌥⇧⎋, Mute Sound ⇧⌘M,
   Mute Microphone ⌥⇧⌘M (when the microphone is enabled), Retry Audio Output, the two
-  clipboard actions, Session and Graphics… ⌘I, and the debug-only Test Video Recovery.
+  clipboard actions, Session and Graphics… ⌘I, Why Did My Stream Stutter?… ⌃⌘H, and the
+  debug-only Test Video Recovery.
 
 The menu is named Stream rather than Session so it is not confused with the host's
 session panel. While input is captured, the keyboard belongs to the host: menu

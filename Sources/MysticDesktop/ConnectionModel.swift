@@ -26,6 +26,7 @@ public final class ConnectionModel {
     @ObservationIgnored public private(set) lazy var rates = StreamRatesModel(model:self)
     @ObservationIgnored public private(set) lazy var sessionControls = HostSessionModel(model:self)
     @ObservationIgnored public private(set) lazy var graphics = HostGraphicsModel(model:self)
+    @ObservationIgnored public private(set) lazy var health = StreamHealthModel(model:self)
 
     public private(set) var phase: Phase = .idle
     public private(set) var status = "Enter your host’s LAN address to connect."
@@ -492,6 +493,7 @@ public final class ConnectionModel {
         clipboard?.stop();clipboard=nil;clipboardBusy=false;clipboardStatus="Clipboard sharing idle"
         plan=nil;streamingAppName=nil;recovering=false;hadVideo=false;connectedAt=nil;recovery=StreamRecovery()
         rates.stopAutomatic(status:"Fixed bitrate")
+        health.reset()
         inputCapture?.setAvailable(false);inputCapture = nil
         generation = UUID(); let token = generation
         microphoneStatus="Microphone off"
@@ -526,7 +528,8 @@ public final class ConnectionModel {
                 guard let self, let player, self.generation == token else { return }
                 let snapshot = telemetry.snapshot()
                 self.processMediaSnapshot(snapshot)
-
+                await self.health.tick(snapshot)
+                guard self.generation == token else { return }
                 await self.rates.refresh()
                 guard self.generation == token else { return }
                 let stats = player.statistics
@@ -625,6 +628,7 @@ public final class ConnectionModel {
         controllerFeedbackMonitor?.cancel();controllerFeedbackMonitor=nil
         statisticsMonitor?.cancel();statisticsMonitor=nil
         rates.stopAutomatic()
+        health.reset()
         let previous=session;session=nil
         decoder=nil;presenter=nil;audioPlayer=nil;telemetry=nil;videoTelemetry=nil;rates.clearDecodedCount()
         let address=connectedAddress, port=connectedPort, endpoint=endpoint

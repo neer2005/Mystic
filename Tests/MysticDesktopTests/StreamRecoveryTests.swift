@@ -33,6 +33,31 @@ final class StreamRecoveryTests: XCTestCase {
         XCTAssertEqual(sessions.all[1].configuration?.bitrateKbps,Int32(profile.bitrateMbps)*1000)
         model.disconnect()
     }
+    func testHealthTrialStartsFromTheLiveBitrateAndReportsRefusals() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
+        let model=try await running(host,sessions,clock)
+        let session=sessions.all[0]
+        session.offer="none";await model.health.refreshReport()
+        await model.health.runTrial(undo:false)
+        XCTAssertTrue(host.rates.isEmpty,"No trial without the report's offer")
+        session.offer="try";await model.health.refreshReport()
+        XCTAssertEqual(model.health.report?.offer,.tryLower)
+        host.liveKbps=20_000
+        await model.health.runTrial(undo:false)
+        XCTAssertEqual(host.rates,[16_000],"20 % below the encoder's live rate, not the saved one")
+        XCTAssertEqual(session.trialSteps,[16_000])
+        XCTAssertEqual(model.rates.appliedKbps,16_000)
+        XCTAssertEqual(model.health.trialMessage,"Host applied 16.0 Mbps.")
+        session.refusal = .minimum
+        await model.health.runTrial(undo:false)
+        XCTAssertEqual(host.rates,[16_000])
+        XCTAssertEqual(model.health.trialMessage,"The encoder is already at the minimum trial bitrate. No change was made.")
+        host.liveRuntime=false;session.refusal=nil
+        await model.health.runTrial(undo:false)
+        XCTAssertEqual(model.health.trialMessage,"This host does not allow bitrate changes during a stream.")
+        model.disconnect()
+        XCTAssertNil(model.health.report,"A new connection starts without the old report")
+    }
     func testNegotiatedRatesUseHostReadbackAndIgnoreOldConnection() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
         let model=try await running(host,sessions,clock) { $0.fps=120 }
@@ -295,6 +320,18 @@ private final class RecoverySession: StreamSessionService, @unchecked Sendable {
     func beginAdaptiveBitrate(ceiling:UInt32,current:UInt32) async -> Bool { lock.withLock { beginCount+=1 };return true }
     func suggestedBitrate(decodeMillis:Float) async -> UInt32? { lock.withLock { let r=rate;rate=nil;return r } }
     func appliedBitrate(requested:UInt32,applied:UInt32) async {}
+    private var reportOffer="none",trialRefusal:TrialRefusal?,steps:[UInt32]=[]
+    var offer:String { get { lock.withLock { reportOffer } } set { lock.withLock { reportOffer=newValue } } }
+    var refusal:TrialRefusal? { get { lock.withLock { trialRefusal } } set { lock.withLock { trialRefusal=newValue } } }
+    var trialSteps:[UInt32] { lock.withLock { steps } }
+    func healthReport(currentKbps:UInt32,runtimeBitrate:Bool,automatic:Bool,busy:Bool) async -> StreamHealthReport? {
+        try? recoveryDecode(#"{"findings":["NETWORK"],"samples":5,"recent":true,"worstLossPercent":6,"worstDecodeMs":2,"worstHostP95Ms":-1,"worstDisplayP95Ms":-1,"stalls":0,"stallPeriodMs":0,"hostIncludesSend":false,"lateSamples":0,"offer":"\#(offer)"}"#)
+    }
+    func trialBegin(undo:Bool,liveKbps:UInt32) async -> Result<UInt32,TrialRefusal> {
+        if let refusal { return .failure(refusal) }
+        return .success(liveKbps*4/5)
+    }
+    func trialApplied(undo:Bool,previousKbps:UInt32,appliedKbps:UInt32) async { lock.withLock { steps.append(appliedKbps) } }
 }
 private final class RecoveryHost: HostService,@unchecked Sendable {
     private let lock=NSLock();private var currentApp:Int32=1,hostID="host1"
@@ -303,6 +340,8 @@ private final class RecoveryHost: HostService,@unchecked Sendable {
     func failNextInfo(retryable:Bool) { lock.withLock { infoFailure=retryable } }
     // Tests set these before a request starts; access from the main actor's async calls only.
     var supportsBitrate=true,rejectRate=false
+    var liveKbps:UInt32=0,liveRuntime=true
+    func liveBitrate() async throws -> LiveBitrate { LiveBitrate(runtime:liveRuntime,kbps:liveKbps) }
     var launches:[LaunchOptions] { lock.withLock { options } }
     var rates:[UInt32] { lock.withLock { requests } }
     func changeApp(_ id:Int32) { lock.withLock { currentApp=id } }

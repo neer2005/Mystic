@@ -308,6 +308,20 @@ int32_t mystic_frame_buffers(const MysticFrame *frame, MysticFrameBuffer *out, s
 char *mystic_wake(const char *request_json);
 char *mystic_session_rates(const MysticSession *session, uint32_t kbps, uint32_t fps_millihz);
 
+/* Stream doctor (additive to ABI 3): Nightjar's StreamHealth and BitrateTrial. One tick a second
+ * with the app's recent timings (NaN when unknown); returns an envelope with the network figures.
+ * The report envelope carries findings, evidence and the trial offer ("none", "try", "undo").
+ * Trial begin returns the bitrate to ask for, or -1 no live bitrate, -2 at minimum, -3 replaced.
+ * All are serialized by the session's owner; free returned strings with mystic_string_free. */
+char *mystic_session_health_tick(MysticSession *session, float decode_ms, float host_p95_ms,
+                                 float display_p95_ms, float released_fps, float shown_fps,
+                                 uint32_t thermal_level, uint32_t interval_ms, uint64_t now_ms);
+char *mystic_session_health_report(MysticSession *session, uint64_t now_ms, uint32_t current_kbps,
+                                   bool runtime_bitrate, bool automatic, bool busy);
+int64_t mystic_session_trial_begin(MysticSession *session, bool undo, uint32_t live_kbps);
+void mystic_session_trial_applied(MysticSession *session, bool undo, uint32_t previous_kbps, uint32_t applied_kbps);
+void mystic_session_trial_clear(MysticSession *session);
+
 #ifdef __cplusplus
 }
 #endif

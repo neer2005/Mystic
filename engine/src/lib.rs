@@ -27,6 +27,7 @@ mod policy;
 mod controller_feedback;
 mod clipboard;
 mod rates;
+mod health;
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::{Arc, Mutex};
@@ -331,7 +332,7 @@ impl VideoDecoder for VideoAdapter {
     }
 
     fn submit(&mut self, frame: &Frame) -> DecodeStatus {
-        self.network.lock().unwrap_or_else(|e| e.into_inner()).frame(frame.rtp_timestamp, frame.receive_time_us);
+        self.network.lock().unwrap_or_else(|e| e.into_inner()).frame(frame.rtp_timestamp, frame.receive_time_us, u32::from(frame.host_processing_latency) * 100);
         let Some(f) = self.callbacks.video_submit else {
             return DecodeStatus::Ok;
         };
@@ -523,6 +524,7 @@ pub struct MysticSession {
     feedback: Arc<Mutex<controller_feedback::FeedbackMailbox>>,
     clipboard: Arc<Mutex<clipboard::ClipboardState>>,
     rates: Arc<Mutex<rates::Rates>>,
+    doctor: health::Doctor,
 }
 
 fn write_error(buffer: *mut c_char, capacity: usize, message: &str) {
@@ -580,6 +582,7 @@ pub extern "C" fn mystic_session_new() -> *mut MysticSession {
         feedback: Arc::new(Mutex::new(controller_feedback::FeedbackMailbox::default())),
         clipboard: Arc::new(Mutex::new(clipboard::ClipboardState::default())),
         rates: Arc::new(Mutex::new(rates::Rates::default())),
+        doctor: health::Doctor::default(),
     }))
 }
 
@@ -643,6 +646,7 @@ pub unsafe extern "C" fn mystic_session_start(
         return MYSTIC_ERR_INVALID_ARGUMENT;
     }
     handle.bitrate = None;
+    handle.doctor = health::Doctor::default();
     *handle.clipboard.lock().unwrap_or_else(|e| e.into_inner()) = clipboard::ClipboardState::default();
     *handle.rates.lock().unwrap_or_else(|e|e.into_inner()) = rates::Rates::default();
     *handle.feedback.lock().unwrap_or_else(|e| e.into_inner()) = controller_feedback::FeedbackMailbox::default();
@@ -714,6 +718,7 @@ pub unsafe extern "C" fn mystic_session_stop(handle: *mut MysticSession) -> i32 
         return MYSTIC_ERR_INVALID_ARGUMENT;
     };
     handle.bitrate = None;
+    handle.doctor = health::Doctor::default();
     *handle.clipboard.lock().unwrap_or_else(|e| e.into_inner()) = clipboard::ClipboardState::default();
     *handle.rates.lock().unwrap_or_else(|e|e.into_inner()) = rates::Rates::default();
     *handle.feedback.lock().unwrap_or_else(|e| e.into_inner()) = controller_feedback::FeedbackMailbox::default();

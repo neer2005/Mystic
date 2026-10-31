@@ -38,7 +38,8 @@ must be investigated and documented before a feature is marked inapplicable.
 | FEC controls | Implemented | Settings → Network; launch and ANNOUNCE requests; engine loss reports. Effect on a lossy link not yet measured; see NETWORK.md |
 | Ride out drops and link reports | Implemented | Drop tolerance and Wi-Fi/link-speed hints; Big Dawg launch told "wireless" over Wi-Fi. A real network drop not yet tested; see NETWORK.md |
 | Client roaming | Pending | Engine support exists; needs route-change monitoring and settings |
-| Connection test, health report, benchmark, CSV timings | Pending | Native diagnostics and export |
+| Stream health report and bitrate trial | Implemented | Nightjar's StreamHealth/BitrateTrial via the engine; HUD network figures. Big Dawg report verified; the trial is tested with fakes only (no lossy link yet); see STREAM-HEALTH.md |
+| Connection test, benchmark, CSV timings, input latency test | Pending | Native diagnostics and export |
 | Stereo playback, mute, output changes | Implemented | User verified on Big Dawg |
 | 5.1/7.1 discrete PCM | Implemented, physical validation pending | Speaker identity and downmix checks |
 | 7.1.4/passthrough | Pending | Mac output capability investigation |

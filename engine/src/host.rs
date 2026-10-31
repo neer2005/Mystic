@@ -274,6 +274,11 @@ impl MysticHost {
                 let applied = self.client.set_bitrate(kbps).map_err(HostError::from)?;
                 Ok(json!({"kbps":applied}))
             }
+            "liveBitrate" => {
+                // The stream doctor's trial starts from the encoder's live rate, never the saved one.
+                let i = self.client.server_info_https().map_err(HostError::from)?;
+                Ok(json!({"runtime":i.capabilities.has(Feature::RuntimeBitrate),"kbps":i.encoder_bitrate_kbps}))
+            }
             "quit" => {
                 let info=self.client.server_info_https().map_err(HostError::from)?;
                 if !quit_allowed(&info) { return Err("The host has not granted permission to quit games.".into()); }
