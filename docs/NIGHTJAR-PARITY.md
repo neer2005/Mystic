@@ -35,8 +35,9 @@ must be investigated and documented before a feature is marked inapplicable.
 | Fractional refresh / virtual display controls | Pending | Native settings and host capability negotiation |
 | Recovery, automatic bitrate | Implemented | Big Dawg reconnect passed; congestion testing pending |
 | Live manual bitrate/FPS | Implemented | Big Dawg negotiation/UI verified; live Apply pending; see LIVE-RATES.md |
-| FEC controls | Pending | Native settings and feedback |
-| Ride out drops, roaming and link reports | Pending integration audit | Shared engine support does not establish app parity |
+| FEC controls | Implemented | Settings → Network; launch and ANNOUNCE requests; engine loss reports. Effect on a lossy link not yet measured; see NETWORK.md |
+| Ride out drops and link reports | Implemented | Drop tolerance and Wi-Fi/link-speed hints; Big Dawg launch told "wireless" over Wi-Fi. A real network drop not yet tested; see NETWORK.md |
+| Client roaming | Pending | Engine support exists; needs route-change monitoring and settings |
 | Connection test, health report, benchmark, CSV timings | Pending | Native diagnostics and export |
 | Stereo playback, mute, output changes | Implemented | User verified on Big Dawg |
 | 5.1/7.1 discrete PCM | Implemented, physical validation pending | Speaker identity and downmix checks |

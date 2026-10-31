@@ -219,6 +219,8 @@ public final class ConnectionModel {
         let reconnect: Bool
         let hostID: String
         let framePacing: FramePacingMode
+        let tellWireless: Bool
+        let tellLinkSpeed: Bool
     }
     @ObservationIgnored private(set) var plan: StreamPlan?
     @ObservationIgnored private var recovery = StreamRecovery()
@@ -380,9 +382,13 @@ public final class ConnectionModel {
             config.colorSpace = video.hdr ? 2 : 1; config.colorRange = 0
             config.microphone = microphoneEnabled
             config.channelCount = options.channelCount; config.channelMask = options.channelMask
+            let correction=ErrorCorrection(rawValue:settings.value.errorCorrection ?? "") ?? .host
+            options.fec=correction.engineValue; config.videoFEC=correction.engineValue
+            config.networkGraceMs=(NetworkGrace(rawValue:settings.value.networkGraceSeconds ?? 0) ?? .off).milliseconds
             return StreamPlan(app:app,options:options,configuration:config,
                 adaptive:video.adaptiveBitrate,reconnect:settings.value.automaticReconnect ?? true,
-                hostID:host?.uniqueID ?? "",framePacing:video.framePacing)
+                hostID:host?.uniqueID ?? "",framePacing:video.framePacing,
+                tellWireless:tellHostWireless,tellLinkSpeed:tellHostLinkSpeed)
     }
     private func startPreparedPlan(_ plan: StreamPlan,connection: any HostService,capabilities: VideoCapabilities) {
         recovery=StreamRecovery();recovering=false;hadVideo=false;connectedAt=nil
@@ -414,10 +420,19 @@ public final class ConnectionModel {
                     }
                 }
                 guard let self,self.generation == token else { return }
+                // Looked up for every attempt: a reconnect can come over another network.
+                let route=await NetworkRoute.toward(host:address,port:self.connectedPort)
+                guard self.generation == token else { return }
+                let hints=NetworkRoute.hints(route,tellWireless:plan.tellWireless,tellLinkSpeed:plan.tellLinkSpeed)
+                var options=options
+                options.clientWireless=hints.wireless
                 let launch = try await connection.launch(options)
                 guard self.generation == token else { return }
                 var config = config
                 config.remoteInputAESKey = launch.key; config.remoteInputAESIV = launch.iv
+                config.clientWireless = launch.clientWireless == true
+                config.linkMbps = hints.linkMbps
+                self.record("Route to host: \(route?.summary ?? "unknown"). Told host: \(config.clientWireless ? "wireless" : "nothing about Wi-Fi")\(config.linkMbps > 0 ? ", link \(config.linkMbps) Mbit/s" : ""). Drop tolerance \(config.networkGraceMs/1000) s.",token:token)
                 let session = try self.makeSession( { [weak self] in
                     Task { @MainActor in self?.streamFailed("Remote input delivery failed. The stream was stopped to release held keys.",token:token) }
                 },{ [weak self] message in

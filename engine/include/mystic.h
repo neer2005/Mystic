@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 /* Bump-matched with MYSTIC_ABI_VERSION in lib.rs. The Swift side must refuse a mismatch. */
-#define MYSTIC_ABI_VERSION 2
+#define MYSTIC_ABI_VERSION 3
 
 /* Result codes. */
 #define MYSTIC_OK 0
@@ -115,7 +115,16 @@ typedef struct {
     bool client_wireless;
     uint8_t remote_input_aes_key[16];
     uint8_t remote_input_aes_iv[16];
+    /* Ride out network silence this long (ms); at or below 10 s it adds no tolerance. */
+    uint32_t network_grace_ms;
+    /* MYSTIC_FEC_HOST, MYSTIC_FEC_AUTO or a fixed percentage 0-255 (Sunshine-based hosts). */
+    int16_t video_fec;
+    /* Wired link speed toward the host in Mbit/s; 0 on Wi-Fi or when unknown. */
+    int32_t link_mbps;
 } MysticStreamConfig;
+
+#define MYSTIC_FEC_HOST (-1)
+#define MYSTIC_FEC_AUTO (-2)
 
 typedef struct {
     void *user; /* passed back unchanged; never dereferenced by Rust */

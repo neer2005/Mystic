@@ -15,7 +15,8 @@ FEC loss reporting for hosts that negotiate it, session-start failure reporting,
 and encrypted microphone setup diagnostics. New Nightjar application features
 still require their own Mystic integration.
 
-Mystic retains ABI 2: Opus stereo, 5.1 and 7.1. The bridge copies the first eight
+Mystic is on ABI 3, which added `network_grace_ms`, `video_fec` and `link_mbps` to
+`MysticStreamConfig` (see `docs/NETWORK.md`). Audio is unchanged: Opus stereo, 5.1 and 7.1. The bridge copies the first eight
 entries from Nightjar's expanded 12-entry mapping only for supported layouts and
 rejects 7.1.4 or passthrough setups before invoking Swift. Passthrough negotiation
 stays disabled. No C struct layout or Swift binding changes are required.
