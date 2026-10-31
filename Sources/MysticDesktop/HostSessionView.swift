@@ -5,16 +5,49 @@ struct HostSessionView: View {
     @Bindable var model: ConnectionModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
+    @State private var tab="session"
     @State private var confirmation: HostSessionAction?
     @State private var confirmationSession: HostSession?
     @State private var confirmationContext: UUID?
     var body: some View {
         VStack(alignment:.leading,spacing:16) {
             HStack {
-                Text("Host Session").font(.title2)
+                Text("Session and Graphics").font(.title2)
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }
+            Picker("Panel",selection:$tab) {
+                Text("Session").tag("session")
+                Text("Graphics").tag("graphics")
+            }.pickerStyle(.segmented)
+            ScrollView {
+                VStack(alignment:.leading,spacing:16) {
+                    if tab == "graphics" { HostGraphicsView(model:model) }
+                    else { sessionContent }
+                }.frame(maxWidth:.infinity,alignment:.leading)
+            }.frame(maxHeight:520)
+        }
+        .padding(24).frame(width:460)
+        .confirmationDialog(confirmation?.title ?? "Host Session",isPresented:Binding(get:{confirmation != nil},set:{if !$0 { confirmation=nil }}),titleVisibility:.visible) {
+            if let action=confirmation,let expected=confirmationSession,let context=confirmationContext {
+                Button(action.title,role:action == .closeGame ? .destructive : nil) {
+                    Task { await model.performHostSessionAction(action,expected:expected,context:context) }
+                }
+            }
+            Button("Cancel",role:.cancel) {}
+        } message: { Text(confirmation?.explanation ?? "") }
+        .task(id:tab) {
+            guard tab == "session" else { return }
+            while !Task.isCancelled {
+                guard model.phase == .ready || model.phase == .streaming else { return }
+                await model.refreshHostSession()
+                if model.sessionControlsSupported == false { return }
+                do { try await Task.sleep(for:.seconds(2)) } catch { return }
+            }
+        }
+    }
+    private var sessionContent: some View {
+        VStack(alignment:.leading,spacing:16) {
             if let session=model.hostSession {
                 LabeledContent("Game",value:session.app?.title ?? "No game")
                 LabeledContent("State",value:session.state.capitalized)
@@ -49,22 +82,6 @@ struct HostSessionView: View {
                     .disabled(model.isBusy || (model.phase != .ready && model.phase != .streaming))
             }
         }
-        .padding(24).frame(width:460)
-        .confirmationDialog(confirmation?.title ?? "Host Session",isPresented:Binding(get:{confirmation != nil},set:{if !$0 { confirmation=nil }}),titleVisibility:.visible) {
-            if let action=confirmation,let expected=confirmationSession,let context=confirmationContext {
-                Button(action.title,role:action == .closeGame ? .destructive : nil) {
-                    Task { await model.performHostSessionAction(action,expected:expected,context:context) }
-                }
-            }
-            Button("Cancel",role:.cancel) {}
-        } message: { Text(confirmation?.explanation ?? "") }
-        .task {
-            while !Task.isCancelled {
-                guard model.phase == .ready || model.phase == .streaming else { return }
-                await model.refreshHostSession()
-                if model.sessionControlsSupported == false { return }
-                do { try await Task.sleep(for:.seconds(2)) } catch { return }
-            }
-        }
     }
+
 }

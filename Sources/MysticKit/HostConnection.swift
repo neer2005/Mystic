@@ -61,6 +61,9 @@ public protocol HostService: AnyObject, Sendable {
     func serverInfo() async throws -> HostInfo
     func pair(pin: String) async throws -> PairedHost
     func apps() async throws -> [HostApp]
+    func graphics() async throws -> HostGraphics?
+    func writeGraphics(gpu: Int32, setting: String, value: GraphicsValue, expected: HostGraphics, session: HostSession) async throws -> HostGraphics
+    func restoreGraphics(expected: HostGraphics, session: HostSession) async throws -> HostGraphics
     func hostSession() async throws -> HostSession?
     func performSessionAction(_ action: HostSessionAction, expected: HostSession) async throws -> HostSession
     func library() async throws -> HostLibrary?
@@ -74,6 +77,9 @@ public protocol HostService: AnyObject, Sendable {
 }
 
 public extension HostService {
+    func graphics() async throws -> HostGraphics? { nil }
+    func writeGraphics(gpu: Int32, setting: String, value: GraphicsValue, expected: HostGraphics, session: HostSession) async throws -> HostGraphics { throw HostConnectionError("Graphics controls are unavailable.") }
+    func restoreGraphics(expected: HostGraphics, session: HostSession) async throws -> HostGraphics { throw HostConnectionError("Graphics controls are unavailable.") }
     func hostSession() async throws -> HostSession? { nil }
     func performSessionAction(_ action: HostSessionAction, expected: HostSession) async throws -> HostSession { throw HostConnectionError("Session controls are unavailable on this host.") }
     func library() async throws -> HostLibrary? { nil }
@@ -110,6 +116,30 @@ public final class HostConnection: HostService, @unchecked Sendable {
         return try await request("pair", json: json)
     }
     public func apps() async throws -> [HostApp] { try await request("apps", json: "{}") }
+    private struct GraphicsResult: Decodable, Sendable { let radeon: HostGraphics? }
+    public func graphics() async throws -> HostGraphics? {
+        let result: GraphicsResult = try await request("radeon",json:"{}")
+        return result.radeon
+    }
+    private struct GraphicsRequest: Encodable {
+        struct Write: Encodable {
+            struct Change: Encodable { let id: String;let value: GraphicsValue }
+            let gpu: Int32;let changes: [Change]
+        }
+        let revision: UInt64;let expectedOwner: String;let expectedAppID: Int32?;let write: Write?
+    }
+    public func writeGraphics(gpu: Int32, setting: String, value: GraphicsValue, expected: HostGraphics, session: HostSession) async throws -> HostGraphics {
+        let payload=GraphicsRequest(revision:expected.revision,expectedOwner:session.owner,expectedAppID:session.app?.app_id,write:.init(gpu:gpu,changes:[.init(id:setting,value:value)]))
+        return try await graphicsRequest("radeonWrite",payload)
+    }
+    public func restoreGraphics(expected: HostGraphics, session: HostSession) async throws -> HostGraphics {
+        try await graphicsRequest("radeonRestore",GraphicsRequest(revision:expected.revision,expectedOwner:session.owner,expectedAppID:session.app?.app_id,write:nil))
+    }
+    private func graphicsRequest(_ operation: String,_ payload: GraphicsRequest) async throws -> HostGraphics {
+        let result: GraphicsResult = try await request(operation,json:String(decoding:JSONEncoder().encode(payload),as:UTF8.self))
+        guard let panel=result.radeon else { throw HostConnectionError("The host returned no graphics settings.") }
+        return panel
+    }
     public func hostSession() async throws -> HostSession? {
         struct Result: Decodable, Sendable { let session: HostSession? }
         let result: Result = try await request("session",json:"{}")

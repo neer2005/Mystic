@@ -48,13 +48,13 @@ must be investigated and documented before a feature is marked inapplicable.
 | Touch/pen and local cursor | Pending applicability audit | Native Mac input devices and host support |
 | Clipboard text | Implemented, live validation deferred | Manual and opt-in foreground sync |
 | Clipboard images, files, shared folders, USB | Pending | Capability/permission-aware native flows |
-| Session graphics / Radeon controls | Pending | Native setting descriptions, ownership and read-back |
+| Session graphics / Radeon controls | Implemented | Big Dawg GPU/settings and permission gating verified; live writes/restore pending Host control permission; see GRAPHICS.md |
 | Accessibility and system appearance | Partial | SwiftUI/accessibility labels present; systematic audit pending |
 | Release packaging, CI, notarization, updates | Pending | Signed local app exists; distribution and release checks remain |
 | Redacted reports / crash records | Pending | Privacy-safe diagnostics and export |
 | Published latency measurements | Pending | Timestamp and glass-to-glass method |
 | PyroWave | Last | Metal decode, calibration, bandwidth and pacing integration |
 
-Next sequence: finish session/graphics controls, expand library/host management,
+Next sequence: complete remaining session actions/live stream controls, expand library/host management,
 sharing, input/audio/diagnostics and remaining video integration, release hardening,
 then PyroWave. Validate each feature as suitable hardware becomes available.

@@ -6,6 +6,34 @@ import MysticCore
 
 @MainActor
 final class ConnectionModelTests: XCTestCase {
+    func testGraphicsReadbackFailureRecoveryAndConnectionIsolation() async throws {
+        let mock=MockHost(paired:true)
+        let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,makeHost:{ _,_,_,_ in mock })
+        model.address="pc.local";model.connect();try await settle(model)
+        await model.refreshGraphics()
+        XCTAssertTrue(model.canWriteGraphics)
+        let context=model.hostSessionContextID
+        mock.lock.withLock { mock.graphicsFails=true }
+        await model.writeGraphics(gpu:1,setting:"anti_lag.enabled",value:.toggle(true),context:context)
+        XCTAssertNotNil(model.graphicsWriteError)
+        XCTAssertEqual(model.hostGraphics?.gpus.first?.settings.first?.value,.toggle(true),"Failed writes read back partially applied host state")
+        XCTAssertFalse(model.graphicsWriting)
+        mock.lock.withLock { mock.graphicsFails=false }
+        await model.writeGraphics(gpu:1,setting:"anti_lag.enabled",value:.toggle(false),context:context)
+        XCTAssertNil(model.graphicsWriteError)
+        XCTAssertEqual(model.hostGraphics?.gpus.first?.settings.first?.value,.toggle(false))
+        let panel=try XCTUnwrap(model.hostGraphics),session=try XCTUnwrap(model.graphicsSession)
+        await model.restoreGraphics(panel:panel,session:session,context:context)
+        XCTAssertEqual(mock.lock.withLock { mock.graphicsRestores },1)
+        XCTAssertEqual(model.hostGraphics?.gpus.first?.settings.first?.value,.toggle(false))
+        model.disconnect();XCTAssertNil(model.hostGraphics)
+        model.connect();try await settle(model);await model.refreshGraphics()
+        await model.writeGraphics(gpu:1,setting:"anti_lag.enabled",value:.toggle(true),context:context)
+        XCTAssertEqual(mock.lock.withLock { mock.graphicsWrites },2,"An old window must not write to another connection")
+        let reading=Task { await model.refreshGraphics() }
+        try await Task.sleep(for:.milliseconds(5));model.disconnect();await reading.value
+        XCTAssertNil(model.hostGraphics);XCTAssertFalse(model.graphicsReading)
+    }
     func testIntentionalHostExitSuppressesRecoveryAndFailureAllowsRetry() async throws {
         let mock=MockHost(paired:true)
         let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,makeHost:{ _,_,_,_ in mock })
@@ -306,6 +334,10 @@ private final class MockHost: HostService, @unchecked Sendable {
     let native: Bool
     var libraryFails=false
     var sessionActionFails=false
+    var graphicsFails=false
+    var graphicsValue=false
+    var graphicsWrites=0
+    var graphicsRestores=0
     let delay: Bool
     let multipleApps: Bool
     let uniqueID: String
@@ -332,6 +364,24 @@ private final class MockHost: HostService, @unchecked Sendable {
         if multipleApps { return try decode("[{\"id\":1,\"name\":\"Desktop\",\"uuid\":\"app1\",\"hdrSupported\":true},{\"id\":2,\"name\":\"Alpha\",\"uuid\":\"app2\",\"hdrSupported\":false},{\"id\":3,\"name\":\"Zulu\",\"uuid\":\"app3\",\"hdrSupported\":true}]") }
         return try JSONDecoder().decode([HostApp].self,from:JSONSerialization.data(withJSONObject:
             [["id":singleAppID,"name":singleAppName,"uuid":singleAppUUID,"hdrSupported":true]]))
+    }
+    func graphics() async throws -> HostGraphics? {
+        try await Task.sleep(for:.milliseconds(20))
+        let value=lock.withLock { graphicsValue }
+        return try decode("{\"revision\":1,\"state\":\"configurable\",\"host_control\":true,\"writable_now\":true,\"gpus\":[{\"id\":1,\"name\":\"Radeon\",\"driver\":\"test\",\"settings\":[{\"id\":\"anti_lag.enabled\",\"group\":\"anti_lag\",\"kind\":\"toggle\",\"state\":\"configurable\",\"value\":\(value)}]}]}")
+    }
+    func writeGraphics(gpu: Int32,setting: String,value: GraphicsValue,expected: HostGraphics,session: HostSession) async throws -> HostGraphics {
+        let fail=lock.withLock {
+            graphicsWrites += 1
+            if case .toggle(let enabled)=value { graphicsValue=enabled }
+            return graphicsFails
+        }
+        if fail { throw HostConnectionError("Driver rejected part of the change") }
+        return try await graphics()!
+    }
+    func restoreGraphics(expected: HostGraphics,session: HostSession) async throws -> HostGraphics {
+        lock.withLock { graphicsValue=false;graphicsRestores += 1 }
+        return try await graphics()!
     }
     func hostSession() async throws -> HostSession? {
         try await Task.sleep(for:.milliseconds(20))
