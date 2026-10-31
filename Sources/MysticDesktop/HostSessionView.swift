@@ -19,10 +19,12 @@ struct HostSessionView: View {
             Picker("Panel",selection:$tab) {
                 Text("Session").tag("session")
                 Text("Graphics").tag("graphics")
+                Text("Stream").tag("stream")
             }.pickerStyle(.segmented)
             ScrollView {
                 VStack(alignment:.leading,spacing:16) {
-                    if tab == "graphics" { HostGraphicsView(model:model) }
+                    if tab == "stream" { LiveRatesView(model:model) }
+                    else if tab == "graphics" { HostGraphicsView(model:model) }
                     else { sessionContent }
                 }.frame(maxWidth:.infinity,alignment:.leading)
             }.frame(maxHeight:520)

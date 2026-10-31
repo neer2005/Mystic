@@ -63,6 +63,21 @@ final class VideoDecoderTests: XCTestCase {
             XCTAssertNotNil(CMFormatDescriptionGetExtension(desc, extensionKey: kCMFormatDescriptionExtension_ContentLightLevelInfo))
         }
     }
+    func testLiveFrameRateUpdatesPresentationHintsAndResetsWithSetup() async throws {
+        let report=await capabilities()
+        guard report.supportedFormats & VideoFormat.h264.rawValue != 0 else { throw XCTSkip("No H.264 hardware") }
+        let frames=CollectedFrames()
+        let decoder=VideoToolboxDecoder(capabilities:report,output:{frames.append($0)})
+        let setup=VideoSetupInfo(format:VideoFormat.h264.rawValue,width:64,height:64,fps:120,colorRange:0)
+        let data=try VideoCapabilities.fixture(.h264)
+        try decoder.setup(setup);decoder.start();decoder.setLiveFrameRate(60)
+        XCTAssertEqual(submit(decoder,data:data,key:true),.ok);decoder.waitForFrames()
+        XCTAssertEqual(frames.lastFrameRate,60)
+        decoder.cleanup();try decoder.setup(setup);decoder.start()
+        XCTAssertEqual(submit(decoder,data:data,key:true),.ok);decoder.waitForFrames()
+        XCTAssertEqual(frames.lastFrameRate,120)
+        decoder.cleanup()
+    }
     func testH264() async throws { try await verify(.h264) }
     func testH264444() async throws { try await verify(.h264444) }
     func testHEVC() async throws { try await verify(.hevc) }
@@ -285,6 +300,7 @@ private final class CollectedFrames: @unchecked Sendable {
     private var frames: [DecodedVideoFrame] = []
     func append(_ frame: DecodedVideoFrame) { lock.lock(); frames.append(frame); lock.unlock() }
     var count: Int { lock.lock(); defer { lock.unlock() }; return frames.count }
+    var lastFrameRate: UInt32? { lock.lock();defer { lock.unlock() };return frames.last?.frameRate }
     var lastWidth: Int? { lock.lock(); defer { lock.unlock() }; return frames.last.map { CVPixelBufferGetWidth($0.pixelBuffer) } }
     var lastPTS: CMTime? { lock.lock(); defer { lock.unlock() }; return frames.last?.presentationTime }
 }

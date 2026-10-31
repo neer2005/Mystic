@@ -294,6 +294,9 @@ void mystic_session_bitrate_applied(MysticSession *session, uint32_t requested, 
 /* Reserved for a future ABI; returns MYSTIC_ERR_UNIMPLEMENTED in v1. */
 int32_t mystic_frame_buffers(const MysticFrame *frame, MysticFrameBuffer *out, size_t capacity);
 
+/* Serialized worker: zero/zero polls; otherwise one bounded live rate request. */
+char *mystic_session_rates(const MysticSession *session, uint32_t kbps, uint32_t fps_millihz);
+
 #ifdef __cplusplus
 }
 #endif

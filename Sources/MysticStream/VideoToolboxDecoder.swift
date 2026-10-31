@@ -16,6 +16,8 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
     private let requestRecovery: @Sendable () -> Void
     private let resetOutput: @Sendable (UInt64) -> Void
     private let log: @Sendable (String) -> Void
+    private var liveFrameRate: UInt32?
+    public func setLiveFrameRate(_ fps: UInt32) { queue.async { [self] in if running { liveFrameRate=fps } } }
     private var setupInfo: VideoSetupInfo?
     private var format: VideoFormat?
     private var session: VTDecompressionSession?
@@ -74,6 +76,7 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
                   (info.logicalHeight == 0 || info.logicalHeight == info.height) else {
                 throw VideoDecoderError.unsupported("invalid geometry, color mode, or packed chroma")
             }
+            liveFrameRate=nil
             setupInfo = info; format = selected
             // Nightjar COLOR_RANGE_LIMITED=0, COLOR_RANGE_FULL=1.
             fullRange = info.colorRange == 1
@@ -128,7 +131,7 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
                     if state.fail(generation:token) { resetOutput(token &+ 1);requestRecovery();log("\(reason); requesting IDR immediately") }
                 }
                 let expectedPixel = format.pixelFormat(fullRange: fullRange)
-                let nominalFrameRate=UInt32(setupInfo?.fps ?? 60)
+                let nominalFrameRate=liveFrameRate ?? UInt32(setupInfo?.fps ?? 60)
                 let hdr = frame.hdrActive
                 let hdrMetadata = next.hdrMetadata
                 let decodeStartedAt = VideoTelemetry.nowMicros()

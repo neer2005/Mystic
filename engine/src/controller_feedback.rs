@@ -164,6 +164,7 @@ mod tests {
                 callbacks: MysticCallbacks::default(),
                 feedback: (*handle).feedback.clone(),
                 clipboard: (*handle).clipboard.clone(),
+                rates: (*handle).rates.clone(),
             };
             listener.control_event(ControlEvent::Rumble {
                 controller: 3,

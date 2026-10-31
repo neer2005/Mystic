@@ -97,6 +97,74 @@ public final class ConnectionModel {
     public private(set) var inputCapture: StreamInputCapture?
     public private(set) var videoTelemetry: VideoTelemetrySnapshot?
     public private(set) var diagnostics: [String] = []
+    public private(set) var liveRateAvailable=false
+    public private(set) var liveHTTPBitrate=false
+    public private(set) var liveRateBusy=false
+    public private(set) var liveRateMessage="Start a stream to change its rates."
+    public private(set) var appliedLiveKbps: UInt32?
+    public private(set) var appliedLiveFPS: UInt32?
+    public var launchRateKbps: UInt32 { UInt32(plan?.configuration.bitrateKbps ?? 10_000) }
+    public var launchRateFPS: UInt32 { UInt32(plan?.configuration.fps ?? 60) }
+    public var canChangeLiveRates: Bool { phase == .streaming && !isBusy && (liveRateAvailable || liveHTTPBitrate) }
+    private func resetLiveRates() {
+        liveRateAvailable=false;liveHTTPBitrate=false;liveRateBusy=false
+        appliedLiveKbps=nil;appliedLiveFPS=nil;liveRateMessage="Start a stream to change its rates."
+    }
+    public func refreshLiveRates() async {
+        guard phase == .streaming,!liveRateBusy,let session else { return }
+        let token=generation
+        do {
+            let state=try await session.liveRates(kbps:0,fpsMilliHz:0)
+            guard generation == token,!liveRateBusy else { return }
+            liveRateAvailable=state.available
+        } catch { /* Unsupported test/legacy engines leave the HTTP fallback available. */ }
+    }
+    public func changeLiveRates(kbps: UInt32,fpsMilliHz: UInt32,context: UUID) async {
+        guard context == generation,canChangeLiveRates,let connection,let session else { return }
+        guard (kbps == 0 || (1...150_000).contains(kbps)),
+            (fpsMilliHz == 0 || (fpsMilliHz >= 10_000 && UInt64(fpsMilliHz) <= min(240_000,UInt64(launchRateFPS)*1000))),
+            kbps != 0 || fpsMilliHz != 0 else { liveRateMessage="Choose valid rates within the stream's launch frame rate.";return }
+        guard fpsMilliHz == 0 || liveRateAvailable else { liveRateMessage="This host supports bitrate changes only.";return }
+        let token=generation
+        liveRateBusy=true;liveRateMessage="Waiting for host confirmation…"
+        // Drain any older automatic write before sending the manual one.
+        adaptationActive=false
+        let automatic=bitrateTask
+        await automatic?.value
+        guard generation == token else { return }
+        defer { if generation == token { liveRateBusy=false } }
+        do {
+            if liveRateAvailable {
+                var state=try await session.liveRates(kbps:kbps,fpsMilliHz:fpsMilliHz)
+                for _ in 0..<30 {
+                    guard generation == token,phase == .streaming else { return }
+                    if !state.pending { break }
+                    try await Task.sleep(for:.milliseconds(200))
+                    guard generation == token else { return }
+                    state=try await session.liveRates(kbps:0,fpsMilliHz:0)
+                }
+                guard generation == token else { return }
+                guard !state.pending else { throw HostConnectionError("The host rate change timed out. Applied rates are unknown.") }
+                if let error=state.error { throw HostConnectionError(error) }
+                guard let result=state.result else { throw HostConnectionError("The host returned no applied rates.") }
+                appliedLiveKbps=result.kbps;appliedLiveFPS=result.fpsMilliHz
+                decoder?.setLiveFrameRate((result.fpsMilliHz+999)/1000)
+                liveRateMessage=result.summary
+            } else {
+                let applied=try await connection.setBitrate(kbps:kbps)
+                guard generation == token else { return }
+                guard (1...150_000).contains(applied) else { throw HostConnectionError("The host returned an unsupported bitrate.") }
+                appliedLiveKbps=applied
+                liveRateMessage=applied == kbps ? "Bitrate applied by host." : "Bitrate limited by host."
+            }
+            bitrateStatus="Manual bitrate: \(appliedLiveKbps ?? 0) kbps"
+        } catch {
+            guard generation == token else { return }
+            appliedLiveKbps=nil;appliedLiveFPS=nil
+            liveRateMessage=error.localizedDescription
+            bitrateStatus="Manual rate change uncertain; automatic bitrate paused."
+        }
+    }
     public struct GameAction: Identifiable {
         public let id=UUID()
         public let context: UUID
@@ -173,7 +241,7 @@ public final class ConnectionModel {
     public private(set) var graphicsWriting=false
     public private(set) var graphicsReading=false
     public var canWriteGraphics: Bool {
-        (phase == .ready || phase == .streaming) && pendingGameAction == nil && !hostActionBusy && !graphicsWriting && !graphicsReading
+        (phase == .ready || phase == .streaming) && pendingGameAction == nil && !liveRateBusy && !hostActionBusy && !graphicsWriting && !graphicsReading
             && hostGraphics?.writable == true && graphicsSession?.owner == "you"
             && ["streaming","suspended"].contains(graphicsSession?.state ?? "")
     }
@@ -341,7 +409,7 @@ public final class ConnectionModel {
         }
     }
     public var selectedApp: HostApp? { apps.first { $0.id == selectedAppID } }
-    public var isBusy: Bool { pendingGameAction != nil || hostActionBusy || graphicsWriting || [.connecting, .pairing, .launching, .reconnecting, .disconnecting].contains(phase) }
+    public var isBusy: Bool { pendingGameAction != nil || liveRateBusy || hostActionBusy || graphicsWriting || [.connecting, .pairing, .launching, .reconnecting, .disconnecting].contains(phase) }
     public var canPlay: Bool { phase == .ready && !isBusy && selectedApp != nil && capabilities != nil }
     public var hasSession: Bool { phase == .streaming || phase == .launching || phase == .reconnecting }
 
@@ -435,6 +503,7 @@ public final class ConnectionModel {
         let endpoint = self.endpoint, vault = vault, factory = makeHost
         phase = .connecting; status = "Loading client identity from Keychain…"; errorMessage = nil
         cancelGameAction()
+        resetLiveRates()
         resetGraphics()
         hostSession=nil;hostSessionMessage=nil;sessionControlsSupported=nil;hostActionBusy=false;hostSessionReading=false;hostActionTerminated=false
         artworkRequests=[];artworkOrder=[];artwork=[:];nativeLibrary=nil;libraryNotice=nil
@@ -551,6 +620,7 @@ public final class ConnectionModel {
         var options = plan.options
         options.resumeOnly = recovering
         let token = generation
+        resetLiveRates()
         lastDecoded=0;adaptationInitialized=false
         let adaptive = plan.adaptive
         videoTelemetry = nil
@@ -607,6 +677,8 @@ public final class ConnectionModel {
                         guard let self,self.generation == token else { return }
                         self.clipboardStatus=message;self.clipboardBusy=busy
                     })
+                self.liveHTTPBitrate=launch.runtimeBitrate == true
+                self.liveRateMessage="Rates affect this stream only. Manual changes pause automatic bitrate until reconnect."
                 self.adaptationActive = adaptive && launch.runtimeBitrate == true
                 self.bitrateStatus = !adaptive ? "Fixed bitrate: \(config.bitrateKbps/1000) Mbps" :
                     (launch.runtimeBitrate == true ? "Automatic bitrate: waiting for video…" : "Automatic bitrate unavailable on this host; using fixed bitrate.")
@@ -639,6 +711,7 @@ public final class ConnectionModel {
         statisticsMonitor?.cancel(); statisticsMonitor = nil; audioStatus = "Audio stopped";audioOutputStatus = .idle
         operation?.cancel(); connection?.cancel(); connection = nil; pairingPIN = nil
         cancelGameAction()
+        resetLiveRates()
         resetGraphics()
         hostSession=nil;hostSessionMessage=nil;sessionControlsSupported=nil;hostActionBusy=false;hostSessionReading=false;hostActionTerminated=false
         artworkRequests=[];artworkOrder=[];artwork=[:];nativeLibrary=nil;libraryNotice=nil
@@ -664,6 +737,8 @@ public final class ConnectionModel {
                 let snapshot = telemetry.snapshot()
                 self.processMediaSnapshot(snapshot)
 
+                await self.refreshLiveRates()
+                guard self.generation == token else { return }
                 let stats = player.statistics
                 self.audioOutputStatus=stats.outputStatus
                 let route=stats.outputDevice.map { " · "+$0 } ?? ""
@@ -747,6 +822,7 @@ public final class ConnectionModel {
         }
         clipboard?.stop();clipboard=nil;clipboardBusy=false;clipboardStatus="Clipboard sharing paused during recovery"
         cancelGameAction()
+        resetLiveRates()
         resetGraphics()
         hostSession=nil;hostSessionReading=false;sessionControlsSupported=nil
         recovering=true;phase = .reconnecting;errorMessage=nil

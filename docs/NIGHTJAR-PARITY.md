@@ -33,7 +33,8 @@ must be investigated and documented before a feature is marked inapplicable.
 | Native pacing, HUD | Implemented, partial parity | Low Latency/Balanced; other modes, PTS Metal renderer, VRR/phase-lock remain |
 | Fractional refresh / virtual display controls | Pending | Native settings and host capability negotiation |
 | Recovery, automatic bitrate | Implemented | Big Dawg reconnect passed; congestion testing pending |
-| Live manual bitrate/FPS and FEC controls | Pending UI/integration | Bitrate API exists; extend session controls |
+| Live manual bitrate/FPS | Implemented | Big Dawg negotiation/UI verified; live Apply pending; see LIVE-RATES.md |
+| FEC controls | Pending | Native settings and feedback |
 | Ride out drops, roaming and link reports | Pending integration audit | Shared engine support does not establish app parity |
 | Connection test, health report, benchmark, CSV timings | Pending | Native diagnostics and export |
 | Stereo playback, mute, output changes | Implemented | User verified on Big Dawg |

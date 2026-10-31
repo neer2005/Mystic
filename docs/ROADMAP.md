@@ -56,7 +56,7 @@ rather than rewritten.
 - [x] Native host session panel: status/owner, resume, host-authorized disconnect/end/close, confirmation and intentional-exit recovery suppression (automated checks; Big Dawg status and host disconnect verified; see `SESSION.md`)
 - [x] Native Radeon graphics panel: typed controls, permissions, host read-back, error recovery and restore (automated checks; Big Dawg browsing and permission gating verified; live writes pending Host control; see `GRAPHICS.md`)
 - [x] Classic quit and quit-and-start-another with fresh state, ID/UUID/ownership checks, confirmation and immutable target video profile (automated checks; Big Dawg confirmation/cancel verified; real switch pending; see `GAME-SWITCHING.md`)
-- [ ] Live manual bitrate/FPS controls
+- [x] Live manual bitrate/FPS controls with negotiated host outcomes, bitrate-only fallback, bounded requests and session-only automatic-policy pause (automated checks; Big Dawg negotiation/UI verified; live Apply pending; see `LIVE-RATES.md`)
 - [x] Native single-host library browsing against Rubylight's API: cover art, stores, search and running-game details, preserving classic apps and video profiles (automated checks; Big Dawg browsing/search/refresh and Desktop resume verified; see `LIBRARY.md`)
 
 ## Phase 4 — hardening and release
