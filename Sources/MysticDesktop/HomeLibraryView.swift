@@ -46,7 +46,7 @@ struct HomeLibraryContent: View {
                                         if let copy=game.copies.first {
                                             GameArtwork(data:model.home.image(copy),desktop:game.title == "Desktop")
                                                 .aspectRatio(2/3,contentMode:.fit)
-                                                .task(id:model.home.artKey(copy)+"-"+(model.home.reach[copy.hostID]?.rawValue ?? "unknown")) { await model.loadHomeArt(copy) }
+                                                .task(id:model.home.artKey(copy)+"-"+(model.home.reach[copy.hostID]?.rawValue ?? "unknown")) { await model.homeSync.loadArt(copy) }
                                         }
                                         HStack { Text(game.title).lineLimit(2);if game.favourite { Image(systemName:"star.fill").foregroundStyle(.yellow) } }.font(.callout)
                                         Text(Array(Set(game.copies.compactMap(\.store))).sorted().joined(separator:" · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -74,8 +74,8 @@ struct HomeLibraryContent: View {
                             }
                             if let pc=model.home.pc(key) {
                                 Text("Library saved \(pc.updated.formatted(date:.abbreviated,time:.shortened))").font(.caption).foregroundStyle(.secondary)
-                                Button("Wake \(saved.name)",systemImage:"power") { Task { await model.wakeHomePC(key) } }
-                                    .disabled(pc.wake.macs.isEmpty || model.homeBusy || model.isBusy || model.hasSession)
+                                Button("Wake \(saved.name)",systemImage:"power") { Task { await model.homeSync.wake(key) } }
+                                    .disabled(pc.wake.macs.isEmpty || model.homeSync.busy || model.isBusy || model.hasSession)
                             } else { Text("Connect and pair to save this PC's library and wake addresses.").font(.caption).foregroundStyle(.secondary) }
                             if let notice=model.home.notices[key] { Text(notice).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                         }
@@ -86,8 +86,8 @@ struct HomeLibraryContent: View {
             }
             Divider()
             HStack {
-                if model.homeBusy { ProgressView().controlSize(.small) }
-                Text(model.homeMessage).lineLimit(2)
+                if model.homeSync.busy { ProgressView().controlSize(.small) }
+                Text(model.homeSync.message).lineLimit(2)
                 Spacer();Text("\(filtered.count) \(filtered.count == 1 ? "game" : "games")")
             }.font(.caption).foregroundStyle(.secondary).padding(12)
         }
@@ -97,12 +97,12 @@ struct HomeLibraryContent: View {
         .onChange(of:filtered.map(\.id)) {
             if let id=model.selectedHomeGameID,!filtered.contains(where: { $0.id == id }) { model.selectedHomeGameID=filtered.first?.id }
         }
-        .task { await model.refreshHome() }
+        .task { await model.homeSync.refresh() }
     }
     private var homeActions: some View {
         HStack(spacing:8) {
-            Button("Refresh Home",systemImage:"arrow.clockwise") { Task { await model.refreshHome() } }
-                .disabled(model.homeBusy || model.isBusy || model.hasSession)
+            Button("Refresh Home",systemImage:"arrow.clockwise") { Task { await model.homeSync.refresh() } }
+                .disabled(model.homeSync.busy || model.isBusy || model.hasSession)
                 .help("Refresh paired PC libraries")
             Menu("Store",systemImage:"line.3.horizontal.decrease") {
                 Picker("Store",selection:$store) {
@@ -138,7 +138,7 @@ struct HomeGameDetails: View {
                                 Task { await model.openHomeGame(copy);if model.hasSession { openWindow(id:"stream") } }
                             }.buttonStyle(.borderedProminent).disabled(model.isBusy || model.hasSession)
                             if model.home.reach[pc.id] != .online {
-                                Button("Wake \(pc.name)",systemImage:"power") { Task { await model.wakeHomePC(pc.id) } }.disabled(pc.wake.macs.isEmpty || model.homeBusy || model.isBusy || model.hasSession)
+                                Button("Wake \(pc.name)",systemImage:"power") { Task { await model.homeSync.wake(pc.id) } }.disabled(pc.wake.macs.isEmpty || model.homeSync.busy || model.isBusy || model.hasSession)
                             }
                             Text("Connects to this PC, verifies the current library and uses this game's saved settings. Any required game switch is confirmed before quitting.").font(.caption).foregroundStyle(.secondary)
                         }

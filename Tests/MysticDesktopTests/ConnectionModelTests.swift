@@ -21,7 +21,7 @@ final class ConnectionModelTests: XCTestCase {
         let info: HostInfo=try decode(#"{"name":"Offline","uniqueID":"offline.local","paired":true,"codecSupport":1,"currentGame":0}"#)
         let apps=try await MockHost(paired:true).apps()
         home.record(host:info,endpoint:HostEndpoint(address:"offline.local",port:47989)!,apps:apps,library:nil)
-        await model.refreshHome()
+        await model.homeSync.refresh()
         XCTAssertEqual(home.pcs.count,2)
         XCTAssertEqual(home.reach["host:online.local"],.online)
         XCTAssertEqual(home.reach["host:offline.local"],.offline)
@@ -84,24 +84,24 @@ final class ConnectionModelTests: XCTestCase {
         await model.prepare()
         guard (model.capabilities?.supportedFormats ?? 0) & 1 != 0 else { throw XCTSkip("No H.264 hardware") }
         model.address="pc.local";model.connect();try await settle(model)
-        model.selectedAppID=2;model.gameVideoSource = .custom
+        model.library.selectedID=2;model.gameVideoSource = .custom
         var video=model.effectiveVideoSettings;video.codec="h264";video.hdr=false;video.resolution="1280x720"
         model.updateGameVideo(video)
         await model.requestGameAction(startSelected:true)
         let action=try XCTUnwrap(model.pendingGameAction)
         XCTAssertEqual(action.target?.id,2)
-        model.selectedAppID=3
+        model.library.selectedID=3
         await model.confirmGameAction(action);try await settle(model)
         XCTAssertEqual(mock.launchedOptions?.appID,2)
         XCTAssertEqual(mock.launchedOptions?.width,1280)
         mock.lock.withLock { mock.runningGame=1;mock.quitRefused=true }
-        model.selectedAppID=2
+        model.library.selectedID=2
         await model.requestGameAction(startSelected:true)
         await model.confirmGameAction(try XCTUnwrap(model.pendingGameAction));try await settle(model)
         XCTAssertEqual(mock.lock.withLock { mock.launchCalls },1)
         XCTAssertNotNil(model.errorMessage)
         let quits=mock.lock.withLock { mock.quitCalls }
-        model.selectedAppID=2;video.hdr=true;model.updateGameVideo(video)
+        model.library.selectedID=2;video.hdr=true;model.updateGameVideo(video)
         await model.requestGameAction(startSelected:true)
         XCTAssertNil(model.pendingGameAction,"Invalid target settings must fail before a quit confirmation")
         XCTAssertEqual(mock.lock.withLock { mock.quitCalls },quits)
@@ -111,69 +111,69 @@ final class ConnectionModelTests: XCTestCase {
         let mock=MockHost(paired:true)
         let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,makeHost:{ _,_,_,_ in mock })
         model.address="pc.local";model.connect();try await settle(model)
-        await model.refreshGraphics()
-        XCTAssertTrue(model.canWriteGraphics)
-        let context=model.hostSessionContextID
+        await model.graphics.refresh()
+        XCTAssertTrue(model.graphics.canWrite)
+        let context=model.contextID
         mock.lock.withLock { mock.graphicsFails=true }
-        await model.writeGraphics(gpu:1,setting:"anti_lag.enabled",value:.toggle(true),context:context)
-        XCTAssertNotNil(model.graphicsWriteError)
-        XCTAssertEqual(model.hostGraphics?.gpus.first?.settings.first?.value,.toggle(true),"Failed writes read back partially applied host state")
-        XCTAssertFalse(model.graphicsWriting)
+        await model.graphics.write(gpu:1,setting:"anti_lag.enabled",value:.toggle(true),context:context)
+        XCTAssertNotNil(model.graphics.writeError)
+        XCTAssertEqual(model.graphics.panel?.gpus.first?.settings.first?.value,.toggle(true),"Failed writes read back partially applied host state")
+        XCTAssertFalse(model.graphics.writing)
         mock.lock.withLock { mock.graphicsFails=false }
-        await model.writeGraphics(gpu:1,setting:"anti_lag.enabled",value:.toggle(false),context:context)
-        XCTAssertNil(model.graphicsWriteError)
-        XCTAssertEqual(model.hostGraphics?.gpus.first?.settings.first?.value,.toggle(false))
-        let panel=try XCTUnwrap(model.hostGraphics),session=try XCTUnwrap(model.graphicsSession)
-        await model.restoreGraphics(panel:panel,session:session,context:context)
+        await model.graphics.write(gpu:1,setting:"anti_lag.enabled",value:.toggle(false),context:context)
+        XCTAssertNil(model.graphics.writeError)
+        XCTAssertEqual(model.graphics.panel?.gpus.first?.settings.first?.value,.toggle(false))
+        let panel=try XCTUnwrap(model.graphics.panel),session=try XCTUnwrap(model.graphics.session)
+        await model.graphics.restore(panel:panel,session:session,context:context)
         XCTAssertEqual(mock.lock.withLock { mock.graphicsRestores },1)
-        XCTAssertEqual(model.hostGraphics?.gpus.first?.settings.first?.value,.toggle(false))
-        model.disconnect();XCTAssertNil(model.hostGraphics)
-        model.connect();try await settle(model);await model.refreshGraphics()
-        await model.writeGraphics(gpu:1,setting:"anti_lag.enabled",value:.toggle(true),context:context)
+        XCTAssertEqual(model.graphics.panel?.gpus.first?.settings.first?.value,.toggle(false))
+        model.disconnect();XCTAssertNil(model.graphics.panel)
+        model.connect();try await settle(model);await model.graphics.refresh()
+        await model.graphics.write(gpu:1,setting:"anti_lag.enabled",value:.toggle(true),context:context)
         XCTAssertEqual(mock.lock.withLock { mock.graphicsWrites },2,"An old window must not write to another connection")
-        let reading=Task { await model.refreshGraphics() }
+        let reading=Task { await model.graphics.refresh() }
         try await Task.sleep(for:.milliseconds(5));model.disconnect();await reading.value
-        XCTAssertNil(model.hostGraphics);XCTAssertFalse(model.graphicsReading)
+        XCTAssertNil(model.graphics.panel);XCTAssertFalse(model.graphics.reading)
     }
     func testIntentionalHostExitSuppressesRecoveryAndFailureAllowsRetry() async throws {
         let mock=MockHost(paired:true)
         let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,makeHost:{ _,_,_,_ in mock })
         model.address="pc.local";model.connect();try await settle(model)
-        await model.refreshHostSession()
-        XCTAssertTrue(model.hostSession?.allows(.end) == true)
+        await model.sessionControls.refresh()
+        XCTAssertTrue(model.sessionControls.snapshot?.allows(.end) == true)
         mock.lock.withLock { mock.sessionActionFails=true }
-        await model.performHostSessionAction(.end)
+        await model.sessionControls.perform(.end)
         XCTAssertEqual(model.phase,.ready)
-        XCTAssertNotNil(model.hostSessionMessage)
-        XCTAssertFalse(model.hostActionBusy)
+        XCTAssertNotNil(model.sessionControls.message)
+        XCTAssertFalse(model.sessionControls.busy)
         mock.lock.withLock { mock.sessionActionFails=false }
-        await model.refreshHostSession()
-        let action=Task { await model.performHostSessionAction(.end) }
+        await model.sessionControls.refresh()
+        let action=Task { await model.sessionControls.perform(.end) }
         for _ in 0..<100 {
-            if model.hostActionBusy { break }
+            if model.sessionControls.busy { break }
             try await Task.sleep(for:.milliseconds(2))
         }
-        XCTAssertTrue(model.hostActionBusy)
+        XCTAssertTrue(model.sessionControls.busy)
         model.connectionEnded(code:-1,videoStarted:true)
         XCTAssertNotEqual(model.phase,.reconnecting)
         await action.value
         XCTAssertEqual(model.phase,.idle)
-        XCTAssertFalse(model.hostActionBusy)
-        XCTAssertNil(model.hostSession)
+        XCTAssertFalse(model.sessionControls.busy)
+        XCTAssertNil(model.sessionControls.snapshot)
     }
     func testLateSessionReadCannotPopulateAnotherHost() async throws {
         let mock=MockHost(paired:true)
         let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,makeHost:{ _,_,_,_ in mock })
         model.address="pc.local";model.connect();try await settle(model)
-        let oldContext=model.hostSessionContextID
-        let read=Task { await model.refreshHostSession() }
+        let oldContext=model.contextID
+        let read=Task { await model.sessionControls.refresh() }
         try await Task.sleep(for:.milliseconds(5))
         model.disconnect()
         await read.value
-        XCTAssertNil(model.hostSession)
+        XCTAssertNil(model.sessionControls.snapshot)
         XCTAssertEqual(model.phase,.idle)
-        model.connect();try await settle(model);await model.refreshHostSession()
-        await model.performHostSessionAction(.end,context:oldContext)
+        model.connect();try await settle(model);await model.sessionControls.refresh()
+        await model.sessionControls.perform(.end,context:oldContext)
         XCTAssertEqual(model.phase,.ready,"A confirmation from a previous connection cannot target this host")
         model.disconnect()
     }
@@ -181,9 +181,9 @@ final class ConnectionModelTests: XCTestCase {
         let mock=MockHost(paired:true,native:true)
         let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,makeHost:{ _,_,_,_ in mock })
         model.address="pc.local";model.connect();try await settle(model)
-        XCTAssertEqual(model.selectedApp?.name,"Native Game")
-        XCTAssertTrue(model.selectedAppRunning)
-        model.libraryQuery="Steam";XCTAssertEqual(model.filteredApps.count,1)
+        XCTAssertEqual(model.library.selected?.name,"Native Game")
+        XCTAssertTrue(model.library.selectedRunning)
+        model.library.query="Steam";XCTAssertEqual(model.library.filtered.count,1)
         model.gameVideoSource = .custom
         var video=model.effectiveVideoSettings;video.fps=120
         model.updateGameVideo(video)
@@ -191,13 +191,13 @@ final class ConnectionModelTests: XCTestCase {
         XCTAssertEqual(model.effectiveVideoSettings.fps,120)
         XCTAssertEqual(model.gameProfileKey,"uuid:app1")
         mock.lock.withLock { mock.libraryFails=true }
-        model.libraryQuery="";model.refreshLibrary();try await settle(model)
-        XCTAssertEqual(model.apps.first?.name,"Desktop")
-        XCTAssertNotNil(model.libraryNotice)
+        model.library.query="";model.refreshLibrary();try await settle(model)
+        XCTAssertEqual(model.library.apps.first?.name,"Desktop")
+        XCTAssertNotNil(model.library.notice)
         XCTAssertEqual(model.phase,.ready)
         XCTAssertEqual(model.effectiveVideoSettings.fps,120)
-        model.disconnect();XCTAssertNil(model.nativeLibrary)
-        XCTAssertTrue(model.artwork.isEmpty)
+        model.disconnect();XCTAssertNil(model.library.native)
+        XCTAssertTrue(model.library.artwork.isEmpty)
     }
     func testProfileUsesAppUUIDAcrossRenamesAndNumericIDChanges() async throws {
         let profiles=StreamProfilesStore(storage:nil)
@@ -211,7 +211,7 @@ final class ConnectionModelTests: XCTestCase {
         let renamed=MockHost(paired:true,singleAppID:99,singleAppUUID:uuid.lowercased(),singleAppName:"Renamed")
         let restarted=ConnectionModel(vault:MemoryVault(),rememberHost:false,profiles:profiles,makeHost:{ _,_,_,_ in renamed })
         restarted.address="pc.local";restarted.connect();try await settle(restarted)
-        XCTAssertEqual(restarted.selectedAppID,99);XCTAssertEqual(restarted.effectiveVideoSettings,video)
+        XCTAssertEqual(restarted.library.selectedID,99);XCTAssertEqual(restarted.effectiveVideoSettings,video)
         restarted.disconnect()
     }
     func testMissingHostAndAppUUIDsUseEndpointAndNumericAppFallbacks() async throws {
@@ -238,22 +238,22 @@ final class ConnectionModelTests: XCTestCase {
         model.updateHostVideo(hostVideo,hostKey:host)
         XCTAssertEqual(model.effectiveVideoSettings,hostVideo)
         XCTAssertEqual(settings.value.resolution,"1920x1080")
-        model.selectedAppID=1;model.gameVideoSource = .custom
+        model.library.selectedID=1;model.gameVideoSource = .custom
         var gameVideo=model.effectiveVideoSettings;gameVideo.resolution="2560x1440";gameVideo.framePacing = .balanced
         model.updateGameVideo(gameVideo)
-        model.selectedAppID=2
+        model.library.selectedID=2
         XCTAssertEqual(model.effectiveVideoSettings,hostVideo)
         model.gameVideoSource = .global
         settings.update { $0.bitrateMbps=35 }
         XCTAssertEqual(model.effectiveVideoSettings,settings.value.videoSettings)
-        model.selectedAppID=1;XCTAssertEqual(model.effectiveVideoSettings,gameVideo)
+        model.library.selectedID=1;XCTAssertEqual(model.effectiveVideoSettings,gameVideo)
         model.updateHostVideo(nil,hostKey:"another-host")
         XCTAssertNotNil(profiles.value.hostVideo(for:host),"A stale host editor cannot change the current host")
         model.disconnect()
         let restarted=ConnectionModel(vault:MemoryVault(),rememberHost:false,settings:settings,profiles:StreamProfilesStore(storage:storage),makeHost:{ _,_,_,_ in mock })
         restarted.address="pc.local";restarted.connect();try await settle(restarted)
         XCTAssertEqual(restarted.hostProfileKey,host,"Stable host ID survives an address change")
-        restarted.selectedAppID=1;XCTAssertEqual(restarted.effectiveVideoSettings,gameVideo)
+        restarted.library.selectedID=1;XCTAssertEqual(restarted.effectiveVideoSettings,gameVideo)
         restarted.gameVideoSource = .host
         XCTAssertEqual(restarted.effectiveVideoSettings,hostVideo)
         restarted.updateHostVideo(nil,hostKey:host)
@@ -303,7 +303,7 @@ final class ConnectionModelTests: XCTestCase {
         try await settle(model)
         XCTAssertEqual(model.phase, .ready)
         XCTAssertEqual(model.host?.name, "Test Host")
-        XCTAssertEqual(model.apps.first?.name, "Desktop")
+        XCTAssertEqual(model.library.apps.first?.name, "Desktop")
         model.disconnect()
         XCTAssertEqual(model.phase, .idle)
     }
@@ -318,7 +318,7 @@ final class ConnectionModelTests: XCTestCase {
         try await settle(model)
         XCTAssertEqual(model.host?.paired, true)
         XCTAssertEqual(try vault.certificate(for: "127.0.0.1:47989"), "pinned certificate")
-        XCTAssertEqual(model.apps.count, 1)
+        XCTAssertEqual(model.library.apps.count, 1)
         XCTAssertNil(model.pairingPIN)
     }
     func testLaunchFailureKeepsLibraryAvailableForRetry() async throws {
@@ -331,7 +331,7 @@ final class ConnectionModelTests: XCTestCase {
         XCTAssertEqual(model.phase, .ready)
         XCTAssertEqual(model.errorMessage, "not used")
         XCTAssertTrue(model.canPlay)
-        XCTAssertEqual(model.apps.count, 1)
+        XCTAssertEqual(model.library.apps.count, 1)
     }
     func testDisconnectIgnoresLateResponse() async throws {
         let mock = MockHost(paired: true, delay: true)
@@ -342,7 +342,7 @@ final class ConnectionModelTests: XCTestCase {
         model.disconnect()
         try await Task.sleep(for: .milliseconds(200))
         XCTAssertEqual(model.phase, .idle)
-        XCTAssertNil(model.host); XCTAssertTrue(model.apps.isEmpty)
+        XCTAssertNil(model.host); XCTAssertTrue(model.library.apps.isEmpty)
     }
     func testCredentialFailureIsVisible() async throws {
         let model = ConnectionModel(vault: MemoryVault(failSave: true), rememberHost: false, makeHost: { _, _, _, _ in MockHost(paired: false) })
@@ -351,7 +351,7 @@ final class ConnectionModelTests: XCTestCase {
         model.pair(); try await settle(model)
         XCTAssertEqual(model.phase, .failed)
         XCTAssertTrue(model.errorMessage?.contains("Keychain") == true)
-        XCTAssertTrue(model.apps.isEmpty)
+        XCTAssertTrue(model.library.apps.isEmpty)
     }
     func testInvalidAddressAndPort() {
         let model = ConnectionModel(vault: MemoryVault(), rememberHost: false)
@@ -384,13 +384,13 @@ final class ConnectionModelTests: XCTestCase {
         let settings=AppSettings(storage:nil),mock=MockHost(paired:true,multipleApps:true)
         let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,settings:settings,makeHost:{ _,_,_,_ in mock })
         model.address="127.0.0.1";model.port="47989";model.connect();try await settle(model)
-        XCTAssertEqual(model.filteredApps.map(\.name),["Alpha","Desktop","Zulu"])
-        XCTAssertEqual(model.selectedAppID,2)
+        XCTAssertEqual(model.library.filtered.map(\.name),["Alpha","Desktop","Zulu"])
+        XCTAssertEqual(model.library.selectedID,2)
         settings.update { $0.librarySort="host" }
-        XCTAssertEqual(model.filteredApps.map(\.id),[1,2,3])
-        model.libraryQuery="ZULU";XCTAssertEqual(model.selectedAppID,3)
-        model.libraryHDROnly=true;XCTAssertEqual(model.filteredApps.count,1)
-        model.libraryQuery="Alpha";XCTAssertTrue(model.filteredApps.isEmpty);XCTAssertNil(model.selectedAppID)
+        XCTAssertEqual(model.library.filtered.map(\.id),[1,2,3])
+        model.library.query="ZULU";XCTAssertEqual(model.library.selectedID,3)
+        model.library.hdrOnly=true;XCTAssertEqual(model.library.filtered.count,1)
+        model.library.query="Alpha";XCTAssertTrue(model.library.filtered.isEmpty);XCTAssertNil(model.library.selectedID)
         XCTAssertFalse(model.canPlay)
         model.disconnect()
     }

@@ -49,42 +49,42 @@ public struct HostLibraryView: View {
         .focusedSceneValue(\.hostSessionAction,canShowHostSession ? { showingHostSession=true } : nil)
         .frame(minWidth:1000,minHeight:580)
         .task { model.libraryAppeared();await model.prepare() }
-        .onChange(of:model.showingHome) { if model.showingHome { Task { await model.refreshHome() } } }
+        .onChange(of:model.showingHome) { if model.showingHome { Task { await model.homeSync.refresh() } } }
         .onDisappear { model.libraryDisappeared() }
         .onChange(of:model.settings.value) { model.applyLiveSettings() }
     }
     @ViewBuilder private var library: some View {
         VStack(spacing:0) {
             hostLibraryHeader
-            if let notice=model.libraryNotice {
+            if let notice=model.library.notice {
                 Label(notice,systemImage:"exclamationmark.triangle").font(.caption).foregroundStyle(.secondary).padding(12)
             }
-            if model.apps.isEmpty {
+            if model.library.apps.isEmpty {
                 ContentUnavailableView(model.isBusy ? "Connecting to Host" : "Choose a Host",systemImage:"desktopcomputer",
                     description:Text(model.isBusy ? model.status : "Select a saved or nearby host, or add its address in the sidebar."))
-            } else if model.filteredApps.isEmpty {
-                ContentUnavailableView.search(text:model.libraryQuery)
+            } else if model.library.filtered.isEmpty {
+                ContentUnavailableView.search(text:model.library.query)
             } else if model.settings.value.libraryLayout == "list" {
-                List(model.filteredApps,selection:$model.selectedAppID) { app in
-                    Label { HStack { VStack(alignment:.leading) { Text(app.name);if let store=model.libraryGame(app)?.store { Text(store.name).font(.caption).foregroundStyle(.secondary) } };Spacer();if app.hdrSupported { Text("HDR").font(.caption).foregroundStyle(.secondary) } } }
+                List(model.library.filtered,selection:Bindable(model.library).selectedID) { app in
+                    Label { HStack { VStack(alignment:.leading) { Text(app.name);if let store=model.library.game(app)?.store { Text(store.name).font(.caption).foregroundStyle(.secondary) } };Spacer();if app.hdrSupported { Text("HDR").font(.caption).foregroundStyle(.secondary) } } }
                         icon: { Image(systemName:app.name == "Desktop" ? "desktopcomputer" : "gamecontroller") }
                         .tag(app.id)
-                        .task(id:"\(model.libraryArtworkID):\(app.id)") { await model.loadArtwork(app.id) }
-                        .contextMenu { Button("Start Stream",systemImage:"play.fill") { model.selectedAppID=app.id;startStream() }.disabled(!model.canPlay) }
+                        .task(id:"\(model.library.artworkID):\(app.id)") { await model.library.loadArtwork(app.id) }
+                        .contextMenu { Button("Start Stream",systemImage:"play.fill") { model.library.selectedID=app.id;startStream() }.disabled(!model.canPlay) }
                 }.listStyle(.inset)
             } else {
-                AppGrid(model:model,apps:model.filteredApps,selection:$model.selectedAppID,start:startStream)
+                AppGrid(model:model,apps:model.library.filtered,selection:Bindable(model.library).selectedID,start:startStream)
             }
             Divider()
             HStack {
                 if model.isBusy { ProgressView().controlSize(.small) }
                 Text(model.status).lineLimit(2)
                 Spacer()
-                if !model.apps.isEmpty { Text("\(model.filteredApps.count) \(model.filteredApps.count == 1 ? "app" : "apps")") }
+                if !model.library.apps.isEmpty { Text("\(model.library.filtered.count) \(model.library.filtered.count == 1 ? "app" : "apps")") }
             }.font(.caption).foregroundStyle(.secondary).padding(12)
         }
         .disabled(model.hasSession || model.isBusy)
-        .searchable(text:$model.libraryQuery,prompt:"Search Apps")
+        .searchable(text:Bindable(model.library).query,prompt:"Search Apps")
         .searchFocused($searchFocused)
         .focusedSceneValue(\.librarySearchAction, { searchFocused=true })
     }
@@ -101,7 +101,7 @@ public struct HostLibraryView: View {
                         .disabled(model.phase != .ready || model.host?.paired != true)
                         .help("Refresh this PC's library")
                     Menu("Filter and Sort",systemImage:"line.3.horizontal.decrease") {
-                        Toggle("HDR Apps Only",isOn:$model.libraryHDROnly)
+                        Toggle("HDR Apps Only",isOn:Bindable(model.library).hdrOnly)
                         Picker("Sort Apps",selection:setting(\.librarySort)) {
                             Text("Name").tag("name");Text("Host Order").tag("host")
                         }
@@ -131,11 +131,11 @@ public struct HostLibraryView: View {
                 actions.play=("Play on \(pc.name)",{ Task { await model.openHomeGame(copy);if model.hasSession { openWindow(id:"stream") } } })
             }
             if let game { actions.favourite=(game.favourite,{ model.home.toggleFavourite(game.id) }) }
-            if !model.homeBusy,!model.isBusy,!model.hasSession { actions.refresh={ Task { await model.refreshHome() } } }
+            if !model.homeSync.busy,!model.isBusy,!model.hasSession { actions.refresh={ Task { await model.homeSync.refresh() } } }
             return actions
         }
         var actions=LibraryMenuActions(layout:setting(\.libraryLayout))
-        if model.canPlay { actions.play=(model.selectedAppRunning ? "Resume Stream" : "Start Stream",{ startStream() }) }
+        if model.canPlay { actions.play=(model.library.selectedRunning ? "Resume Stream" : "Start Stream",{ startStream() }) }
         if model.phase == .ready,model.host?.paired == true { actions.refresh={ model.refreshLibrary() } }
         return actions
     }
@@ -145,15 +145,15 @@ public struct HostLibraryView: View {
     private var streamDetails: some View {
         Form {
             if let error=model.errorMessage { Section { Label(error,systemImage:"exclamationmark.triangle").foregroundStyle(.red).textSelection(.enabled) } }
-            if let app=model.selectedApp {
+            if let app=model.library.selected {
                 Section {
-                    GameArtwork(data:model.artwork[app.id],desktop:app.name == "Desktop").frame(height:180)
-                        .task(id:"\(model.libraryArtworkID):\(app.id)") { await model.loadArtwork(app.id) }
+                    GameArtwork(data:model.library.artwork[app.id],desktop:app.name == "Desktop").frame(height:180)
+                        .task(id:"\(model.library.artworkID):\(app.id)") { await model.library.loadArtwork(app.id) }
                     Label(app.name,systemImage:app.name == "Desktop" ? "desktopcomputer" : "gamecontroller").font(.title2)
-                    if let store=model.libraryGame(app)?.store { LabeledContent("Store",value:store.name) }
-                    if model.selectedAppRunning { Label("Running on host",systemImage:"play.circle.fill").foregroundStyle(.green) }
+                    if let store=model.library.game(app)?.store { LabeledContent("Store",value:store.name) }
+                    if model.library.selectedRunning { Label("Running on host",systemImage:"play.circle.fill").foregroundStyle(.green) }
                     if app.hdrSupported { Label("HDR available on host",systemImage:"sparkles").foregroundStyle(.secondary) }
-                    Button(model.selectedAppRunning ? "Resume Stream" : "Start Stream",systemImage:"play.fill",action:startStream)
+                    Button(model.library.selectedRunning ? "Resume Stream" : "Start Stream",systemImage:"play.fill",action:startStream)
                         .buttonStyle(.borderedProminent).disabled(!model.canPlay)
                         .keyboardShortcut(.return,modifiers:[])
                     if (model.host?.currentGame ?? 0) > 0 {
@@ -268,17 +268,17 @@ private struct AppGrid: View {
                     ForEach(apps) { app in
                         Button { selection=app.id } label: {
                             VStack(spacing:8) {
-                                GameArtwork(data:model.artwork[app.id],desktop:app.name == "Desktop")
+                                GameArtwork(data:model.library.artwork[app.id],desktop:app.name == "Desktop")
                                     .aspectRatio(2/3,contentMode:.fit)
                                 Text(app.name).font(.callout).lineLimit(2).frame(maxWidth:.infinity)
-                                if let store=model.libraryGame(app)?.store { Text(store.name).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                                if model.host?.currentGame == app.id || model.libraryGame(app)?.running == true { Label("Running",systemImage:"play.fill").font(.caption).foregroundStyle(.green) }
+                                if let store=model.library.game(app)?.store { Text(store.name).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                                if model.host?.currentGame == app.id || model.library.game(app)?.running == true { Label("Running",systemImage:"play.fill").font(.caption).foregroundStyle(.green) }
                             }.padding(8)
                                 .background(selection == app.id ? Color.accentColor.opacity(0.12) : Color.clear,in:RoundedRectangle(cornerRadius:10))
                                 .overlay { RoundedRectangle(cornerRadius:10).strokeBorder(selection == app.id ? Color.accentColor : Color.clear,lineWidth:2) }
                                 .contentShape(Rectangle())
                         }.buttonStyle(.plain).id(app.id)
-                            .task(id:"\(model.libraryArtworkID):\(app.id)") { await model.loadArtwork(app.id) }
+                            .task(id:"\(model.library.artworkID):\(app.id)") { await model.library.loadArtwork(app.id) }
                             .accessibilityLabel(app.name).accessibilityAddTraits(selection == app.id ? .isSelected : [])
                             .contextMenu { Button("Start Stream",systemImage:"play.fill") { selection=app.id;start() } }
                     }
