@@ -117,8 +117,14 @@ The library now uses a standard three-column NavigationSplitView: native host
 sidebar, searchable app library, and a grouped-form Stream Details column. Grid
 and native list views share the selected app. Name/host-order sorting and an HDR
 filter operate on the current host's app list. The grid uses SF Symbols when art
-is unavailable; it does not fabricate covers. Arrow keys move selection in the
-grid, and the native list supplies list keyboard behavior. Command–F focuses the
+is unavailable; it does not fabricate covers. Home and the host library share one
+grid (`GameGrid`) with Finder's keyboard model: arrow keys move the selection and
+scroll it into view, Return or a double-click opens it (starts the app, or plays a
+Home game installed on one PC), and the selection is drawn in the accent colour only
+while the grid has focus. The list layout gives Return and double-click the same
+meaning. Each card is one VoiceOver element: the title as its label; store, PC,
+availability, running, HDR and favourite state as its value; selection as a trait;
+and its actions in both its context menu and its accessibility actions. Command–F focuses the
 library's search field through a command scoped to that window. Standard sidebar
 commands and the toolbar control use the system split-view behavior.
 

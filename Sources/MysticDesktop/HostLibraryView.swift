@@ -66,14 +66,35 @@ public struct HostLibraryView: View {
                 ContentUnavailableView.search(text:model.library.query)
             } else if model.settings.value.libraryLayout == "list" {
                 List(model.library.filtered,selection:Bindable(model.library).selectedID) { app in
-                    Label { HStack { VStack(alignment:.leading) { Text(app.name);if let store=model.library.game(app)?.store { Text(store.name).font(.caption).foregroundStyle(.secondary) } };Spacer();if app.hdrSupported { Text("HDR").font(.caption).foregroundStyle(.secondary) } } }
+                    Label { HStack { VStack(alignment:.leading) { Text(app.name);if let store=model.library.game(app)?.store { Text(store.name).font(.caption).foregroundStyle(.secondary) } };Spacer();if model.library.isRunning(app) { Text("Running").font(.caption).foregroundStyle(.green) };if app.hdrSupported { Text("HDR").font(.caption).foregroundStyle(.secondary) } } }
                         icon: { Image(systemName:app.name == "Desktop" ? "desktopcomputer" : "gamecontroller") }
                         .tag(app.id)
                         .task(id:"\(model.library.artworkID):\(app.id)") { await model.library.loadArtwork(app.id) }
-                        .contextMenu { Button("Start Stream",systemImage:"play.fill") { model.library.selectedID=app.id;startStream() }.disabled(!model.canPlay) }
-                }.listStyle(.inset)
+                        .accessibilityElement(children:.ignore)
+                        .accessibilityLabel(describe(app).label)
+                        .accessibilityValue(describe(app).value)
+                }
+                .listStyle(.inset)
+                .accessibilityLabel(libraryLabel)
+                // Return and double-click start the selected app, as they open items in Finder.
+                .contextMenu(forSelectionType:Int32.self) { ids in
+                    if let id=ids.first { appMenu(id) }
+                } primaryAction: { ids in
+                    if let id=ids.first { start(id) }
+                }
             } else {
-                AppGrid(model:model,apps:model.library.filtered,selection:Bindable(model.library).selectedID,start:startStream)
+                GameGrid(items:model.library.filtered,selection:Bindable(model.library).selectedID,label:libraryLabel,
+                         open:{ start($0.id) },describe:describe) { app in
+                    VStack(spacing:8) {
+                        GameArtwork(data:model.library.artwork[app.id],desktop:app.name == "Desktop")
+                            .aspectRatio(2/3,contentMode:.fit)
+                        Text(app.name).font(.callout).lineLimit(2).frame(maxWidth:.infinity)
+                        if let store=model.library.game(app)?.store { Text(store.name).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                        if model.library.isRunning(app) { Label("Running",systemImage:"play.fill").font(.caption).foregroundStyle(.green) }
+                    }
+                    .task(id:"\(model.library.artworkID):\(app.id)") { await model.library.loadArtwork(app.id) }
+                    .contextMenu { appMenu(app.id) }
+                }
             }
             Divider()
             HStack {
@@ -139,6 +160,25 @@ public struct HostLibraryView: View {
         if model.phase == .ready,model.host?.paired == true { actions.refresh={ model.refreshLibrary() } }
         return actions
     }
+    private var libraryLabel: String { "Apps on \(model.host?.name ?? "host")" }
+    private func describe(_ app: HostApp) -> GameCardDescription {
+        var value: [String]=[]
+        if let store=model.library.game(app)?.store { value.append(store.name) }
+        if model.library.isRunning(app) { value.append("Running") }
+        if app.hdrSupported { value.append("HDR available") }
+        var description=GameCardDescription(label:app.name,value:value.joined(separator:", "))
+        if model.canPlay { description.actions=[(model.library.isRunning(app) ? "Resume Stream" : "Start Stream",{ start(app.id) })] }
+        return description
+    }
+    @ViewBuilder private func appMenu(_ id: Int32) -> some View {
+        let running=model.library.apps.first { $0.id == id }.map(model.library.isRunning) ?? false
+        Button(running ? "Resume Stream" : "Start Stream",systemImage:"play.fill") { start(id) }.disabled(!model.canPlay)
+    }
+    /// Selects `id` and starts it; does nothing while the library cannot play.
+    private func start(_ id: Int32) {
+        model.library.selectedID=id
+        if model.canPlay { startStream() }
+    }
     private func startStream() {
         Task { await model.requestGameAction(startSelected:true);if model.hasSession { openWindow(id:"stream") } }
     }
@@ -155,7 +195,7 @@ public struct HostLibraryView: View {
                     if app.hdrSupported { Label("HDR available on host",systemImage:"sparkles").foregroundStyle(.secondary) }
                     Button(model.library.selectedRunning ? "Resume Stream" : "Start Stream",systemImage:"play.fill",action:startStream)
                         .buttonStyle(.borderedProminent).disabled(!model.canPlay)
-                        .keyboardShortcut(.return,modifiers:[])
+                        .help("Return or double-click in the library also starts the selected app.")
                     if (model.host?.currentGame ?? 0) > 0 {
                         Button("Quit Running Game…",systemImage:"stop.circle",role:.destructive) {
                             Task { await model.requestGameAction(startSelected:false) }
@@ -251,50 +291,6 @@ private struct HostSidebar: View {
         Label {
             VStack(alignment:.leading,spacing:2) { Text(name);Text(endpoint.id).font(.caption).foregroundStyle(.secondary) }
         } icon: { Image(systemName:"desktopcomputer") }
-    }
-}
-
-private struct AppGrid: View {
-    let model: ConnectionModel
-    let apps: [HostApp]
-    @Binding var selection: Int32?
-    let start: () -> Void
-    @State private var width: CGFloat=400
-    private var columns: Int { max(1,Int((width+16)/156)) }
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVGrid(columns:[GridItem(.adaptive(minimum:140),spacing:16)],spacing:20) {
-                    ForEach(apps) { app in
-                        Button { selection=app.id } label: {
-                            VStack(spacing:8) {
-                                GameArtwork(data:model.library.artwork[app.id],desktop:app.name == "Desktop")
-                                    .aspectRatio(2/3,contentMode:.fit)
-                                Text(app.name).font(.callout).lineLimit(2).frame(maxWidth:.infinity)
-                                if let store=model.library.game(app)?.store { Text(store.name).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                                if model.host?.currentGame == app.id || model.library.game(app)?.running == true { Label("Running",systemImage:"play.fill").font(.caption).foregroundStyle(.green) }
-                            }.padding(8)
-                                .background(selection == app.id ? Color.accentColor.opacity(0.12) : Color.clear,in:RoundedRectangle(cornerRadius:10))
-                                .overlay { RoundedRectangle(cornerRadius:10).strokeBorder(selection == app.id ? Color.accentColor : Color.clear,lineWidth:2) }
-                                .contentShape(Rectangle())
-                        }.buttonStyle(.plain).id(app.id)
-                            .task(id:"\(model.library.artworkID):\(app.id)") { await model.library.loadArtwork(app.id) }
-                            .accessibilityLabel(app.name).accessibilityAddTraits(selection == app.id ? .isSelected : [])
-                            .contextMenu { Button("Start Stream",systemImage:"play.fill") { selection=app.id;start() } }
-                    }
-                }.padding(16)
-            }
-            .onGeometryChange(for:CGFloat.self) { $0.size.width-32 } action: { width=$0 }
-            .focusable()
-            .onMoveCommand { direction in
-                guard !apps.isEmpty else { return }
-                let current=apps.firstIndex { $0.id == selection } ?? 0
-                let delta: Int
-                switch direction { case .left:delta = -1;case .right:delta=1;case .up:delta = -columns;case .down:delta=columns;default:return }
-                selection=apps[min(apps.count-1,max(0,current+delta))].id
-                if let selection { proxy.scrollTo(selection) }
-            }
-        }
     }
 }
 
