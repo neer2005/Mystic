@@ -512,6 +512,9 @@ public final class ConnectionModel {
     public var isBusy: Bool { pendingGameAction != nil || liveRateBusy || hostActionBusy || graphicsWriting || [.connecting, .pairing, .launching, .reconnecting, .disconnecting].contains(phase) }
     public var canPlay: Bool { phase == .ready && !isBusy && selectedApp != nil && capabilities != nil }
     public var hasSession: Bool { phase == .streaming || phase == .launching || phase == .reconnecting }
+    public var canDisconnect: Bool { phase != .idle && phase != .disconnecting }
+    /// The app the current stream launched; the stream window's title.
+    public private(set) var streamingAppName: String?
 
     @ObservationIgnored private let microphonePermission: @Sendable () async -> Bool
     @ObservationIgnored private let rememberHost: Bool
@@ -716,7 +719,7 @@ public final class ConnectionModel {
     }
     private func startPreparedPlan(_ plan: StreamPlan,connection: any HostService,capabilities: VideoCapabilities) {
         recovery=StreamRecovery();recovering=false;hadVideo=false;connectedAt=nil
-        self.plan=plan
+        self.plan=plan;streamingAppName=plan.app.name
         launchStream(plan,connection:connection,capabilities:capabilities)
     }
     public func play() {
@@ -810,7 +813,7 @@ public final class ConnectionModel {
     public func disconnect() {
         cancelHomeRefresh()
         clipboard?.stop();clipboard=nil;clipboardBusy=false;clipboardStatus="Clipboard sharing idle"
-        plan=nil;recovering=false;hadVideo=false;connectedAt=nil;recovery=StreamRecovery()
+        plan=nil;streamingAppName=nil;recovering=false;hadVideo=false;connectedAt=nil;recovery=StreamRecovery()
         bitrateTask?.cancel();bitrateTask=nil;adaptationActive=false;bitrateStatus="Fixed bitrate"
         inputCapture?.setAvailable(false);inputCapture = nil
         generation = UUID(); let token = generation

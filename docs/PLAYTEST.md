@@ -99,7 +99,7 @@ Enable Automatic Bitrate in Settings → Video before starting a new stream. The
 selected bitrate is the ceiling. A host without live bitrate control should show
 that adaptation is unavailable and continue at the fixed rate.
 
-1. Note the initial rate shown in the stream toolbar.
+1. Show the Latency HUD (⌥⌘L) and note the initial rate it shows.
 2. Play through a temporary period of network congestion. The rate should step
    down after sustained pressure rather than jump at every isolated hitch.
 3. Restore a healthy connection and keep playing. The rate should rise gradually
@@ -109,7 +109,7 @@ that adaptation is unavailable and continue at the fixed rate.
 
 ## Clipboard text
 
-1. In the stream's Clipboard menu, send a new Mac text copy to the host, then paste
+1. From the Stream menu, send a new Mac text copy to the host, then paste
    it in a host text editor. Test accents, emoji and multiple lines.
 2. Copy text on the host and use Copy Host Text to Mac. Check both permitted
    directions; disabled buttons should match the host's device permissions.

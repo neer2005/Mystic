@@ -68,6 +68,33 @@ custom chrome.
 Combination), `View` (Sidebar, Inspector, Grid/List), `Host` (Wake, Pair, Forget).
 Standard `Window`, `Help`. Every item backed by a `Commands` group.
 
+### Implemented menus — 2026-10-31
+
+- **File:** Connect to Host ⌘K, Disconnect ⇧⌘D (disabled with nothing to disconnect).
+- **Edit:** Find Apps ⌘F, scoped to the focused library window.
+- **View:** as Grid ⌘1 / as List ⌘2 (host library only; disabled on Home), Show/Hide
+  Toolbar, Customize Toolbar…, Show/Hide Latency HUD ⌥⌘L, the sidebar command and the
+  system's Enter Full Screen.
+- **Library:** Start Stream / Resume Stream (or Play on *PC* for a Home game installed
+  on one PC), Add to/Remove from Favourites (Home), Refresh Library ⌘R. Items follow
+  the focused library window and its selection.
+- **Stream:** Control Desktop, Capture Mouse ⌃⌘M, Release Input ⌃⌥⇧⎋, Mute Sound ⇧⌘M,
+  Mute Microphone ⌥⇧⌘M (when the microphone is enabled), Retry Audio Output, the two
+  clipboard actions, Session and Graphics… ⌘I, and the debug-only Test Video Recovery.
+
+The menu is named Stream rather than Session so it is not confused with the host's
+session panel. While input is captured, the keyboard belongs to the host: menu
+shortcuts work only after release, and ⌃⌥⇧⎋ is listed so the release chord is
+discoverable. Send Key Combination remains unimplemented and has no placeholder item.
+
+The stream window's toolbar holds Capture Mouse, Mute Sound, Mute Microphone, Session
+and Graphics, and Disconnect; Retry Audio appears only while the output is
+unavailable. Clipboard and Latency HUD are available through Customize Toolbar. The
+window title is the streamed app and the subtitle is the input state, including the
+release chord. Full screen uses the system command and green button rather than a
+toolbar button. The stream window is omitted from the Window menu, because an empty
+stream window has no use.
+
 ## Feel
 
 - Animations: system defaults only, plus a short cross-fade entering full-screen.

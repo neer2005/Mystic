@@ -77,7 +77,8 @@ creating a fresh graph/ring. Queued old audio is discarded. Output creation gets
 one attempt plus three one-second retries (each with stereo fallback if needed). After that, the status is unavailable,
 while device monitoring remains active. A later device event or **Retry Audio**
 starts a fresh bounded attempt sequence. Retry Audio appears in the stream toolbar
-and Audio settings when playback is unavailable. Recovery is confined to audio;
+and Audio settings when playback is unavailable, and Stream → Retry Audio Output is
+enabled then. Recovery is confined to audio;
 the host stream and video session are not restarted.
 
 Setup validates the negotiated Opus format without opening the audio device.

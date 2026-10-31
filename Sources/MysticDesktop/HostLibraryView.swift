@@ -45,6 +45,8 @@ public struct HostLibraryView: View {
             }.padding(24).frame(width:440)
         }
         .sheet(isPresented:$showingHostSession) { HostSessionView(model:model) }
+        .focusedSceneValue(\.libraryMenuActions,menuActions)
+        .focusedSceneValue(\.hostSessionAction,canShowHostSession ? { showingHostSession=true } : nil)
         .frame(minWidth:1000,minHeight:580)
         .task { model.libraryAppeared();await model.prepare() }
         .onChange(of:model.showingHome) { if model.showingHome { Task { await model.refreshHome() } } }
@@ -92,8 +94,8 @@ public struct HostLibraryView: View {
                 Text("Library").font(.headline)
                 Spacer()
                 HStack(spacing:8) {
-                    Button("Host Session",systemImage:"rectangle.connected.to.line.below") { showingHostSession=true }
-                        .disabled(model.phase != .ready || model.host?.paired != true)
+                    Button("Session and Graphics",systemImage:"rectangle.connected.to.line.below") { showingHostSession=true }
+                        .disabled(!canShowHostSession)
                         .help("Session and graphics controls")
                     Button("Refresh Library",systemImage:"arrow.clockwise") { model.refreshLibrary() }
                         .disabled(model.phase != .ready || model.host?.paired != true)
@@ -118,6 +120,24 @@ public struct HostLibraryView: View {
     }
     private func setting<T>(_ key: WritableKeyPath<StreamPreferences,T>) -> Binding<T> {
         Binding(get:{ model.settings.value[keyPath:key] },set:{ value in model.settings.update { $0[keyPath:key]=value } })
+    }
+    private var canShowHostSession: Bool { !model.showingHome && model.phase == .ready && model.host?.paired == true }
+    private var menuActions: LibraryMenuActions {
+        if model.showingHome {
+            let game=model.home.games.first { $0.id == model.selectedHomeGameID }
+            var actions=LibraryMenuActions()
+            // A game on several PCs needs a choice of PC, which the details column offers.
+            if let game,game.copies.count == 1,let copy=game.copies.first,let pc=model.home.pc(copy.hostID),!model.isBusy,!model.hasSession {
+                actions.play=("Play on \(pc.name)",{ Task { await model.openHomeGame(copy);if model.hasSession { openWindow(id:"stream") } } })
+            }
+            if let game { actions.favourite=(game.favourite,{ model.home.toggleFavourite(game.id) }) }
+            if !model.homeBusy,!model.isBusy,!model.hasSession { actions.refresh={ Task { await model.refreshHome() } } }
+            return actions
+        }
+        var actions=LibraryMenuActions(layout:setting(\.libraryLayout))
+        if model.canPlay { actions.play=(model.selectedAppRunning ? "Resume Stream" : "Start Stream",{ startStream() }) }
+        if model.phase == .ready,model.host?.paired == true { actions.refresh={ model.refreshLibrary() } }
+        return actions
     }
     private func startStream() {
         Task { await model.requestGameAction(startSelected:true);if model.hasSession { openWindow(id:"stream") } }
