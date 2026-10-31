@@ -53,6 +53,8 @@ rather than rewritten.
 - [x] Controller handle rumble and supported trigger-motor rumble via Core Haptics (automated checks; physical validation pending)
 - [ ] DualSense PCM haptics and adaptive triggers
 - [x] Opt-in Mac microphone capture, mono Opus and encrypted Apollo/Rubylight forwarding (live Windows input-meter response confirmed on Big Dawg)
+- [x] Native host session panel: status/owner, resume, host-authorized disconnect/end/close, confirmation and intentional-exit recovery suppression (automated checks; Big Dawg status and host disconnect verified; see `SESSION.md`)
+- [ ] Session graphics/Radeon controls, classic quit and quit-and-start-another
 - [x] Native single-host library browsing against Rubylight's API: cover art, stores, search and running-game details, preserving classic apps and video profiles (automated checks; Big Dawg browsing/search/refresh and Desktop resume verified; see `LIBRARY.md`)
 
 ## Phase 4 — hardening and release
@@ -69,3 +71,5 @@ rather than rewritten.
 - iOS, iPadOS, tvOS, visionOS — one platform, done properly
 - Windows or Linux builds
 - Reimplementing the Nightjar engine in Swift before the app exists
+
+Full Nightjar feature inventory and validation status: `NIGHTJAR-PARITY.md`. PyroWave is the final implementation milestone.

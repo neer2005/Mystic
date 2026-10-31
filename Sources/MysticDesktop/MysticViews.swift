@@ -4,6 +4,7 @@ import MysticStream
 import MysticCore
 
 public struct StreamingView: View {
+    @State private var showingHostSession=false
     @State private var streamWindow: NSWindow?
     @Bindable private var model: ConnectionModel
     public init(model: ConnectionModel) { self.model = model }
@@ -27,7 +28,9 @@ public struct StreamingView: View {
             }
         }
         .frame(minWidth: 640, minHeight: 360)
+        .sheet(isPresented:$showingHostSession) { HostSessionView(model:model) }
         .toolbar {
+            ToolbarItem { Button("Host Session",systemImage:"rectangle.connected.to.line.below") { showingHostSession=true;model.inputCapture?.release() }.disabled(model.phase != .streaming) }
             ToolbarItem { Text(model.status).font(.caption).lineLimit(1) }
             if model.adaptiveBitrate {
                 ToolbarItem { Text(model.bitrateStatus).font(.caption).lineLimit(1) }

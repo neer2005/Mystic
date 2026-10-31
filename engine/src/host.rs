@@ -181,6 +181,25 @@ impl MysticHost {
                 let library = self.client.library().map_err(HostError::from)?;
                 Ok(json!({"library":library}))
             }
+            "session" => {
+                let i = self.client.server_info_https().map_err(HostError::from)?;
+                if !i.capabilities.has(Feature::NativeApi) { return Ok(json!({"session":null})); }
+                Ok(json!({"session":self.client.session().map_err(HostError::from)?}))
+            }
+            "sessionAction" => {
+                use nightjar_core::http::native_api::session::ActionId;
+                let action = match field(&v,"action")? {
+                    "disconnect" => ActionId::Disconnect,
+                    "end" => ActionId::End,
+                    "close_game" => ActionId::CloseGame,
+                    _ => return Err("Unsupported session action.".into()),
+                };
+                let i = self.client.server_info_https().map_err(HostError::from)?;
+                if !i.capabilities.has(Feature::NativeApi) { return Err("This host has no native session controls.".into()); }
+                let current = self.client.session().map_err(HostError::from)?;
+                validate_session_action(&json!(current),&v)?;
+                Ok(json!({"session":self.client.session_action(action).map_err(HostError::from)?}))
+            }
             "artwork" => {
                 let id = v["appID"].as_i64().and_then(|id| i32::try_from(id).ok())
                     .filter(|id| *id > 0).ok_or("invalid app ID")?;
@@ -273,6 +292,16 @@ impl MysticHost {
         }
     }
 }
+// Recheck ownership, app identity and permission immediately before a host write.
+fn validate_session_action(current: &Value, request: &Value) -> Result<(), HostError> {
+    if current["app"]["app_id"] != request["expectedAppID"] || current["owner"] != request["expectedOwner"] {
+        return Err("The host session changed. Refresh it before trying again.".into());
+    }
+    let allowed=current["actions"].as_array().is_some_and(|actions| actions.iter().any(|a|
+        a["id"] == request["action"] && a["allowed"].as_bool() == Some(true)));
+    if !allowed { return Err("The host does not allow this session action right now.".into()); }
+    Ok(())
+}
 fn clipboard_permissions(i: &nightjar_core::http::ServerInfo) -> (bool,bool) {
     use nightjar_core::http::{PERMISSION_CLIPBOARD_READ,PERMISSION_CLIPBOARD_SET};
     if !i.capabilities.has(Feature::Clipboard) { return (false,false); }
@@ -296,6 +325,18 @@ fn dimension(v: &Value, name: &str, max: u32) -> Result<u32, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn session_actions_reject_changed_owner_app_and_missing_permissions() {
+        let current=json!({"app":{"app_id":12},"owner":"you","actions":[{"id":"end","allowed":true},{"id":"close_game","allowed":false}]});
+        let valid=json!({"action":"end","expectedAppID":12,"expectedOwner":"you"});
+        assert!(validate_session_action(&current,&valid).is_ok());
+        for altered in [json!({"action":"end","expectedAppID":13,"expectedOwner":"you"}),
+            json!({"action":"end","expectedAppID":12,"expectedOwner":"other"}),
+            json!({"action":"close_game","expectedAppID":12,"expectedOwner":"you"}),
+            json!({"action":"unknown","expectedAppID":12,"expectedOwner":"you"})] {
+            assert!(validate_session_action(&current,&altered).is_err());
+        }
+    }
     #[test]
     fn only_transport_errors_allow_a_recovery_retry() {
         assert!(HostError::from(nightjar_core::http::Error::Io(std::io::ErrorKind::TimedOut.into())).retryable);
