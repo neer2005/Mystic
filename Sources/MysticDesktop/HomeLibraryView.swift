@@ -48,7 +48,7 @@ struct HomeLibraryContent: View {
                     VStack(alignment:.leading,spacing:6) {
                         if let copy=game.copies.first {
                             GameArtwork(data:model.home.image(copy),desktop:game.title == "Desktop")
-                                .aspectRatio(2/3,contentMode:.fit)
+                                .aspectRatio(GameArtwork.aspect,contentMode:.fit)
                                 .task(id:model.home.artKey(copy)+"-"+(model.home.reach[copy.hostID]?.rawValue ?? "unknown")) { await model.homeSync.loadArt(copy) }
                         }
                         HStack { Text(game.title).lineLimit(2);if game.favourite { Image(systemName:"star.fill").foregroundStyle(.yellow) } }.font(.callout)
@@ -56,8 +56,7 @@ struct HomeLibraryContent: View {
                         Text(pcNames(game).joined(separator:" · ")).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                         Text(availability(game)).font(.caption).foregroundStyle(.secondary)
                     }
-                    .contextMenu { gameMenu(game) }
-                } footer: { yourPCs }
+                } menu: { game in gameMenu(game) } footer: { yourPCs }
             }
             Divider()
             HStack {
@@ -66,7 +65,7 @@ struct HomeLibraryContent: View {
                 Spacer();Text("\(filtered.count) \(filtered.count == 1 ? "game" : "games")")
             }.font(.caption).foregroundStyle(.secondary).padding(12)
         }
-        .searchable(text:$query,prompt:"Search games, stores or PCs")
+        .searchable(text:$query,placement:.toolbarPrincipal,prompt:"Search Home")
         .searchFocused($searchFocused)
         .focusedSceneValue(\.librarySearchAction, { searchFocused=true })
         .onChange(of:filtered.map(\.id)) {
@@ -144,10 +143,14 @@ struct HomeGameDetails: View {
         Form {
             if let game=selected {
                 Section {
-                    if let copy=game.copies.first { GameArtwork(data:model.home.image(copy),desktop:game.title == "Desktop").frame(height:180) }
-                    Text(game.title).font(.title2)
+                    HStack(alignment:.top,spacing:12) {
+                        GameArtwork(data:game.copies.first.flatMap(model.home.image),desktop:game.title == "Desktop").frame(width:72,height:108)
+                        VStack(alignment:.leading,spacing:4) {
+                            Text(game.title).font(.title3.weight(.semibold)).lineLimit(3)
+                            if let date=game.lastPlayed { Text("Last played \(date.formatted(date:.abbreviated,time:.shortened))").foregroundStyle(.secondary) }
+                        }
+                    }
                     Button(game.favourite ? "Remove from Favourites" : "Add to Favourites",systemImage:game.favourite ? "star.fill" : "star") { model.home.toggleFavourite(game.id) }
-                    if let date=game.lastPlayed { LabeledContent("Last played",value:date.formatted(date:.abbreviated,time:.shortened)) }
                 }
                 ForEach(game.copies) { copy in
                     if let pc=model.home.pc(copy.hostID) {

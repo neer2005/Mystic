@@ -30,20 +30,14 @@ public struct HostLibraryView: View {
                 .navigationTitle(model.showingHome ? "Game Details" : "Stream Details")
                 .navigationSplitViewColumnWidth(min:300,ideal:340,max:420)
         }
-        .sheet(item:Binding(get:{model.pendingGameAction},set:{if $0 == nil { model.cancelGameAction() }})) { action in
-            VStack(alignment:.leading,spacing:16) {
-                Text(action.title).font(.title2)
-                Text("Quit \(action.runningName) on \(action.running.name)? Unsaved progress may be lost.")
-                if let target=action.target { Text("After the host confirms it has quit, Mystic will start \(target.name) with its saved stream settings.").foregroundStyle(.secondary) }
-                HStack {
-                    Button("Cancel",role:.cancel) { model.cancelGameAction() }.keyboardShortcut(.cancelAction)
-                    Spacer()
-                    Button(action.title,role:.destructive) {
-                        Task { await model.confirmGameAction(action);if model.hasSession { openWindow(id:"stream") } }
-                    }
-                }
-            }.padding(24).frame(width:440)
-        }
+        .confirmationDialog(model.pendingGameAction?.question ?? "Quit Game",
+                            isPresented:Binding(get:{ model.pendingGameAction != nil },set:{ if !$0 { model.cancelGameAction() } }),
+                            titleVisibility:.visible,presenting:model.pendingGameAction) { action in
+            Button(action.title,role:.destructive) {
+                Task { await model.confirmGameAction(action);if model.hasSession { openWindow(id:"stream") } }
+            }
+            Button("Cancel",role:.cancel) { model.cancelGameAction() }
+        } message: { action in Text(action.explanation) }
         .sheet(isPresented:$showingHostSession) { HostSessionView(model:model) }
         .focusedSceneValue(\.libraryMenuActions,menuActions)
         .focusedSceneValue(\.hostSessionAction,canShowHostSession ? { showingHostSession=true } : nil)
@@ -59,9 +53,16 @@ public struct HostLibraryView: View {
             if let notice=model.library.notice {
                 Label(notice,systemImage:"exclamationmark.triangle").font(.caption).foregroundStyle(.secondary).padding(12)
             }
-            if model.library.apps.isEmpty {
-                ContentUnavailableView(model.isBusy ? "Connecting to Host" : "Choose a Host",systemImage:"desktopcomputer",
-                    description:Text(model.isBusy ? model.status : "Select a saved or nearby host, or add its address in the sidebar."))
+            if let host=model.host,!host.paired {
+                pairing(host)
+            } else if model.library.apps.isEmpty {
+                ContentUnavailableView {
+                    Label(model.isBusy ? "Connecting to Host" : "Choose a Host",systemImage:"desktopcomputer")
+                } description: {
+                    Text(model.isBusy ? model.status : "Select a saved or nearby host, or add its address in the sidebar.")
+                } actions: {
+                    if model.isBusy,model.canDisconnect { Button("Cancel") { model.disconnect() } }
+                }
             } else if model.library.filtered.isEmpty {
                 ContentUnavailableView.search(text:model.library.query)
             } else if model.settings.value.libraryLayout == "list" {
@@ -87,14 +88,13 @@ public struct HostLibraryView: View {
                          open:{ start($0.id) },describe:describe) { app in
                     VStack(spacing:8) {
                         GameArtwork(data:model.library.artwork[app.id],desktop:app.name == "Desktop")
-                            .aspectRatio(2/3,contentMode:.fit)
+                            .aspectRatio(GameArtwork.aspect,contentMode:.fit)
                         Text(app.name).font(.callout).lineLimit(2).frame(maxWidth:.infinity)
                         if let store=model.library.game(app)?.store { Text(store.name).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                         if model.library.isRunning(app) { Label("Running",systemImage:"play.fill").font(.caption).foregroundStyle(.green) }
                     }
                     .task(id:"\(model.library.artworkID):\(app.id)") { await model.library.loadArtwork(app.id) }
-                    .contextMenu { appMenu(app.id) }
-                }
+                } menu: { app in appMenu(app.id) }
             }
             Divider()
             HStack {
@@ -105,7 +105,7 @@ public struct HostLibraryView: View {
             }.font(.caption).foregroundStyle(.secondary).padding(12)
         }
         .disabled(model.hasSession || model.isBusy)
-        .searchable(text:Bindable(model.library).query,prompt:"Search Apps")
+        .searchable(text:Bindable(model.library).query,placement:.toolbarPrincipal,prompt:"Search \(model.host?.name ?? "Apps")")
         .searchFocused($searchFocused)
         .focusedSceneValue(\.librarySearchAction, { searchFocused=true })
     }
@@ -160,6 +160,37 @@ public struct HostLibraryView: View {
         if model.phase == .ready,model.host?.paired == true { actions.refresh={ model.refreshLibrary() } }
         return actions
     }
+    /// Pairing happens where the library will appear, with the PIN shown inline.
+    private func pairing(_ host: HostInfo) -> some View {
+        ContentUnavailableView {
+            Label("Pair with \(host.name)",systemImage:"lock.open")
+        } description: {
+            if let pin=model.pairingPIN {
+                VStack(spacing:8) {
+                    Text(pin).font(.system(size:44,weight:.semibold).monospacedDigit()).textSelection(.enabled)
+                        .accessibilityLabel("PIN \(pin.map(String.init).joined(separator:" "))")
+                    Text("Enter this PIN in \(host.name)'s pairing page.")
+                }
+            } else {
+                Text("Pairing lets Mystic list and start this PC's games. You will enter a PIN on the host.")
+            }
+        } actions: {
+            if model.pairingPIN == nil {
+                Button("Pair") { model.pair() }.buttonStyle(.borderedProminent).disabled(model.phase != .ready)
+            } else {
+                Button("Cancel") { model.disconnect() }
+            }
+        }
+    }
+    /// Names the game that will quit, which need not be the selected one.
+    private var quitButton: some View {
+        let name=model.library.runningApp?.name
+        return Button(name.map { "Quit \($0)…" } ?? "Quit Running Game…",systemImage:"stop.circle",role:.destructive) {
+            Task { await model.requestGameAction(startSelected:false) }
+        }
+        .disabled(model.phase != .ready || model.isBusy || model.host?.quitAllowed == false)
+        .help(model.host?.quitAllowed == false ? "The host has not granted permission to quit games." : "Quits \(name ?? "the running game") on \(model.host?.name ?? "the host") after you confirm.")
+    }
     private var libraryLabel: String { "Apps on \(model.host?.name ?? "host")" }
     private func describe(_ app: HostApp) -> GameCardDescription {
         var value: [String]=[]
@@ -170,9 +201,17 @@ public struct HostLibraryView: View {
         if model.canPlay { description.actions=[(model.library.isRunning(app) ? "Resume Stream" : "Start Stream",{ start(app.id) })] }
         return description
     }
+    /// Context menus list only what can be done now, as the HIG asks; the menu bar keeps the full set.
     @ViewBuilder private func appMenu(_ id: Int32) -> some View {
         let running=model.library.apps.first { $0.id == id }.map(model.library.isRunning) ?? false
-        Button(running ? "Resume Stream" : "Start Stream",systemImage:"play.fill") { start(id) }.disabled(!model.canPlay)
+        if model.phase == .ready,!model.isBusy,model.capabilities != nil {
+            Button(running ? "Resume Stream" : "Start Stream",systemImage:"play.fill") { start(id) }
+        }
+        if running,model.library.runningApp?.id == id,model.phase == .ready,!model.isBusy,model.host?.quitAllowed != false {
+            Button("Quit \(model.library.runningApp?.name ?? "Game")…",systemImage:"stop.circle",role:.destructive) {
+                Task { await model.requestGameAction(startSelected:false) }
+            }
+        }
     }
     /// Selects `id` and starts it; does nothing while the library cannot play.
     private func start(_ id: Int32) {
@@ -187,25 +226,25 @@ public struct HostLibraryView: View {
             if let error=model.errorMessage { Section { Label(error,systemImage:"exclamationmark.triangle").foregroundStyle(.red).textSelection(.enabled) } }
             if let app=model.library.selected {
                 Section {
-                    GameArtwork(data:model.library.artwork[app.id],desktop:app.name == "Desktop").frame(height:180)
-                        .task(id:"\(model.library.artworkID):\(app.id)") { await model.library.loadArtwork(app.id) }
-                    Label(app.name,systemImage:app.name == "Desktop" ? "desktopcomputer" : "gamecontroller").font(.title2)
-                    if let store=model.library.game(app)?.store { LabeledContent("Store",value:store.name) }
-                    if model.library.selectedRunning { Label("Running on host",systemImage:"play.circle.fill").foregroundStyle(.green) }
-                    if app.hdrSupported { Label("HDR available on host",systemImage:"sparkles").foregroundStyle(.secondary) }
-                    Button(model.library.selectedRunning ? "Resume Stream" : "Start Stream",systemImage:"play.fill",action:startStream)
-                        .buttonStyle(.borderedProminent).disabled(!model.canPlay)
-                        .help("Return or double-click in the library also starts the selected app.")
-                    if (model.host?.currentGame ?? 0) > 0 {
-                        Button("Quit Running Game…",systemImage:"stop.circle",role:.destructive) {
-                            Task { await model.requestGameAction(startSelected:false) }
-                        }.disabled(model.phase != .ready || model.isBusy || model.host?.quitAllowed == false)
-                        .help(model.host?.quitAllowed == false ? "The host has not granted permission to quit games." : "Confirm before quitting the running game.")
+                    HStack(alignment:.top,spacing:12) {
+                        GameArtwork(data:model.library.artwork[app.id],desktop:app.name == "Desktop")
+                            .frame(width:72,height:108)
+                            .task(id:"\(model.library.artworkID):\(app.id)") { await model.library.loadArtwork(app.id) }
+                        VStack(alignment:.leading,spacing:4) {
+                            Text(app.name).font(.title3.weight(.semibold)).lineLimit(3)
+                            let facts=[model.library.game(app)?.store?.name,app.hdrSupported ? "HDR" : nil].compactMap { $0 }
+                            if !facts.isEmpty { Text(facts.joined(separator:" · ")).foregroundStyle(.secondary) }
+                            if model.library.selectedRunning { Label("Running",systemImage:"play.circle.fill").foregroundStyle(.green) }
+                        }
                     }
+                    Button(model.library.selectedRunning ? "Resume Stream" : "Start Stream",systemImage:"play.fill",action:startStream)
+                        .buttonStyle(.borderedProminent).controlSize(.large).disabled(!model.canPlay)
+                        .help("Return or double-click in the library also starts the selected app.")
+                    if (model.host?.currentGame ?? 0) > 0 { quitButton }
                 }
                 Section("Video") { GameVideoPreferencesView(model:model) }
                 Section("Audio") { AudioPreferencesView(model:model) }
-                Section { Text("Video settings are saved for future streams. Audio, microphone and clipboard settings remain global. Video and channel layout are fixed while streaming.").font(.caption).foregroundStyle(.secondary) }
+                Section { Text("Video settings are saved per game for future streams. Audio, microphone and clipboard settings are shared by all games. Video and channel layout are fixed while streaming.").font(.caption).foregroundStyle(.secondary) }
             } else { Section { Text("Select an app to see stream options.").foregroundStyle(.secondary) } }
             Section("Controls") {
                 Text("Click the video to control the host. Capture Mouse enables relative movement for games.")
@@ -243,18 +282,21 @@ private struct HostSidebar: View {
             Label("Home",systemImage:"house.fill").tag("__home__").disabled(locked)
             Section("Saved Hosts") {
                 ForEach(model.savedHosts.hosts) { host in
-                    hostLabel(host.name,endpoint:host.endpoint).tag(host.id)
+                    hostRow(host.name,endpoint:host.endpoint,id:host.id)
                         .contextMenu {
-                            Button("Connect",systemImage:"network") { model.connect(to:host.endpoint) }.disabled(locked)
-                            Button("Remove from Saved Hosts",systemImage:"minus.circle") { model.removeSavedHost(host.endpoint) }.disabled(locked)
+                            if isActive(host.id) {
+                                Button("Disconnect",systemImage:"eject") { model.disconnect() }.disabled(!model.canDisconnect)
+                            } else if !locked {
+                                Button("Connect",systemImage:"network") { model.connect(to:host.endpoint) }
+                            }
+                            if !locked { Button("Remove from Saved Hosts",systemImage:"minus.circle") { model.removeSavedHost(host.endpoint) } }
                         }
                         .help("\(host.endpoint.id). Removing from Saved Hosts keeps its Keychain pairing.")
-                        .disabled(locked)
                 }
             }
             Section("Nearby Hosts") {
                 ForEach(model.discovery.hosts.filter { nearby in !model.savedHosts.hosts.contains { $0.id == nearby.id } }) { host in
-                    hostLabel(host.name,endpoint:host.endpoint).tag(host.id).disabled(locked)
+                    hostRow(host.name,endpoint:host.endpoint,id:host.id)
                 }
                 Text(model.discovery.status).font(.caption).foregroundStyle(.secondary)
                 Button("Refresh Discovery",systemImage:"arrow.clockwise") { model.discovery.refresh() }
@@ -268,47 +310,75 @@ private struct HostSidebar: View {
                     Button("Connect",systemImage:"network") { model.connect() }
                 }.disabled(locked)
             }
-            if let host=model.host {
-                Section(host.name) {
-                    Label(host.paired ? "Paired" : "Pairing Required",systemImage:host.paired ? "lock.shield" : "lock.open")
-                    if !host.paired && model.phase == .ready { Button("Pair with Host") { model.pair() } }
-                    if let pin=model.pairingPIN {
-                        Text(pin).font(.largeTitle.monospacedDigit()).textSelection(.enabled)
-                        Text("Enter this PIN on your host.").font(.caption)
-                    }
-                    Button("Disconnect",systemImage:"xmark.circle") { model.disconnect() }.disabled(model.phase == .disconnecting)
-                }
-            } else if model.isBusy {
-                Button("Cancel Connection") { model.disconnect() }
-            }
             if let error=model.savedHosts.error { Text(error).font(.caption).foregroundStyle(.secondary) }
         }
         .listStyle(.sidebar)
         .onAppear { addingHost=model.savedHosts.hosts.isEmpty }
         .toolbar { ToolbarItem { Button("Add Host",systemImage:"plus") { addingHost=true }.disabled(locked) } }
     }
-    private func hostLabel(_ name: String,endpoint: HostEndpoint) -> some View {
-        Label {
-            VStack(alignment:.leading,spacing:2) { Text(name);Text(endpoint.id).font(.caption).foregroundStyle(.secondary) }
-        } icon: { Image(systemName:"desktopcomputer") }
+    private func isActive(_ id: String) -> Bool { !model.showingHome && model.selectedHostEndpointID == id }
+    /// The connected host's row carries its state and an eject button, as Finder does for servers.
+    private var activeStatus: String {
+        switch model.phase {
+        case .connecting,.launching: "Connecting…"
+        case .pairing: "Waiting for PIN"
+        case .reconnecting: "Reconnecting…"
+        case .disconnecting: "Disconnecting…"
+        case .streaming: "Streaming"
+        case .failed: "Needs attention"
+        case .idle,.ready: model.host.map { $0.paired ? "Connected" : "Pairing required" } ?? "Connecting…"
+        }
+    }
+    private func hostRow(_ name: String,endpoint: HostEndpoint,id: String) -> some View {
+        let active=isActive(id)
+        return HStack {
+            Label {
+                VStack(alignment:.leading,spacing:2) {
+                    Text(name)
+                    Text(active ? activeStatus : endpoint.id).font(.caption).foregroundStyle(.secondary)
+                }
+            } icon: { Image(systemName:"desktopcomputer") }
+            Spacer(minLength:0)
+            if active {
+                Button("Disconnect from \(name)",systemImage:"eject.fill") { model.disconnect() }
+                    .labelStyle(.iconOnly).buttonStyle(.borderless)
+                    .disabled(!model.canDisconnect)
+                    .help("Disconnect from \(name)")
+            }
+        }
+        .tag(id)
+        .disabled(locked && !active)
     }
 }
 
+/// Cover art in a 2:3 frame. Art of that shape fills it; other shapes, such as square
+/// store art, are fitted over a blurred fill of themselves so every card has the same
+/// edges instead of grey bars. Overlays keep the frame's size fixed whatever the art.
 struct GameArtwork: View {
     let data: Data?
     let desktop: Bool
+    static let aspect: CGFloat=2/3
+    private var image: NSImage? { data.flatMap(NSImage.init(data:)).flatMap { $0.size.height > 0 ? $0 : nil } }
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                RoundedRectangle(cornerRadius:8).fill(.quaternary)
-                if let data,let image=NSImage(data:data) {
-                    Image(nsImage:image).resizable().scaledToFit()
+        let image=image
+        let fills=image.map { abs($0.size.width/$0.size.height/Self.aspect-1) < 0.04 } ?? false
+        // Each layer is its own overlay so both are sized to the frame, not to each other.
+        Rectangle().fill(.quaternary)
+            .overlay {
+                if let image,!fills { Image(nsImage:image).resizable().scaledToFill().blur(radius:20).opacity(0.7) }
+            }
+            .overlay {
+                if let image {
+                    if fills { Image(nsImage:image).resizable().scaledToFill() }
+                    else { Image(nsImage:image).resizable().scaledToFit() }
                 } else {
                     Image(systemName:desktop ? "desktopcomputer" : "gamecontroller")
                         .font(.largeTitle).foregroundStyle(.tint)
                 }
-            }.frame(width:geometry.size.width,height:geometry.size.height).clipShape(RoundedRectangle(cornerRadius:8))
-        }.accessibilityHidden(true)
+            }
+            .clipShape(RoundedRectangle(cornerRadius:8))
+            .overlay { RoundedRectangle(cornerRadius:8).strokeBorder(.separator,lineWidth:0.5) }
+            .accessibilityHidden(true)
     }
 }
 
