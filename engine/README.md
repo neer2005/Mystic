@@ -16,7 +16,8 @@ and encrypted microphone setup diagnostics. New Nightjar application features
 still require their own Mystic integration.
 
 Mystic is on ABI 3, which added `network_grace_ms`, `video_fec` and `link_mbps` to
-`MysticStreamConfig` (see `docs/NETWORK.md`). Audio is unchanged: Opus stereo, 5.1 and 7.1. The bridge copies the first eight
+`MysticStreamConfig` (see `docs/NETWORK.md`). The stream doctor functions
+(`mystic_session_health_*`, `mystic_session_trial_*`) are additive; see `docs/STREAM-HEALTH.md`. Audio is unchanged: Opus stereo, 5.1 and 7.1. The bridge copies the first eight
 entries from Nightjar's expanded 12-entry mapping only for supported layouts and
 rejects 7.1.4 or passthrough setups before invoking Swift. Passthrough negotiation
 stays disabled. No C struct layout or Swift binding changes are required.

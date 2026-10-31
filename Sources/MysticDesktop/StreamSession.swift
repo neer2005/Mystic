@@ -39,9 +39,26 @@ protocol StreamSessionService: AnyObject, Sendable {
     func beginAdaptiveBitrate(ceiling: UInt32, current: UInt32) async -> Bool
     func suggestedBitrate(decodeMillis: Float) async -> UInt32?
     func appliedBitrate(requested: UInt32, applied: UInt32) async
+    func healthTick(_ timings: HealthTimings) async -> NetworkMeasures?
+    func healthReport(currentKbps: UInt32,runtimeBitrate: Bool,automatic: Bool,busy: Bool) async -> StreamHealthReport?
+    func trialBegin(undo: Bool,liveKbps: UInt32) async -> Result<UInt32,TrialRefusal>
+    func trialApplied(undo: Bool,previousKbps: UInt32,appliedKbps: UInt32) async
+    func trialClear() async
+}
+
+/// The app's side of a stream doctor tick: its own recent timings, NaN when unknown.
+struct HealthTimings: Sendable {
+    var decodeMs=Float.nan,hostP95Ms=Float.nan,displayP95Ms=Float.nan,releasedFps=Float.nan,shownFps=Float.nan
+    var thermalLevel: UInt32=0
+    var intervalMs: UInt32=1000
 }
 
 extension StreamSessionService {
+    func healthTick(_ timings: HealthTimings) async -> NetworkMeasures? { nil }
+    func healthReport(currentKbps: UInt32,runtimeBitrate: Bool,automatic: Bool,busy: Bool) async -> StreamHealthReport? { nil }
+    func trialBegin(undo: Bool,liveKbps: UInt32) async -> Result<UInt32,TrialRefusal> { .failure(.unavailable) }
+    func trialApplied(undo: Bool,previousKbps: UInt32,appliedKbps: UInt32) async {}
+    func trialClear() async {}
     func liveRates(kbps: UInt32,fpsMilliHz: UInt32) async throws -> LiveRates { throw HostConnectionError("Live rate controls are unavailable.") }
     func clipboardStep(active: Bool,baseline: Bool,text: String?) async throws -> ClipboardSyncResult {
         ClipboardSyncResult(available:false,text:nil)
@@ -111,6 +128,36 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
     func appliedBitrate(requested: UInt32, applied: UInt32) async {
         await withCheckedContinuation { continuation in queue.async { [self] in
             if acceptingInput { engine.appliedBitrate(requested:requested,applied:applied,nowMillis:Self.nowMillis()) }
+            continuation.resume()
+        } }
+    }
+    func healthTick(_ timings: HealthTimings) async -> NetworkMeasures? {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            continuation.resume(returning:acceptingInput ? try? engine.healthTick(decodeMs:timings.decodeMs,hostP95Ms:timings.hostP95Ms,
+                displayP95Ms:timings.displayP95Ms,releasedFps:timings.releasedFps,shownFps:timings.shownFps,
+                thermalLevel:timings.thermalLevel,intervalMs:timings.intervalMs,nowMillis:Self.nowMillis()) : nil)
+        } }
+    }
+    func healthReport(currentKbps: UInt32,runtimeBitrate: Bool,automatic: Bool,busy: Bool) async -> StreamHealthReport? {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            continuation.resume(returning:acceptingInput ? try? engine.healthReport(nowMillis:Self.nowMillis(),currentKbps:currentKbps,
+                runtimeBitrate:runtimeBitrate,automatic:automatic,busy:busy) : nil)
+        } }
+    }
+    func trialBegin(undo: Bool,liveKbps: UInt32) async -> Result<UInt32,TrialRefusal> {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            continuation.resume(returning:acceptingInput ? engine.trialBegin(undo:undo,liveKbps:liveKbps) : .failure(.unavailable))
+        } }
+    }
+    func trialApplied(undo: Bool,previousKbps: UInt32,appliedKbps: UInt32) async {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            if acceptingInput { engine.trialApplied(undo:undo,previousKbps:previousKbps,appliedKbps:appliedKbps) }
+            continuation.resume()
+        } }
+    }
+    func trialClear() async {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            if acceptingInput { engine.trialClear() }
             continuation.resume()
         } }
     }

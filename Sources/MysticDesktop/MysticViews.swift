@@ -2,9 +2,11 @@ import SwiftUI
 import AppKit
 import MysticStream
 import MysticCore
+import MysticKit
 
 public struct StreamingView: View {
     @State private var showingHostSession=false
+    @State private var showingHealth=false
     @Bindable private var model: ConnectionModel
     public init(model: ConnectionModel) { self.model = model }
     private var streaming: Bool { model.phase == .streaming }
@@ -14,6 +16,7 @@ public struct StreamingView: View {
         return model.status
     }
     private func showHostSession() { showingHostSession=true;model.inputCapture?.release() }
+    private func showHealth() { showingHealth=true;model.inputCapture?.release() }
     @ToolbarContentBuilder private var toolbarItems: some CustomizableToolbarContent {
         ToolbarItem(id:"capture") {
             Button("Capture Mouse",systemImage:"computermouse") { model.inputCapture?.captureMouse() }
@@ -39,6 +42,11 @@ public struct StreamingView: View {
             .help(model.clipboardStatus)
             .disabled(!streaming)
         }.defaultCustomization(.hidden)
+        ToolbarItem(id:"health") {
+            Button("Stream Health",systemImage:"stethoscope",action:showHealth)
+                .disabled(!streaming)
+                .help("Why did my stream stutter?")
+        }.defaultCustomization(.hidden)
         ToolbarItem(id:"latency") {
             Toggle(isOn:$model.showLatencyHUD) { Label("Latency HUD",systemImage:"chart.bar.xaxis") }
                 .help("Show measured video timings and renderer enqueue rate")
@@ -60,7 +68,7 @@ public struct StreamingView: View {
                 VideoSurface(presenter: presenter,capture:model.inputCapture)
                     .overlay(alignment:.topLeading) {
                         if model.showLatencyHUD {
-                            LatencyHUD(snapshot:model.videoTelemetry,mode:presenter.pacingMode,output:presenter.videoOutput,bitrate:model.rates.status)
+                            LatencyHUD(snapshot:model.videoTelemetry,mode:presenter.pacingMode,output:presenter.videoOutput,bitrate:model.rates.status,network:model.health.measures)
                                 .padding(12).allowsHitTesting(false)
                         }
                     }
@@ -77,7 +85,9 @@ public struct StreamingView: View {
         .navigationTitle(model.streamingAppName ?? "Stream")
         .navigationSubtitle(subtitle)
         .sheet(isPresented:$showingHostSession) { HostSessionView(model:model) }
+        .sheet(isPresented:$showingHealth) { StreamHealthView(model:model) }
         .focusedSceneValue(\.hostSessionAction,streaming ? { showHostSession() } : nil)
+        .focusedSceneValue(\.streamHealthAction,streaming ? { showHealth() } : nil)
         // Frequent controls only; everything else is in the Stream menu or Customize Toolbar.
         .toolbar(id:"stream") { toolbarItems }
         .toolbar {
@@ -105,6 +115,7 @@ private struct LatencyHUD: View {
     let mode: FramePacingMode
     let output: VideoOutputState
     let bitrate: String
+    let network: NetworkMeasures?
     private func milliseconds(_ value: Int64) -> String { String(format:"%.2f",Double(value)/1000) }
     private func rate(_ value: Double?) -> String { value.map { String(format:"%.1f",$0) } ?? "—" }
     var body: some View {
@@ -112,6 +123,7 @@ private struct LatencyHUD: View {
             Text("Video latency · \(mode.label)").font(.headline)
             Text("Decoded \(rate(snapshot?.decodedFPS)) fps · Enqueued \(rate(snapshot?.enqueuedFPS)) fps")
             Text(bitrate)
+            if let network { NetworkFigures(measures:network) }
             Text("Source \(output.transfer) · \(output.colorPrimaries) · \(output.outputDescription)")
             if output.isHDR {
                 Text("HDR metadata: mastering \(output.hasMasteringMetadata ? "present" : "absent") · light levels \(output.hasContentLightMetadata ? "present" : "absent")")

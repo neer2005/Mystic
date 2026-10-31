@@ -81,6 +81,8 @@ public protocol HostService: AnyObject, Sendable {
     func artwork(appID: Int32) async throws -> Data
     func launch(_ options: LaunchOptions) async throws -> LaunchedStream
     func setBitrate(kbps: UInt32) async throws -> UInt32
+    /// The encoder's live bitrate and whether the host changes it mid-stream.
+    func liveBitrate() async throws -> LiveBitrate
     func clipboardText() async throws -> String
     func sendClipboardText(_ text: String) async throws
     /// Permanently cancels this connection, including in-flight pairing and launch requests.
@@ -98,6 +100,7 @@ public extension HostService {
     func library() async throws -> HostLibrary? { nil }
     func artwork(appID: Int32) async throws -> Data { throw HostConnectionError("No artwork available.") }
     func setBitrate(kbps: UInt32) async throws -> UInt32 { throw HostConnectionError("This host does not support live bitrate changes.") }
+    func liveBitrate() async throws -> LiveBitrate { LiveBitrate(runtime:false,kbps:0) }
     func clipboardText() async throws -> String { throw HostConnectionError("This host does not support clipboard text transfer.") }
     func sendClipboardText(_ text: String) async throws { throw HostConnectionError("This host does not support clipboard text transfer.") }
 }
@@ -191,6 +194,9 @@ public final class HostConnection: HostService, @unchecked Sendable {
         struct Applied: Decodable, Sendable { let kbps: UInt32 }
         let applied: Applied = try await request("bitrate",json:String(decoding:JSONEncoder().encode(["kbps":kbps]),as:UTF8.self))
         return applied.kbps
+    }
+    public func liveBitrate() async throws -> LiveBitrate {
+        try await request("liveBitrate",json:"{}")
     }
     public func clipboardText() async throws -> String {
         struct Copy: Decodable, Sendable { let text: String }

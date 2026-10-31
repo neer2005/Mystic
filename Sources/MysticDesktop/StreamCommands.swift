@@ -1,7 +1,13 @@
 import SwiftUI
 
 struct HostSessionActionKey: FocusedValueKey { typealias Value = () -> Void }
+struct StreamHealthActionKey: FocusedValueKey { typealias Value = () -> Void }
 extension FocusedValues {
+    /// Opens the focused stream window's health report; nil without a running stream.
+    var streamHealthAction: (() -> Void)? {
+        get { self[StreamHealthActionKey.self] }
+        set { self[StreamHealthActionKey.self]=newValue }
+    }
     /// Presents the focused window's Session and Graphics sheet; nil where it is unavailable.
     var hostSessionAction: (() -> Void)? {
         get { self[HostSessionActionKey.self] }
@@ -14,6 +20,7 @@ extension FocusedValues {
 public struct StreamCommands: Commands {
     let model: ConnectionModel
     @FocusedValue(\.hostSessionAction) private var showHostSession
+    @FocusedValue(\.streamHealthAction) private var showHealth
     public init(model: ConnectionModel) { self.model=model }
     private var streaming: Bool { model.phase == .streaming }
     private var capture: StreamInputCapture? { model.inputCapture }
@@ -51,6 +58,9 @@ public struct StreamCommands: Commands {
             Button("Session and Graphics…") { showHostSession?() }
                 .keyboardShortcut("i",modifiers:.command)
                 .disabled(showHostSession == nil)
+            Button("Why Did My Stream Stutter?…") { showHealth?() }
+                .keyboardShortcut("h",modifiers:[.control,.command])
+                .disabled(showHealth == nil)
             #if DEBUG
             Divider()
             Button("Test Video Recovery") { model.simulateVideoLoss() }
