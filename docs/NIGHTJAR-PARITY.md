@@ -19,7 +19,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | Offline library/cache | Pending | Persistence and invalidation |
 | Launch/resume and per-game video profiles | Implemented | Desktop live verification; extend profiles beyond video |
 | Native session status, resume, disconnect/end/close | Implemented | Live status checks and action validation described in SESSION.md |
-| Classic quit and quit-and-start-another | Pending | Confirmation and ownership-safe transitions |
+| Classic quit and quit-and-start-another | Implemented | Big Dawg confirmations/cancellation verified; real quit/switch validation pending; see GAME-SWITCHING.md |
 | Quick resume / quit on leave | Pending | Per-game opt-in policy |
 | Remote Monitor, input-only, co-op | Pending | Explicit roles and permissions |
 | Network profiles, launch shortcuts/CLI | Pending | Native Mac entry points |

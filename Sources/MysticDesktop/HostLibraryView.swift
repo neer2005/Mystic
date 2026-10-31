@@ -24,6 +24,20 @@ public struct HostLibraryView: View {
                 .navigationTitle("Stream Details")
                 .navigationSplitViewColumnWidth(min:300,ideal:340,max:420)
         }
+        .sheet(item:Binding(get:{model.pendingGameAction},set:{if $0 == nil { model.cancelGameAction() }})) { action in
+            VStack(alignment:.leading,spacing:16) {
+                Text(action.title).font(.title2)
+                Text("Quit \(action.runningName) on \(action.running.name)? Unsaved progress may be lost.")
+                if let target=action.target { Text("After the host confirms it has quit, Mystic will start \(target.name) with its saved stream settings.").foregroundStyle(.secondary) }
+                HStack {
+                    Button("Cancel",role:.cancel) { model.cancelGameAction() }.keyboardShortcut(.cancelAction)
+                    Spacer()
+                    Button(action.title,role:.destructive) {
+                        Task { await model.confirmGameAction(action);if model.hasSession { openWindow(id:"stream") } }
+                    }
+                }
+            }.padding(24).frame(width:440)
+        }
         .sheet(isPresented:$showingHostSession) { HostSessionView(model:model) }
         .frame(minWidth:1000,minHeight:580)
         .focusedSceneValue(\.librarySearchAction, { searchFocused=true })
@@ -85,7 +99,9 @@ public struct HostLibraryView: View {
     private func setting<T>(_ key: WritableKeyPath<StreamPreferences,T>) -> Binding<T> {
         Binding(get:{ model.settings.value[keyPath:key] },set:{ value in model.settings.update { $0[keyPath:key]=value } })
     }
-    private func startStream() { model.play();if model.hasSession { openWindow(id:"stream") } }
+    private func startStream() {
+        Task { await model.requestGameAction(startSelected:true);if model.hasSession { openWindow(id:"stream") } }
+    }
     private var streamDetails: some View {
         Form {
             if let error=model.errorMessage { Section { Label(error,systemImage:"exclamationmark.triangle").foregroundStyle(.red).textSelection(.enabled) } }
@@ -100,6 +116,12 @@ public struct HostLibraryView: View {
                     Button(model.selectedAppRunning ? "Resume Stream" : "Start Stream",systemImage:"play.fill",action:startStream)
                         .buttonStyle(.borderedProminent).disabled(!model.canPlay)
                         .keyboardShortcut(.return,modifiers:[])
+                    if (model.host?.currentGame ?? 0) > 0 {
+                        Button("Quit Running Game…",systemImage:"stop.circle",role:.destructive) {
+                            Task { await model.requestGameAction(startSelected:false) }
+                        }.disabled(model.phase != .ready || model.isBusy || model.host?.quitAllowed == false)
+                        .help(model.host?.quitAllowed == false ? "The host has not granted permission to quit games." : "Confirm before quitting the running game.")
+                    }
                 }
                 Section("Video") { GameVideoPreferencesView(model:model) }
                 Section("Audio") { AudioPreferencesView(model:model) }

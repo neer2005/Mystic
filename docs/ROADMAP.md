@@ -55,7 +55,8 @@ rather than rewritten.
 - [x] Opt-in Mac microphone capture, mono Opus and encrypted Apollo/Rubylight forwarding (live Windows input-meter response confirmed on Big Dawg)
 - [x] Native host session panel: status/owner, resume, host-authorized disconnect/end/close, confirmation and intentional-exit recovery suppression (automated checks; Big Dawg status and host disconnect verified; see `SESSION.md`)
 - [x] Native Radeon graphics panel: typed controls, permissions, host read-back, error recovery and restore (automated checks; Big Dawg browsing and permission gating verified; live writes pending Host control; see `GRAPHICS.md`)
-- [ ] Classic quit and quit-and-start-another, live manual bitrate/FPS controls
+- [x] Classic quit and quit-and-start-another with fresh state, ID/UUID/ownership checks, confirmation and immutable target video profile (automated checks; Big Dawg confirmation/cancel verified; real switch pending; see `GAME-SWITCHING.md`)
+- [ ] Live manual bitrate/FPS controls
 - [x] Native single-host library browsing against Rubylight's API: cover art, stores, search and running-game details, preserving classic apps and video profiles (automated checks; Big Dawg browsing/search/refresh and Desktop resume verified; see `LIBRARY.md`)
 
 ## Phase 4 — hardening and release

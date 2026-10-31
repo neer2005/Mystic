@@ -13,6 +13,8 @@ public struct HostInfo: Codable, Sendable, Equatable {
     public let appVersion: String?
     public let codecSupport: UInt32
     public let currentGame: Int32
+    public var currentGameUUID: String? = nil
+    public var quitAllowed: Bool? = nil
     public var clipboardRead: Bool? = nil
     public var clipboardWrite: Bool? = nil
 }
@@ -60,6 +62,7 @@ public struct HostConnectionError: Error, LocalizedError, Sendable {
 public protocol HostService: AnyObject, Sendable {
     func serverInfo() async throws -> HostInfo
     func pair(pin: String) async throws -> PairedHost
+    func quitApp(expected: HostInfo) async throws
     func apps() async throws -> [HostApp]
     func graphics() async throws -> HostGraphics?
     func writeGraphics(gpu: Int32, setting: String, value: GraphicsValue, expected: HostGraphics, session: HostSession) async throws -> HostGraphics
@@ -77,6 +80,7 @@ public protocol HostService: AnyObject, Sendable {
 }
 
 public extension HostService {
+    func quitApp(expected: HostInfo) async throws { throw HostConnectionError("Quitting is unavailable on this host.") }
     func graphics() async throws -> HostGraphics? { nil }
     func writeGraphics(gpu: Int32, setting: String, value: GraphicsValue, expected: HostGraphics, session: HostSession) async throws -> HostGraphics { throw HostConnectionError("Graphics controls are unavailable.") }
     func restoreGraphics(expected: HostGraphics, session: HostSession) async throws -> HostGraphics { throw HostConnectionError("Graphics controls are unavailable.") }
@@ -114,6 +118,13 @@ public final class HostConnection: HostService, @unchecked Sendable {
     public func pair(pin: String) async throws -> PairedHost {
         let json = String(decoding: try JSONEncoder().encode(["pin":pin]), as: UTF8.self)
         return try await request("pair", json: json)
+    }
+    public func quitApp(expected: HostInfo) async throws {
+        struct Request: Encodable { let expectedAppID: Int32;let expectedAppUUID: String }
+        struct Response: Decodable, Sendable { let quit: Bool }
+        let payload=Request(expectedAppID:expected.currentGame,expectedAppUUID:expected.currentGameUUID ?? "")
+        let response: Response = try await request("quit",json:String(decoding:JSONEncoder().encode(payload),as:UTF8.self))
+        guard response.quit else { throw HostConnectionError("The host declined to quit the game.") }
     }
     public func apps() async throws -> [HostApp] { try await request("apps", json: "{}") }
     private struct GraphicsResult: Decodable, Sendable { let radeon: HostGraphics? }
