@@ -6,6 +6,28 @@ import MysticCore
 
 @MainActor
 final class ConnectionModelTests: XCTestCase {
+    func testNativeLibrarySearchRefreshProfilesAndFailureFallback() async throws {
+        let mock=MockHost(paired:true,native:true)
+        let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,makeHost:{ _,_,_,_ in mock })
+        model.address="pc.local";model.connect();try await settle(model)
+        XCTAssertEqual(model.selectedApp?.name,"Native Game")
+        XCTAssertTrue(model.selectedAppRunning)
+        model.libraryQuery="Steam";XCTAssertEqual(model.filteredApps.count,1)
+        model.gameVideoSource = .custom
+        var video=model.effectiveVideoSettings;video.fps=120
+        model.updateGameVideo(video)
+        model.refreshLibrary();try await settle(model)
+        XCTAssertEqual(model.effectiveVideoSettings.fps,120)
+        XCTAssertEqual(model.gameProfileKey,"uuid:app1")
+        mock.lock.withLock { mock.libraryFails=true }
+        model.libraryQuery="";model.refreshLibrary();try await settle(model)
+        XCTAssertEqual(model.apps.first?.name,"Desktop")
+        XCTAssertNotNil(model.libraryNotice)
+        XCTAssertEqual(model.phase,.ready)
+        XCTAssertEqual(model.effectiveVideoSettings.fps,120)
+        model.disconnect();XCTAssertNil(model.nativeLibrary)
+        XCTAssertTrue(model.artwork.isEmpty)
+    }
     func testProfileUsesAppUUIDAcrossRenamesAndNumericIDChanges() async throws {
         let profiles=StreamProfilesStore(storage:nil)
         let uuid="A1E7EF18-8053-415D-9C28-7BC441CB6298"
@@ -239,6 +261,8 @@ final class ConnectionModelTests: XCTestCase {
 private final class MockHost: HostService, @unchecked Sendable {
     let lock = NSLock()
     private var paired: Bool
+    let native: Bool
+    var libraryFails=false
     let delay: Bool
     let multipleApps: Bool
     let uniqueID: String
@@ -247,9 +271,9 @@ private final class MockHost: HostService, @unchecked Sendable {
     let singleAppName: String
     private var launchOptions: LaunchOptions?
     var launchedOptions: LaunchOptions? { lock.withLock { launchOptions } }
-    init(paired: Bool, delay: Bool = false,multipleApps: Bool = false,uniqueID: String = "host1",
+    init(paired: Bool, native: Bool = false, delay: Bool = false,multipleApps: Bool = false,uniqueID: String = "host1",
          singleAppID: Int32 = 1,singleAppUUID: String = "app1",singleAppName: String = "Desktop") {
-        self.paired=paired;self.delay=delay;self.multipleApps=multipleApps;self.uniqueID=uniqueID
+        self.native=native;self.paired=paired;self.delay=delay;self.multipleApps=multipleApps;self.uniqueID=uniqueID
         self.singleAppID=singleAppID;self.singleAppUUID=singleAppUUID;self.singleAppName=singleAppName
     }
     func serverInfo() async throws -> HostInfo {
@@ -265,6 +289,11 @@ private final class MockHost: HostService, @unchecked Sendable {
         if multipleApps { return try decode("[{\"id\":1,\"name\":\"Desktop\",\"uuid\":\"app1\",\"hdrSupported\":true},{\"id\":2,\"name\":\"Alpha\",\"uuid\":\"app2\",\"hdrSupported\":false},{\"id\":3,\"name\":\"Zulu\",\"uuid\":\"app3\",\"hdrSupported\":true}]") }
         return try JSONDecoder().decode([HostApp].self,from:JSONSerialization.data(withJSONObject:
             [["id":singleAppID,"name":singleAppName,"uuid":singleAppUUID,"hdrSupported":true]]))
+    }
+    func library() async throws -> HostLibrary? {
+        if lock.withLock({ libraryFails }) { throw HostConnectionError("Library unavailable") }
+        guard native else { return nil }
+        return try decode(#"{"revision":"1","games":[{"install_id":"install1","app_id":1,"title":"Native Game","store":{"source":"steam","name":"Steam"},"installed":true,"running":true,"artwork":{"cover":null,"version":"1"}}]}"#)
     }
     func launch(_ options: LaunchOptions) async throws -> LaunchedStream { lock.withLock { launchOptions=options };throw HostConnectionError("not used") }
     func cancel() {}

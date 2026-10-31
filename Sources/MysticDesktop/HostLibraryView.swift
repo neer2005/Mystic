@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import MysticCore
 import MysticKit
 import MysticStream
@@ -30,6 +31,9 @@ public struct HostLibraryView: View {
     }
     @ViewBuilder private var library: some View {
         VStack(spacing:0) {
+            if let notice=model.libraryNotice {
+                Label(notice,systemImage:"exclamationmark.triangle").font(.caption).foregroundStyle(.secondary).padding(12)
+            }
             if model.apps.isEmpty {
                 ContentUnavailableView(model.isBusy ? "Connecting to Host" : "Choose a Host",systemImage:"desktopcomputer",
                     description:Text(model.isBusy ? model.status : "Select a saved or nearby host, or add its address in the sidebar."))
@@ -37,13 +41,14 @@ public struct HostLibraryView: View {
                 ContentUnavailableView.search(text:model.libraryQuery)
             } else if model.settings.value.libraryLayout == "list" {
                 List(model.filteredApps,selection:$model.selectedAppID) { app in
-                    Label { HStack { Text(app.name);Spacer();if app.hdrSupported { Text("HDR").font(.caption).foregroundStyle(.secondary) } } }
+                    Label { HStack { VStack(alignment:.leading) { Text(app.name);if let store=model.libraryGame(app)?.store { Text(store.name).font(.caption).foregroundStyle(.secondary) } };Spacer();if app.hdrSupported { Text("HDR").font(.caption).foregroundStyle(.secondary) } } }
                         icon: { Image(systemName:app.name == "Desktop" ? "desktopcomputer" : "gamecontroller") }
                         .tag(app.id)
+                        .task(id:"\(model.libraryArtworkID):\(app.id)") { await model.loadArtwork(app.id) }
                         .contextMenu { Button("Start Stream",systemImage:"play.fill") { model.selectedAppID=app.id;startStream() }.disabled(!model.canPlay) }
                 }.listStyle(.inset)
             } else {
-                AppGrid(apps:model.filteredApps,selection:$model.selectedAppID,start:startStream)
+                AppGrid(model:model,apps:model.filteredApps,selection:$model.selectedAppID,start:startStream)
             }
             Divider()
             HStack {
@@ -57,6 +62,7 @@ public struct HostLibraryView: View {
         .searchable(text:$model.libraryQuery,prompt:"Search Apps")
         .searchFocused($searchFocused)
         .toolbar {
+            ToolbarItem { Button("Refresh Library",systemImage:"arrow.clockwise") { model.refreshLibrary() }.disabled(model.phase != .ready || model.host?.paired != true) }
             ToolbarItem {
                 Picker("Library View",selection:setting(\.libraryLayout)) {
                     Label("Grid",systemImage:"square.grid.2x2").tag("grid")
@@ -82,9 +88,13 @@ public struct HostLibraryView: View {
             if let error=model.errorMessage { Section { Label(error,systemImage:"exclamationmark.triangle").foregroundStyle(.red).textSelection(.enabled) } }
             if let app=model.selectedApp {
                 Section {
+                    GameArtwork(data:model.artwork[app.id],desktop:app.name == "Desktop").frame(height:180)
+                        .task(id:"\(model.libraryArtworkID):\(app.id)") { await model.loadArtwork(app.id) }
                     Label(app.name,systemImage:app.name == "Desktop" ? "desktopcomputer" : "gamecontroller").font(.title2)
+                    if let store=model.libraryGame(app)?.store { LabeledContent("Store",value:store.name) }
+                    if model.selectedAppRunning { Label("Running on host",systemImage:"play.circle.fill").foregroundStyle(.green) }
                     if app.hdrSupported { Label("HDR available on host",systemImage:"sparkles").foregroundStyle(.secondary) }
-                    Button("Start Stream",systemImage:"play.fill",action:startStream)
+                    Button(model.selectedAppRunning ? "Resume Stream" : "Start Stream",systemImage:"play.fill",action:startStream)
                         .buttonStyle(.borderedProminent).disabled(!model.canPlay)
                         .keyboardShortcut(.return,modifiers:[])
                 }
@@ -179,6 +189,7 @@ private struct HostSidebar: View {
 }
 
 private struct AppGrid: View {
+    let model: ConnectionModel
     let apps: [HostApp]
     @Binding var selection: Int32?
     let start: () -> Void
@@ -191,15 +202,17 @@ private struct AppGrid: View {
                     ForEach(apps) { app in
                         Button { selection=app.id } label: {
                             VStack(spacing:8) {
-                                RoundedRectangle(cornerRadius:8).fill(.quaternary)
-                                    .aspectRatio(4/3,contentMode:.fit)
-                                    .overlay { Image(systemName:app.name == "Desktop" ? "desktopcomputer" : "gamecontroller").font(.largeTitle).foregroundStyle(.tint) }
+                                GameArtwork(data:model.artwork[app.id],desktop:app.name == "Desktop")
+                                    .aspectRatio(2/3,contentMode:.fit)
                                 Text(app.name).font(.callout).lineLimit(2).frame(maxWidth:.infinity)
+                                if let store=model.libraryGame(app)?.store { Text(store.name).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                                if model.host?.currentGame == app.id || model.libraryGame(app)?.running == true { Label("Running",systemImage:"play.fill").font(.caption).foregroundStyle(.green) }
                             }.padding(8)
                                 .background(selection == app.id ? Color.accentColor.opacity(0.12) : Color.clear,in:RoundedRectangle(cornerRadius:10))
                                 .overlay { RoundedRectangle(cornerRadius:10).strokeBorder(selection == app.id ? Color.accentColor : Color.clear,lineWidth:2) }
                                 .contentShape(Rectangle())
                         }.buttonStyle(.plain).id(app.id)
+                            .task(id:"\(model.libraryArtworkID):\(app.id)") { await model.loadArtwork(app.id) }
                             .accessibilityLabel(app.name).accessibilityAddTraits(selection == app.id ? .isSelected : [])
                             .contextMenu { Button("Start Stream",systemImage:"play.fill") { selection=app.id;start() } }
                     }
@@ -216,6 +229,24 @@ private struct AppGrid: View {
                 if let selection { proxy.scrollTo(selection) }
             }
         }
+    }
+}
+
+private struct GameArtwork: View {
+    let data: Data?
+    let desktop: Bool
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                RoundedRectangle(cornerRadius:8).fill(.quaternary)
+                if let data,let image=NSImage(data:data) {
+                    Image(nsImage:image).resizable().scaledToFit()
+                } else {
+                    Image(systemName:desktop ? "desktopcomputer" : "gamecontroller")
+                        .font(.largeTitle).foregroundStyle(.tint)
+                }
+            }.frame(width:geometry.size.width,height:geometry.size.height).clipShape(RoundedRectangle(cornerRadius:8))
+        }.accessibilityHidden(true)
     }
 }
 
