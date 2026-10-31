@@ -54,7 +54,8 @@ public struct HostLibraryView: View {
                 Label(notice,systemImage:"exclamationmark.triangle").font(.caption).foregroundStyle(.secondary).padding(12)
             }
             if let host=model.host,!host.paired {
-                pairing(host)
+                // Both fill the pane so the header stays at the top.
+                pairing(host).frame(maxHeight:.infinity)
             } else if model.library.apps.isEmpty {
                 ContentUnavailableView {
                     Label(model.isBusy ? "Connecting to Host" : "Choose a Host",systemImage:"desktopcomputer")
@@ -62,9 +63,9 @@ public struct HostLibraryView: View {
                     Text(model.isBusy ? model.status : "Select a saved or nearby host, or add its address in the sidebar.")
                 } actions: {
                     if model.isBusy,model.canDisconnect { Button("Cancel") { model.disconnect() } }
-                }
+                }.frame(maxHeight:.infinity)
             } else if model.library.filtered.isEmpty {
-                ContentUnavailableView.search(text:model.library.query)
+                ContentUnavailableView.search(text:model.library.query).frame(maxHeight:.infinity)
             } else if model.settings.value.libraryLayout == "list" {
                 List(model.library.filtered,selection:Bindable(model.library).selectedID) { app in
                     Label { HStack { VStack(alignment:.leading) { Text(app.name);if let store=model.library.game(app)?.store { Text(store.name).font(.caption).foregroundStyle(.secondary) } };Spacer();if model.library.isRunning(app) { Text("Running").font(.caption).foregroundStyle(.green) };if app.hdrSupported { Text("HDR").font(.caption).foregroundStyle(.secondary) } } }

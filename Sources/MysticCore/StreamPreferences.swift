@@ -15,6 +15,10 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public var adaptiveBitrate: Bool? = nil // Missing in older documents; defaults off.
     public var clipboardSync: Bool? = nil // Missing in older documents; defaults off.
     public var microphoneEnabled: Bool? = nil // Missing in older documents; defaults off.
+    public var networkGraceSeconds: Int? = nil // Missing in older documents; defaults off.
+    public var errorCorrection: String? = nil // Missing in older documents; defaults to the host's.
+    public var tellHostWireless: Bool? = nil // Missing in older documents; defaults on.
+    public var tellHostLinkSpeed: Bool? = nil // Missing in older documents; defaults on.
     public var showLatencyHUD = false
     public var libraryLayout = "grid"
     public var librarySort = "name"
@@ -52,6 +56,36 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
         if !["grid","list"].contains(value.libraryLayout) { value.libraryLayout="grid" }
         if !["name","host"].contains(value.librarySort) { value.librarySort="name" }
         if !["general","video","audio","network"].contains(value.settingsPane) { value.settingsPane="general" }
+        if let seconds=value.networkGraceSeconds,NetworkGrace(rawValue:seconds) == nil { value.networkGraceSeconds=nil }
+        if let choice=value.errorCorrection,ErrorCorrection(rawValue:choice) == nil { value.errorCorrection=nil }
         return value
+    }
+}
+
+/// Nightjar's "Ride out network drops": how long a silent network may keep the stream.
+public enum NetworkGrace: Int, CaseIterable, Sendable {
+    case off=0,twentySeconds=20,thirtySeconds=30,sixtySeconds=60
+    public var label: String { self == .off ? "Off" : "\(rawValue) Seconds" }
+    /// Off keeps Nightjar's 3 s grace, below the connection's own 10 s timeout: no tolerance.
+    public var milliseconds: UInt32 { self == .off ? 3000 : UInt32(rawValue)*1000 }
+}
+
+/// The share of video error correction to ask the host for.
+public enum ErrorCorrection: String, CaseIterable, Sendable {
+    case host,automatic="auto",ten="10",twenty="20",thirty="30",fifty="50"
+    public var label: String {
+        switch self {
+        case .host: "Host's Setting"
+        case .automatic: "Automatic"
+        default: "\(rawValue)%"
+        }
+    }
+    /// `MysticStreamConfig::video_fec`: -1 the host's, -2 automatic, otherwise the percentage.
+    public var engineValue: Int16 {
+        switch self {
+        case .host: -1
+        case .automatic: -2
+        default: Int16(rawValue) ?? -1
+        }
     }
 }

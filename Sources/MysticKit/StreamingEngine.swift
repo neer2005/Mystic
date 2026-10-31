@@ -54,6 +54,14 @@ public struct StreamConfiguration: Sendable, Equatable {
     public var channelMask: UInt16 = 0x3
     public var microphone = false
     public var hapticsPCM = false
+    /// Ride out network silence this long; Nightjar's 3 s default adds no tolerance.
+    public var networkGraceMs: UInt32 = 3000
+    /// -1 the host's error correction, -2 automatic, otherwise a fixed percentage.
+    public var videoFEC: Int16 = -1
+    /// Only a Rubylight host is told; the launch reply says whether this one may be.
+    public var clientWireless = false
+    /// Wired link speed toward the host in Mbit/s; 0 on Wi-Fi or when unknown.
+    public var linkMbps: Int32 = 0
 
     public init() {}
 }
@@ -108,7 +116,7 @@ public enum EngineEvent: Sendable, Equatable {
 /// ``start(host:configuration:onEvent:)``.
 public final class StreamingEngine {
     /// The ABI this Swift layer was written against.
-    public static let expectedABI: UInt32 = 2
+    public static let expectedABI: UInt32 = 3
 
     private var handle: OpaquePointer?
     var clipboardHandle: OpaquePointer? { handle }
@@ -445,6 +453,10 @@ extension StreamConfiguration {
         config.channel_mask = self.channelMask
         config.microphone = self.microphone
         config.haptics_pcm = self.hapticsPCM
+        config.network_grace_ms = self.networkGraceMs
+        config.video_fec = self.videoFEC
+        config.client_wireless = self.clientWireless
+        config.link_mbps = self.linkMbps
 
         return config
     }

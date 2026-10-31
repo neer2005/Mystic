@@ -40,6 +40,11 @@ public struct LaunchOptions: Codable, Sendable {
     public var gamepadMask: UInt16 = 0
     public var resumeOnly = false
     public var clipboardSync = false
+    /// -1 the host's error correction, -2 automatic, otherwise a percentage; only hosts that
+    /// offer client error correction receive it.
+    public var fec: Int16 = -1
+    /// The route to the host is Wi-Fi; the reply's `clientWireless` says whether to tell it.
+    public var clientWireless = false
     public init(app: HostApp) { appID = app.id; appUUID = app.uuid }
 }
 public struct LaunchedStream: Codable, Sendable {
@@ -51,6 +56,8 @@ public struct LaunchedStream: Codable, Sendable {
     public var runtimeBitrate: Bool? = nil
     public var clipboardRead: Bool? = nil
     public var clipboardWrite: Bool? = nil
+    /// The host is told the route is wireless (Rubylight hosts only).
+    public var clientWireless: Bool? = nil
 }
 public struct HostConnectionError: Error, LocalizedError, Sendable {
     public let message: String

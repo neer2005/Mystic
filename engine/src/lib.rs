@@ -41,7 +41,7 @@ use nightjar_core::video::{Frame, FrameType};
 
 /// Bumped whenever a struct layout or function signature changes. The Swift side refuses
 /// to run against a mismatch rather than misreading memory.
-pub const MYSTIC_ABI_VERSION: u32 = 2;
+pub const MYSTIC_ABI_VERSION: u32 = 3;
 
 // ---------------------------------------------------------------------------
 // Result codes
@@ -147,6 +147,29 @@ pub struct MysticStreamConfig {
     /// The `rikey` from launch; also the encrypted RTSP key.
     pub remote_input_aes_key: [u8; 16],
     pub remote_input_aes_iv: [u8; 16],
+    /// How long the stream rides out network silence, in milliseconds (Nightjar's "Ride out
+    /// network drops"); at or below the control connection's own 10 s it adds no tolerance.
+    pub network_grace_ms: u32,
+    /// The video FEC to ask a Sunshine-based host for in the ANNOUNCE: `MYSTIC_FEC_HOST`,
+    /// `MYSTIC_FEC_AUTO`, or a fixed percentage 0-255. Rubylight hosts take it at launch.
+    pub video_fec: i16,
+    /// This Mac's wired link speed toward the host in Mbit/s; 0 on Wi-Fi or when unknown.
+    pub link_mbps: i32,
+}
+
+/// `MysticStreamConfig::video_fec`: the host's own error correction.
+pub const MYSTIC_FEC_HOST: i16 = -1;
+/// `MysticStreamConfig::video_fec`: error correction that follows this client's loss reports.
+pub const MYSTIC_FEC_AUTO: i16 = -2;
+
+/// The FEC choice a `video_fec` value names; anything unrecognised leaves it to the host.
+pub fn fec_choice(value: i16) -> rubylight_protocol::fec_report::FecChoice {
+    use rubylight_protocol::fec_report::FecChoice;
+    match value {
+        MYSTIC_FEC_AUTO => FecChoice::Auto,
+        0..=255 => FecChoice::Fixed(value as u8),
+        _ => FecChoice::Host,
+    }
 }
 
 impl Default for MysticStreamConfig {
@@ -176,6 +199,9 @@ impl Default for MysticStreamConfig {
             client_wireless: false,
             remote_input_aes_key: [0; 16],
             remote_input_aes_iv: [0; 16],
+            network_grace_ms: 0,
+            video_fec: MYSTIC_FEC_HOST,
+            link_mbps: 0,
         }
     }
 }
@@ -211,6 +237,8 @@ impl MysticStreamConfig {
             pyrowave_records_supported: self.pyrowave_records_supported,
             pyrowave_row_order: self.pyrowave_row_order,
             client_wireless: self.client_wireless,
+            pyrowave_link_mbps: self.link_mbps.max(0),
+            video_fec: fec_choice(self.video_fec),
             ..StreamConfig::default()
         }
     }
@@ -643,6 +671,7 @@ pub unsafe extern "C" fn mystic_session_start(
 
     let session_config = SessionConfig {
         stream: (*config).to_engine(),
+        network_grace: std::time::Duration::from_millis(u64::from((*config).network_grace_ms)),
         ..SessionConfig::default()
     };
 
@@ -935,8 +964,21 @@ mod tests {
     }
 
     #[test]
+    fn network_settings_reach_the_engine() {
+        use rubylight_protocol::fec_report::FecChoice;
+        assert_eq!(fec_choice(MYSTIC_FEC_HOST), FecChoice::Host);
+        assert_eq!(fec_choice(MYSTIC_FEC_AUTO), FecChoice::Auto);
+        assert_eq!(fec_choice(30), FecChoice::Fixed(30));
+        assert_eq!(fec_choice(-7), FecChoice::Host, "unknown values leave it to the host");
+        let config = MysticStreamConfig { video_fec: 20, link_mbps: 2500, client_wireless: false, ..Default::default() }.to_engine();
+        assert_eq!((config.video_fec, config.pyrowave_link_mbps), (FecChoice::Fixed(20), 2500));
+        assert_eq!(MysticStreamConfig { link_mbps: -1, ..Default::default() }.to_engine().pyrowave_link_mbps, 0);
+        assert_eq!(MysticStreamConfig::default().to_engine().video_fec, FecChoice::Host);
+    }
+
+    #[test]
     fn abi_version_is_stable() {
-        assert_eq!(mystic_abi_version(), 2);
+        assert_eq!(mystic_abi_version(), 3);
     }
 
     #[test]

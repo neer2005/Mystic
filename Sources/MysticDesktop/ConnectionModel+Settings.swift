@@ -55,6 +55,22 @@ extension ConnectionModel {
         get { settings.value.automaticReconnect ?? true }
         set { settings.update { $0.automaticReconnect=newValue } }
     }
+    public var networkGrace: NetworkGrace {
+        get { NetworkGrace(rawValue:settings.value.networkGraceSeconds ?? 0) ?? .off }
+        set { settings.update { $0.networkGraceSeconds=newValue == .off ? nil : newValue.rawValue } }
+    }
+    public var errorCorrection: ErrorCorrection {
+        get { ErrorCorrection(rawValue:settings.value.errorCorrection ?? "") ?? .host }
+        set { settings.update { $0.errorCorrection=newValue == .host ? nil : newValue.rawValue } }
+    }
+    public var tellHostWireless: Bool {
+        get { settings.value.tellHostWireless ?? true }
+        set { settings.update { $0.tellHostWireless=newValue } }
+    }
+    public var tellHostLinkSpeed: Bool {
+        get { settings.value.tellHostLinkSpeed ?? true }
+        set { settings.update { $0.tellHostLinkSpeed=newValue } }
+    }
     public var adaptiveBitrate: Bool {
         get { settings.value.adaptiveBitrate ?? false }
         set { settings.update { $0.adaptiveBitrate=newValue } }

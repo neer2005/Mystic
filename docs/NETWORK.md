@@ -24,8 +24,34 @@ app. Callback generations fence old sessions and HTTP responses. Disconnect,
 closing the stream window and quitting cancel pending recovery.
 
 This restores sessions after transient termination. Route-change monitoring,
-proactive network-return probes, configurable drop tolerance and roaming controls
-are not integrated yet.
+proactive network-return probes and client roaming are not integrated yet.
+
+## Network drops, error correction and link hints
+
+Settings → Network holds three of Nightjar's stream network settings. Each applies to
+the next stream and is locked during one.
+
+- **Ride Out Network Drops** (Off, 20, 30 or 60 seconds) is the engine's network grace
+  period. Off keeps Nightjar's 3-second grace, below the control connection's own
+  10-second timeout, so it adds no tolerance. While the network is silent the engine
+  holds input and, when the host answers, sends the current key, button and controller
+  state rather than replaying the silence. The host has its own timeout (Sunshine's
+  `ping_timeout`); a longer wait only helps if the host waits as long. When tolerance
+  runs out, Reconnect Interrupted Streams still applies.
+- **Error Correction** (Host's Setting, Automatic, 10, 20, 30 or 50 %) is sent at launch
+  to Rubylight hosts that offer client error correction, and in the ANNOUNCE to
+  Sunshine-based hosts that accept it; other hosts keep their own. The engine reports
+  video loss to the host once a second, which Automatic follows.
+- **Tell the Host When on Wi-Fi** and **Tell the Host the Wired Link Speed** are on by
+  default. Before each launch, including reconnects, Mystic asks the Network framework
+  which interface reaches the host. Wi-Fi or cellular is wireless; Ethernet is wired,
+  with the port's negotiated speed. A tunnel such as Tailscale defers to the Mac's
+  internet connection, as in Nightjar's desktop client. Only a Rubylight host is told
+  the route is wireless; any host may receive a wired link speed. The session log
+  records the route and what the host was told.
+
+The bridge carries these as ABI 3 fields of `MysticStreamConfig` (`network_grace_ms`,
+`video_fec`, `link_mbps`) plus launch request fields (`fec`, `clientWireless`).
 
 ## Automatic bitrate
 

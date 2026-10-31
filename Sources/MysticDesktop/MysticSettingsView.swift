@@ -33,6 +33,26 @@ public struct MysticSettingsView: View {
                             .disabled(model.hasSession || model.isBusy)
                         Text("Retries a dropped stream for up to one minute. Disconnect cancels recovery.").foregroundStyle(.secondary)
                     }
+                    Section("Network Drops") {
+                        Picker("Ride Out Network Drops",selection:$model.networkGrace) {
+                            ForEach(NetworkGrace.allCases,id:\.self) { Text($0.label).tag($0) }
+                        }.disabled(model.hasSession || model.isBusy)
+                        Text("Keeps a stream through a silent network for this long instead of ending it. The picture freezes and held keys are released until the host answers. The host must wait as long too; Sunshine-based hosts call this ping_timeout.")
+                            .foregroundStyle(.secondary)
+                    }
+                    Section("Error Correction") {
+                        Picker("Error Correction",selection:$model.errorCorrection) {
+                            ForEach(ErrorCorrection.allCases,id:\.self) { Text($0.label).tag($0) }
+                        }.disabled(model.hasSession || model.isBusy)
+                        Text("Host's Setting leaves the share of recovery data to the host. Automatic follows the video loss this Mac reports each second. Rubylight and Sunshine-based hosts that accept the request use it; other hosts keep their own.")
+                            .foregroundStyle(.secondary)
+                    }
+                    Section("Link Hints") {
+                        Toggle("Tell the Host When on Wi-Fi",isOn:$model.tellHostWireless)
+                        Toggle("Tell the Host the Wired Link Speed",isOn:$model.tellHostLinkSpeed)
+                        Text("A Rubylight host paces video for Wi-Fi from the first frame. A wired link speed lets any host cap its sending rate. Over a VPN, the Mac's own connection decides.")
+                            .foregroundStyle(.secondary)
+                    }.disabled(model.hasSession || model.isBusy)
                     Section("Host Discovery") {
                         Toggle("Discover Hosts on the Local Network",isOn:setting(\.discoveryEnabled))
                         Text(model.discovery.status).font(.caption).foregroundStyle(.secondary)

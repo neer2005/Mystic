@@ -336,6 +336,8 @@ impl MysticHost {
                     audio,
                     ri_key: key,
                     ri_key_id: key_id,
+                    // The query carries it only for hosts that offer client FEC.
+                    fec: v.get("fec").and_then(Value::as_i64).map(|n| crate::fec_choice(n.clamp(-2,255) as i16)),
                     ..Default::default()
                 };
                 let result = if i.current_game == app_id {
@@ -351,6 +353,9 @@ impl MysticHost {
                     json!({"rtspURL":launched.rtsp_session_url,"appVersion":i.app_version,
                     "codecSupport":i.server_codec_mode_support,"key":key,"iv":iv,
                     "runtimeBitrate":i.capabilities.has(Feature::RuntimeBitrate),
+                    // As Nightjar's desktop client: only a Rubylight host is told the route is wireless.
+                    "clientWireless":v["clientWireless"].as_bool().unwrap_or(false)
+                        && i.capabilities.family() == nightjar_core::http::Family::Rubylight,
                     "clipboardRead":clipboard_permissions(&i).0,"clipboardWrite":clipboard_permissions(&i).1}),
                 )
             }
