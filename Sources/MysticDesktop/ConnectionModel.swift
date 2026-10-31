@@ -97,6 +97,74 @@ public final class ConnectionModel {
     public private(set) var inputCapture: StreamInputCapture?
     public private(set) var videoTelemetry: VideoTelemetrySnapshot?
     public private(set) var diagnostics: [String] = []
+    public struct GameAction: Identifiable {
+        public let id=UUID()
+        public let context: UUID
+        public let running: HostInfo
+        public let runningName: String
+        public let target: HostApp?
+        public var title: String { target.map { "Quit and Start \($0.name)" } ?? "Quit Game" }
+    }
+    public private(set) var pendingGameAction: GameAction?
+    @ObservationIgnored private var pendingSwitchPlan: StreamPlan?
+    public func cancelGameAction() { pendingGameAction=nil;pendingSwitchPlan=nil;if phase == .ready { status="Connected to \(host?.name ?? address)." } }
+    public func requestGameAction(startSelected: Bool) async {
+        guard phase == .ready,!isBusy,let connection else { return }
+        let target=startSelected ? selectedApp : nil
+        if startSelected && target == nil { return }
+        let token=generation
+        phase = .connecting;errorMessage=nil;status="Checking the running game…"
+        do {
+            let info=try await connection.serverInfo()
+            guard generation == token else { return }
+            guard info.paired,info.uniqueID == host?.uniqueID else { throw HostConnectionError("The host identity or pairing changed. Connect again.") }
+            host=info
+            var prepared: StreamPlan?
+            if let target {
+                guard let capabilities else { throw HostConnectionError("Video capabilities are unavailable.") }
+                selectedAppID=target.id
+                prepared=try preparedPlan(app:target,capabilities:capabilities)
+            }
+            if prepared?.configuration.microphone == true {
+                guard await microphonePermission() else { throw HostConnectionError("Allow microphone access or disable Use Mac Microphone before switching games.") }
+                guard generation == token else { return }
+            }
+            phase = .ready
+            if let prepared,let capabilities,info.currentGame == 0 || info.currentGame == target?.id {
+                startPreparedPlan(prepared,connection:connection,capabilities:capabilities);return
+            }
+            guard info.currentGame > 0 else { status="No game is running on the host.";return }
+            guard info.quitAllowed != false else { throw HostConnectionError("The host has not granted permission to quit games.") }
+            pendingSwitchPlan=prepared
+            pendingGameAction=GameAction(context:token,running:info,runningName:apps.first { $0.id == info.currentGame }?.name ?? "the running game",target:target)
+            status="Confirm before quitting the running game."
+        } catch { guard generation == token else { return };fail(error.localizedDescription) }
+    }
+    public func confirmGameAction(_ action: GameAction) async {
+        guard generation == action.context,pendingGameAction?.id == action.id,phase == .ready,!hostActionBusy,!graphicsWriting,let connection else { return }
+        let prepared=pendingSwitchPlan,token=generation
+        cancelGameAction();phase = .connecting;status="Quitting \(action.runningName)…";errorMessage=nil
+        do {
+            try await connection.quitApp(expected:action.running)
+            guard generation == token else { return }
+            let fresh=try await connection.serverInfo()
+            guard generation == token else { return }
+            guard fresh.paired,fresh.uniqueID == action.running.uniqueID,fresh.currentGame == 0 else {
+                throw HostConnectionError("The host did not become idle. Nothing else was launched.")
+            }
+            host=fresh
+            if let prepared,let capabilities {
+                selectedAppID=prepared.app.id
+                startPreparedPlan(prepared,connection:connection,capabilities:capabilities)
+            } else { try await loadApps(connection,token:token);status="The game was quit on the host." }
+        } catch {
+            guard generation == token else { return }
+            // A declined or uncertain quit must never launch the replacement.
+            if let fresh=try? await connection.serverInfo(),generation == token { host=fresh }
+            guard generation == token else { return }
+            fail(error.localizedDescription)
+        }
+    }
     public private(set) var hostGraphics: HostGraphics?
     public private(set) var graphicsSession: HostSession?
     public private(set) var graphicsLoadError: String?
@@ -105,7 +173,7 @@ public final class ConnectionModel {
     public private(set) var graphicsWriting=false
     public private(set) var graphicsReading=false
     public var canWriteGraphics: Bool {
-        (phase == .ready || phase == .streaming) && !hostActionBusy && !graphicsWriting && !graphicsReading
+        (phase == .ready || phase == .streaming) && pendingGameAction == nil && !hostActionBusy && !graphicsWriting && !graphicsReading
             && hostGraphics?.writable == true && graphicsSession?.owner == "you"
             && ["streaming","suspended"].contains(graphicsSession?.state ?? "")
     }
@@ -172,7 +240,7 @@ public final class ConnectionModel {
     @ObservationIgnored private var hostSessionReading=false
     @ObservationIgnored private var hostActionTerminated=false
     public var canControlHostSession: Bool {
-        (phase == .ready || phase == .streaming) && !hostActionBusy && !graphicsWriting && hostSession != nil
+        (phase == .ready || phase == .streaming) && !isBusy && hostSession != nil
     }
     public func refreshHostSession() async {
         guard let connection,!hostSessionReading,!hostActionBusy,!graphicsWriting,phase == .ready || phase == .streaming else { return }
@@ -244,7 +312,7 @@ public final class ConnectionModel {
         return host?.currentGame == app.id || libraryGame(app)?.running == true
     }
     public func refreshLibrary() {
-        guard phase == .ready,let connection else { return }
+        guard phase == .ready,!isBusy,let connection else { return }
         let token=generation
         libraryArtworkID=UUID()
         phase = .connecting
@@ -273,8 +341,8 @@ public final class ConnectionModel {
         }
     }
     public var selectedApp: HostApp? { apps.first { $0.id == selectedAppID } }
-    public var isBusy: Bool { hostActionBusy || graphicsWriting || [.connecting, .pairing, .launching, .reconnecting, .disconnecting].contains(phase) }
-    public var canPlay: Bool { phase == .ready && selectedApp != nil && capabilities != nil }
+    public var isBusy: Bool { pendingGameAction != nil || hostActionBusy || graphicsWriting || [.connecting, .pairing, .launching, .reconnecting, .disconnecting].contains(phase) }
+    public var canPlay: Bool { phase == .ready && !isBusy && selectedApp != nil && capabilities != nil }
     public var hasSession: Bool { phase == .streaming || phase == .launching || phase == .reconnecting }
 
     @ObservationIgnored private let microphonePermission: @Sendable () async -> Bool
@@ -366,6 +434,7 @@ public final class ConnectionModel {
         connectedAddress = address;connectedPort=port
         let endpoint = self.endpoint, vault = vault, factory = makeHost
         phase = .connecting; status = "Loading client identity from Keychain…"; errorMessage = nil
+        cancelGameAction()
         resetGraphics()
         hostSession=nil;hostSessionMessage=nil;sessionControlsSupported=nil;hostActionBusy=false;hostSessionReading=false;hostActionTerminated=false
         artworkRequests=[];artworkOrder=[];artwork=[:];nativeLibrary=nil;libraryNotice=nil
@@ -434,9 +503,7 @@ public final class ConnectionModel {
         status = apps.isEmpty ? "The host has no streamable apps configured." : "Connected to \(host?.name ?? address)."
     }
 
-    public func play() {
-        guard canPlay, let connection, let app = selectedApp, let capabilities else { return }
-        do {
+    private func preparedPlan(app: HostApp,capabilities: VideoCapabilities) throws -> StreamPlan {
             let video=effectiveVideoSettings
             let dims = video.resolution.split(separator: "x").compactMap { UInt32($0) }
             guard dims.count == 2 else { throw HostConnectionError("Invalid stream resolution.") }
@@ -465,13 +532,19 @@ public final class ConnectionModel {
             config.colorSpace = video.hdr ? 2 : 1; config.colorRange = 0
             config.microphone = microphoneEnabled
             config.channelCount = options.channelCount; config.channelMask = options.channelMask
-            recovery = StreamRecovery();recovering = false;hadVideo = false;connectedAt = nil
-            let plan = StreamPlan(app:app,options:options,configuration:config,
+            return StreamPlan(app:app,options:options,configuration:config,
                 adaptive:video.adaptiveBitrate,reconnect:settings.value.automaticReconnect ?? true,
                 hostID:host?.uniqueID ?? "",framePacing:video.framePacing)
-            self.plan = plan
-            launchStream(plan,connection:connection,capabilities:capabilities)
-        } catch { fail(error.localizedDescription) }
+    }
+    private func startPreparedPlan(_ plan: StreamPlan,connection: any HostService,capabilities: VideoCapabilities) {
+        recovery=StreamRecovery();recovering=false;hadVideo=false;connectedAt=nil
+        self.plan=plan
+        launchStream(plan,connection:connection,capabilities:capabilities)
+    }
+    public func play() {
+        guard canPlay,let connection,let app=selectedApp,let capabilities else { return }
+        do { startPreparedPlan(try preparedPlan(app:app,capabilities:capabilities),connection:connection,capabilities:capabilities) }
+        catch { fail(error.localizedDescription) }
     }
     private func launchStream(_ plan: StreamPlan, connection: any HostService, capabilities: VideoCapabilities) {
         let app = plan.app, config = plan.configuration
@@ -565,6 +638,7 @@ public final class ConnectionModel {
         controllerFeedbackMonitor?.cancel();controllerFeedbackMonitor=nil
         statisticsMonitor?.cancel(); statisticsMonitor = nil; audioStatus = "Audio stopped";audioOutputStatus = .idle
         operation?.cancel(); connection?.cancel(); connection = nil; pairingPIN = nil
+        cancelGameAction()
         resetGraphics()
         hostSession=nil;hostSessionMessage=nil;sessionControlsSupported=nil;hostActionBusy=false;hostSessionReading=false;hostActionTerminated=false
         artworkRequests=[];artworkOrder=[];artwork=[:];nativeLibrary=nil;libraryNotice=nil
@@ -672,6 +746,7 @@ public final class ConnectionModel {
             endRecovery("Could not restore the stream within the retry limit. \(message)");return
         }
         clipboard?.stop();clipboard=nil;clipboardBusy=false;clipboardStatus="Clipboard sharing paused during recovery"
+        cancelGameAction()
         resetGraphics()
         hostSession=nil;hostSessionReading=false;sessionControlsSupported=nil
         recovering=true;phase = .reconnecting;errorMessage=nil

@@ -6,6 +6,64 @@ import MysticCore
 
 @MainActor
 final class ConnectionModelTests: XCTestCase {
+    func testQuitNeedsConfirmationAndRejectsChangedGamesAndOldConnections() async throws {
+        let mock=MockHost(paired:true,multipleApps:true)
+        mock.lock.withLock { mock.runningGame=1 }
+        let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,makeHost:{ _,_,_,_ in mock })
+        model.address="pc.local";model.connect();try await settle(model)
+        await model.requestGameAction(startSelected:false)
+        XCTAssertNotNil(model.pendingGameAction)
+        XCTAssertEqual(mock.lock.withLock { mock.quitCalls },0)
+        model.cancelGameAction()
+        XCTAssertNil(model.pendingGameAction)
+        await model.requestGameAction(startSelected:false)
+        let old=try XCTUnwrap(model.pendingGameAction)
+        model.disconnect();model.connect();try await settle(model)
+        await model.confirmGameAction(old)
+        XCTAssertEqual(mock.lock.withLock { mock.quitCalls },0)
+        await model.requestGameAction(startSelected:false)
+        let changed=try XCTUnwrap(model.pendingGameAction)
+        mock.lock.withLock { mock.runningGame=2 }
+        await model.confirmGameAction(changed)
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertEqual(mock.lock.withLock { mock.runningGame },2)
+        await model.requestGameAction(startSelected:false)
+        await model.confirmGameAction(try XCTUnwrap(model.pendingGameAction))
+        XCTAssertEqual(model.host?.currentGame,0)
+        XCTAssertEqual(model.phase,.ready)
+        XCTAssertEqual(mock.lock.withLock { mock.launchCalls },0)
+        model.disconnect()
+    }
+    func testSwitchCapturesTargetProfileAndNeverLaunchesAfterRefusedQuit() async throws {
+        let mock=MockHost(paired:true,multipleApps:true)
+        mock.lock.withLock { mock.runningGame=1 }
+        let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,makeHost:{ _,_,_,_ in mock })
+        await model.prepare()
+        guard (model.capabilities?.supportedFormats ?? 0) & 1 != 0 else { throw XCTSkip("No H.264 hardware") }
+        model.address="pc.local";model.connect();try await settle(model)
+        model.selectedAppID=2;model.gameVideoSource = .custom
+        var video=model.effectiveVideoSettings;video.codec="h264";video.hdr=false;video.resolution="1280x720"
+        model.updateGameVideo(video)
+        await model.requestGameAction(startSelected:true)
+        let action=try XCTUnwrap(model.pendingGameAction)
+        XCTAssertEqual(action.target?.id,2)
+        model.selectedAppID=3
+        await model.confirmGameAction(action);try await settle(model)
+        XCTAssertEqual(mock.launchedOptions?.appID,2)
+        XCTAssertEqual(mock.launchedOptions?.width,1280)
+        mock.lock.withLock { mock.runningGame=1;mock.quitRefused=true }
+        model.selectedAppID=2
+        await model.requestGameAction(startSelected:true)
+        await model.confirmGameAction(try XCTUnwrap(model.pendingGameAction));try await settle(model)
+        XCTAssertEqual(mock.lock.withLock { mock.launchCalls },1)
+        XCTAssertNotNil(model.errorMessage)
+        let quits=mock.lock.withLock { mock.quitCalls }
+        model.selectedAppID=2;video.hdr=true;model.updateGameVideo(video)
+        await model.requestGameAction(startSelected:true)
+        XCTAssertNil(model.pendingGameAction,"Invalid target settings must fail before a quit confirmation")
+        XCTAssertEqual(mock.lock.withLock { mock.quitCalls },quits)
+        model.disconnect()
+    }
     func testGraphicsReadbackFailureRecoveryAndConnectionIsolation() async throws {
         let mock=MockHost(paired:true)
         let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,makeHost:{ _,_,_,_ in mock })
@@ -338,6 +396,10 @@ private final class MockHost: HostService, @unchecked Sendable {
     var graphicsValue=false
     var graphicsWrites=0
     var graphicsRestores=0
+    var runningGame: Int32=0
+    var quitCalls=0
+    var quitRefused=false
+    var launchCalls=0
     let delay: Bool
     let multipleApps: Bool
     let uniqueID: String
@@ -354,11 +416,19 @@ private final class MockHost: HostService, @unchecked Sendable {
     func serverInfo() async throws -> HostInfo {
         if delay { try await Task.sleep(for: .milliseconds(120)) }
         let isPaired = lock.withLock { paired }
-        return try decode("{\"name\":\"Test Host\",\"uniqueID\":\"\(uniqueID)\",\"paired\":\(isPaired),\"appVersion\":\"7.1.431.-1\",\"codecSupport\":1,\"currentGame\":0}")
+        let running=lock.withLock { runningGame }
+        return try decode("{\"name\":\"Test Host\",\"uniqueID\":\"\(uniqueID)\",\"paired\":\(isPaired),\"appVersion\":\"7.1.431.-1\",\"codecSupport\":1,\"currentGame\":\(running)}")
     }
     func pair(pin: String) async throws -> PairedHost {
         lock.withLock { paired = true }
         return try decode("{\"certificate\":\"pinned certificate\",\"uniqueID\":\"host1\"}")
+    }
+    func quitApp(expected: HostInfo) async throws {
+        try lock.withLock {
+            quitCalls += 1
+            guard !quitRefused,expected.currentGame == runningGame else { throw HostConnectionError("The running game changed or quit was refused") }
+            runningGame=0
+        }
     }
     func apps() async throws -> [HostApp] {
         if multipleApps { return try decode("[{\"id\":1,\"name\":\"Desktop\",\"uuid\":\"app1\",\"hdrSupported\":true},{\"id\":2,\"name\":\"Alpha\",\"uuid\":\"app2\",\"hdrSupported\":false},{\"id\":3,\"name\":\"Zulu\",\"uuid\":\"app3\",\"hdrSupported\":true}]") }
@@ -397,7 +467,7 @@ private final class MockHost: HostService, @unchecked Sendable {
         guard native else { return nil }
         return try decode(#"{"revision":"1","games":[{"install_id":"install1","app_id":1,"title":"Native Game","store":{"source":"steam","name":"Steam"},"installed":true,"running":true,"artwork":{"cover":null,"version":"1"}}]}"#)
     }
-    func launch(_ options: LaunchOptions) async throws -> LaunchedStream { lock.withLock { launchOptions=options };throw HostConnectionError("not used") }
+    func launch(_ options: LaunchOptions) async throws -> LaunchedStream { lock.withLock { launchOptions=options;launchCalls += 1 };throw HostConnectionError("not used") }
     func cancel() {}
 }
 private final class MemoryVault: CredentialsStorage, @unchecked Sendable {

@@ -258,6 +258,26 @@ impl MysticHost {
                 let applied = self.client.set_bitrate(kbps).map_err(HostError::from)?;
                 Ok(json!({"kbps":applied}))
             }
+            "quit" => {
+                let info=self.client.server_info_https().map_err(HostError::from)?;
+                if !quit_allowed(&info) { return Err("The host has not granted permission to quit games.".into()); }
+                validate_quit_identity(info.current_game,info.current_game_uuid.as_deref(),&v)?;
+                if info.capabilities.has(Feature::NativeApi) {
+                    let session=json!(self.client.session().map_err(HostError::from)?);
+                    if !matches!(session["owner"].as_str(),Some("you" | "none")) {
+                        return Err("The running session belongs to another device.".into());
+                    }
+                }
+                match self.client.cancel() {
+                    Ok(true) => (),
+                    Ok(false) => return Err("The host declined to quit the game.".into()),
+                    Err(nightjar_core::http::Error::Status { code:599,.. }) => return Err("The running game belongs to another device.".into()),
+                    Err(error) => return Err(HostError::from(error)),
+                }
+                let after=self.client.server_info_https().map_err(HostError::from)?;
+                if after.current_game != 0 { return Err("A game is still running. Refresh before trying again.".into()); }
+                Ok(json!({"quit":true}))
+            }
             "launch" => {
                 let i = self.client.server_info_https().map_err(HostError::from)?;
                 let app_id = v["appID"]
@@ -321,6 +341,18 @@ impl MysticHost {
         }
     }
 }
+fn quit_allowed(info: &nightjar_core::http::ServerInfo) -> bool {
+    use nightjar_core::http::PERMISSION_LAUNCH;
+    info.capabilities.evidence().is_none_or(|e| e.permission == -1 || (e.permission.max(0) as u32 & PERMISSION_LAUNCH) != 0)
+}
+fn validate_quit_identity(current: i32, uuid: Option<&str>, request: &Value) -> Result<(),HostError> {
+    if current <= 0 || request["expectedAppID"].as_i64() != Some(i64::from(current))
+        || uuid.unwrap_or("") != request["expectedAppUUID"].as_str().unwrap_or("") {
+        return Err("The running game changed. Refresh and confirm again.".into());
+    }
+    Ok(())
+}
+
 fn validate_radeon_write(panel: &Value, request: &Value, restore: bool) -> Result<(), HostError> {
     if panel["host_control"] != true || panel["writable_now"] != true || panel["state"] != "configurable" {
         return Err("Graphics changes require Host control and an owned session.".into());
@@ -368,7 +400,7 @@ fn host_info_value(i: &nightjar_core::http::ServerInfo, has_local_pin: bool) -> 
     // Another address can recognize our identity without having a local certificate pin.
     // Offer PIN pairing for that endpoint instead of attempting unpinned HTTPS.
     json!({"name":i.hostname,"uniqueID":i.unique_id,"paired":i.paired && has_local_pin,
-        "appVersion":i.app_version,"codecSupport":i.server_codec_mode_support,"currentGame":i.current_game,
+        "appVersion":i.app_version,"codecSupport":i.server_codec_mode_support,"currentGame":i.current_game,"currentGameUUID":i.current_game_uuid,"quitAllowed":has_local_pin && quit_allowed(i),
         "clipboardRead":has_local_pin && clipboard_permissions(i).0,"clipboardWrite":has_local_pin && clipboard_permissions(i).1})
 }
 fn dimension(v: &Value, name: &str, max: u32) -> Result<u32, String> {
@@ -381,6 +413,26 @@ fn dimension(v: &Value, name: &str, max: u32) -> Result<u32, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn quit_permission_uses_launch_grant_and_allows_legacy_hosts() {
+        use nightjar_core::http::{PERMISSION_LAUNCH,PERMISSION_VIEW};
+        for (permission,expected) in [(-1,true),(0,false),(PERMISSION_VIEW as i64,false),(PERMISSION_LAUNCH as i64,true)] {
+            let field=if permission == -1 { String::new() } else { format!("<Permission>{permission}</Permission>") };
+            let xml=format!(r#"<root status_code="200"><hostname>PC</hostname><uniqueid>h</uniqueid><PairStatus>1</PairStatus>{field}<state>SUNSHINE_SERVER_FREE</state></root>"#);
+            let info=nightjar_core::http::ServerInfo::parse(&xml,47989).unwrap();
+            assert_eq!(quit_allowed(&info),expected,"permission {permission}, evidence {:?}",info.capabilities.evidence());
+        }
+    }
+    #[test]
+    fn quit_requires_the_confirmed_running_id_and_uuid() {
+        let request=json!({"expectedAppID":12,"expectedAppUUID":"game-a"});
+        assert!(validate_quit_identity(12,Some("game-a"),&request).is_ok());
+        assert!(validate_quit_identity(13,Some("game-a"),&request).is_err());
+        assert!(validate_quit_identity(12,Some("game-b"),&request).is_err());
+        assert!(validate_quit_identity(0,None,&request).is_err());
+        assert!(validate_quit_identity(12,None,&request).is_err());
+        assert!(validate_quit_identity(12,None,&json!({"expectedAppID":12,"expectedAppUUID":""})).is_ok());
+    }
     #[test]
     fn graphics_writes_validate_permissions_revision_type_range_and_choices() {
         let mut panel=json!({"revision":7,"state":"configurable","host_control":true,"writable_now":true,"gpus":[{"id":1,"settings":[

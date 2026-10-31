@@ -36,5 +36,5 @@ separate live checks; Close Game requires a host permission change and user-led
 validation because it can discard unsaved progress.
 
 The Graphics tab now provides Radeon controls; see GRAPHICS.md for behavior and
-validation. Classic-host Quit Game, quit-and-start-another and live FPS/manual
-bitrate controls remain separate parity items. See NIGHTJAR-PARITY.md for the complete inventory.
+validation. Classic-host Quit Game and quit-and-start-another are available in the library;
+see GAME-SWITCHING.md. Live FPS/manual bitrate controls remain pending. See NIGHTJAR-PARITY.md for the complete inventory.
