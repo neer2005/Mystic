@@ -15,16 +15,20 @@ struct GameVideoPreferencesView: View {
             Text("Saved for this game on this host. Choosing inherited settings removes this game's custom video settings.")
                 .font(.caption).foregroundStyle(.secondary)
         } else {
+            // The summary keeps Start Stream within reach; the inherited values are one click away.
             let video=model.effectiveVideoSettings
-            LabeledContent("Resolution",value:StreamPreferences.resolutionLabel(video.resolution))
-            LabeledContent("Frame Rate",value:"\(video.fps) fps")
-            LabeledContent("Codec",value:video.codec == "auto" ? "Automatic" : video.codec.uppercased())
-            LabeledContent("Bitrate",value:"\(video.bitrateMbps) Mbps\(video.adaptiveBitrate ? " maximum · automatic" : "")")
-            LabeledContent("HDR",value:video.hdr ? "On" : "Off")
-            LabeledContent("Frame Pacing",value:video.framePacing.label)
-            Text(model.gameVideoSource == .global ? "Follows Settings → Video, including future changes." :
-                "Follows this host's defaults, or global defaults when the host has no custom settings.")
-                .font(.caption).foregroundStyle(.secondary)
+            LabeledContent("Stream",value:Self.summary(video))
+            DisclosureGroup("Details") {
+                LabeledContent("Resolution",value:StreamPreferences.resolutionLabel(video.resolution))
+                LabeledContent("Frame Rate",value:"\(video.fps) fps")
+                LabeledContent("Codec",value:Self.codec(video))
+                LabeledContent("Bitrate",value:"\(video.bitrateMbps) Mbps\(video.adaptiveBitrate ? " maximum · automatic" : "")")
+                LabeledContent("HDR",value:video.hdr ? "On" : "Off")
+                LabeledContent("Frame Pacing",value:video.framePacing.label)
+                Text(model.gameVideoSource == .global ? "Follows Settings → Video, including future changes." :
+                    "Follows this host's defaults, or global defaults when the host has no custom settings.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         Button("Edit Host Defaults…") {
             if let key=model.hostProfileKey { hostEditor=HostEditor(id:key,name:model.host?.name ?? "Host") }
@@ -32,6 +36,12 @@ struct GameVideoPreferencesView: View {
             HostVideoPreferencesView(model:model,hostKey:target.id,hostName:target.name)
         }
         if let error=model.profiles.error { Text(error).font(.caption).foregroundStyle(.red) }
+    }
+    static func codec(_ video: StreamVideoSettings) -> String { video.codec == "auto" ? "Automatic" : video.codec == "h264" ? "H.264" : video.codec.uppercased() }
+    /// For example "3024 × 1890 · 120 fps · HEVC · HDR".
+    static func summary(_ video: StreamVideoSettings) -> String {
+        [StreamPreferences.resolutionLabel(video.resolution),"\(video.fps) fps",video.codec == "auto" ? "Auto codec" : codec(video),video.hdr ? "HDR" : "SDR"]
+            .joined(separator:" · ")
     }
 }
 

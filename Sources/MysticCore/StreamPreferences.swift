@@ -22,13 +22,21 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public var settingsPane = "general"
     public init() {}
     public static let resolutions = ["1280x720","1920x1080","2560x1440","3024x1890","3024x1964","3456x2234","3840x2160"]
+    /// The pixel size alone, for pickers and summaries.
     public static func resolutionLabel(_ resolution: String) -> String {
-        let dimensions=resolution.replacingOccurrences(of:"x",with:" × ")
+        resolution.replacingOccurrences(of:"x",with:" × ")
+    }
+    /// What a resolution is for, shown as secondary text beside its size.
+    public static func resolutionDetail(_ resolution: String) -> String? {
         switch resolution {
-        case "3024x1890": return "\(dimensions) (MacBook Pro 14-inch, 16:10)"
-        case "3024x1964": return "\(dimensions) (MacBook Pro 14-inch)"
-        case "3456x2234": return "\(dimensions) (MacBook Pro 16-inch)"
-        default:return dimensions
+        case "1280x720": "720p · 16:9"
+        case "1920x1080": "1080p · 16:9"
+        case "2560x1440": "1440p · 16:9"
+        case "3024x1890": "MacBook Pro 14-inch below the camera · 16:10"
+        case "3024x1964": "MacBook Pro 14-inch full display"
+        case "3456x2234": "MacBook Pro 16-inch full display"
+        case "3840x2160": "4K · 16:9"
+        default: nil
         }
     }
     public static let codecs = ["auto","h264","hevc","av1"]

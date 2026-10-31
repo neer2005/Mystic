@@ -114,7 +114,14 @@ public final class ConnectionModel {
         public let running: HostInfo
         public let runningName: String
         public let target: HostApp?
-        public var title: String { target.map { "Quit and Start \($0.name)" } ?? "Quit Game" }
+        /// The confirming button names what is quit and, for a switch, what starts.
+        public var title: String { target.map { "Quit and Start \($0.name)" } ?? "Quit \(runningName)" }
+        public var question: String { "Quit \(runningName) on \(running.name)?" }
+        public var explanation: String {
+            let loss="Unsaved progress in \(runningName) may be lost."
+            guard let target else { return loss }
+            return loss+" After the host confirms it has quit, Mystic starts \(target.name) with its saved stream settings."
+        }
     }
     public private(set) var pendingGameAction: GameAction?
     @ObservationIgnored private var pendingSwitchPlan: StreamPlan?

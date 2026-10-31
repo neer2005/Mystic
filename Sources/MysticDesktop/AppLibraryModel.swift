@@ -22,6 +22,11 @@ public final class AppLibraryModel {
 
     public var selected: HostApp? { apps.first { $0.id == selectedID } }
     public func game(_ app: HostApp) -> HostLibrary.Game? { native?.game(appID:app.id) }
+    /// The app the host reports running, when it is in this list.
+    public var runningApp: HostApp? {
+        guard let id=model.host?.currentGame,id > 0 else { return nil }
+        return apps.first { $0.id == id }
+    }
     public func isRunning(_ app: HostApp) -> Bool { model.host?.currentGame == app.id || game(app)?.running == true }
     public var selectedRunning: Bool { selected.map(isRunning) ?? false }
     public var filtered: [HostApp] {

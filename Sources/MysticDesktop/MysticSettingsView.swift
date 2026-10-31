@@ -70,10 +70,14 @@ struct VideoSettingsFields: View {
     var locked: Bool
     var body: some View {
         Group {
+            // The picker stays short so its indicator is never squeezed; the purpose follows below.
             Picker("Resolution",selection:$value.resolution) {
                 ForEach(StreamPreferences.resolutions,id:\.self) { resolution in
                     Text(StreamPreferences.resolutionLabel(resolution)).tag(resolution)
                 }
+            }
+            if let detail=StreamPreferences.resolutionDetail(value.resolution) {
+                Text(detail).font(.caption).foregroundStyle(.secondary)
             }
             Picker("Frame Rate",selection:$value.fps) { Text("60 fps").tag(UInt32(60));Text("120 fps").tag(UInt32(120)) }
             Picker("Frame Pacing",selection:$value.framePacing) {
