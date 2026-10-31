@@ -295,6 +295,8 @@ void mystic_session_bitrate_applied(MysticSession *session, uint32_t requested, 
 int32_t mystic_frame_buffers(const MysticFrame *frame, MysticFrameBuffer *out, size_t capacity);
 
 /* Serialized worker: zero/zero polls; otherwise one bounded live rate request. */
+/* Saved host Wake-on-LAN JSON; owned response freed with mystic_string_free. */
+char *mystic_wake(const char *request_json);
 char *mystic_session_rates(const MysticSession *session, uint32_t kbps, uint32_t fps_millihz);
 
 #ifdef __cplusplus

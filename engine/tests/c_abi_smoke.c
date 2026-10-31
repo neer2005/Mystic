@@ -186,6 +186,10 @@ int main(void) {
     CHECK(rates_result != NULL && strstr(rates_result, "\"ok\":false") != NULL,
           "rate control before start returns an owned structured error");
     mystic_string_free(rates_result);
+    char *wake_result = mystic_wake("{\"host\":\"127.0.0.1\",\"macs\":[],\"broadcasts\":[]}");
+    CHECK(wake_result != NULL && strstr(wake_result, "\"ok\":false") != NULL,
+          "wake without a MAC returns an owned error without sending packets");
+    mystic_string_free(wake_result);
 
     MysticRecovery *recovery = mystic_recovery_new();
     CHECK(recovery != NULL, "shared recovery policy is allocated");

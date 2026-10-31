@@ -16,12 +16,18 @@ public struct HostLibraryView: View {
                 .navigationTitle("Mystic")
                 .navigationSplitViewColumnWidth(min:220,ideal:250,max:320)
         } content: {
-            library
-                .navigationTitle(model.host?.name ?? "Library")
+            Group {
+                if model.showingHome { HomeLibraryContent(model:model) }
+                else { library }
+            }
+                .navigationTitle(model.showingHome ? "Home" : (model.host?.name ?? "Library"))
                 .navigationSplitViewColumnWidth(min:300,ideal:450)
         } detail: {
-            streamDetails
-                .navigationTitle("Stream Details")
+            Group {
+                if model.showingHome { HomeGameDetails(model:model) }
+                else { streamDetails }
+            }
+                .navigationTitle(model.showingHome ? "Game Details" : "Stream Details")
                 .navigationSplitViewColumnWidth(min:300,ideal:340,max:420)
         }
         .sheet(item:Binding(get:{model.pendingGameAction},set:{if $0 == nil { model.cancelGameAction() }})) { action in
@@ -40,8 +46,8 @@ public struct HostLibraryView: View {
         }
         .sheet(isPresented:$showingHostSession) { HostSessionView(model:model) }
         .frame(minWidth:1000,minHeight:580)
-        .focusedSceneValue(\.librarySearchAction, { searchFocused=true })
         .task { model.libraryAppeared();await model.prepare() }
+        .onChange(of:model.showingHome) { if model.showingHome { Task { await model.refreshHome() } } }
         .onDisappear { model.libraryDisappeared() }
         .onChange(of:model.settings.value) { model.applyLiveSettings() }
     }
@@ -77,6 +83,7 @@ public struct HostLibraryView: View {
         .disabled(model.hasSession || model.isBusy)
         .searchable(text:$model.libraryQuery,prompt:"Search Apps")
         .searchFocused($searchFocused)
+        .focusedSceneValue(\.librarySearchAction, { searchFocused=true })
         .toolbar {
             ToolbarItem { Button("Host Session",systemImage:"rectangle.connected.to.line.below") { showingHostSession=true }.disabled(model.phase != .ready || model.host?.paired != true) }
             ToolbarItem { Button("Refresh Library",systemImage:"arrow.clockwise") { model.refreshLibrary() }.disabled(model.phase != .ready || model.host?.paired != true) }
@@ -160,12 +167,13 @@ private struct HostSidebar: View {
     private var locked: Bool { model.hasSession || model.isBusy }
     var body: some View {
         List(selection:Binding(get:{model.selectedHostEndpointID},set:{model.selectHost($0)})) {
+            Label("Home",systemImage:"house.fill").tag("__home__").disabled(locked)
             Section("Saved Hosts") {
                 ForEach(model.savedHosts.hosts) { host in
                     hostLabel(host.name,endpoint:host.endpoint).tag(host.id)
                         .contextMenu {
                             Button("Connect",systemImage:"network") { model.connect(to:host.endpoint) }.disabled(locked)
-                            Button("Remove from Saved Hosts",systemImage:"minus.circle") { model.savedHosts.remove(host.endpoint) }.disabled(locked)
+                            Button("Remove from Saved Hosts",systemImage:"minus.circle") { model.removeSavedHost(host.endpoint) }.disabled(locked)
                         }
                         .help("\(host.endpoint.id). Removing from Saved Hosts keeps its Keychain pairing.")
                         .disabled(locked)
@@ -257,7 +265,7 @@ private struct AppGrid: View {
     }
 }
 
-private struct GameArtwork: View {
+struct GameArtwork: View {
     let data: Data?
     let desktop: Bool
     var body: some View {

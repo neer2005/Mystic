@@ -229,6 +229,22 @@ impl MysticHost {
                 }.map_err(HostError::from)?;
                 Ok(json!({"radeon":updated}))
             }
+            "wakeTargets" => {
+                let info=self.client.server_info_https().map_err(HostError::from)?;
+                let mut macs=Vec::new();let mut broadcasts=Vec::new();
+                if let Some(mac)=info.mac_address.filter(|m|crate::wake::magic(m).is_ok()) { macs.push(mac); }
+                if info.capabilities.has(Feature::NativeApi) {
+                    if let Ok(wake)=self.client.wake() {
+                        for mac in wake.primary.iter().chain(wake.targets.iter().map(|t|&t.mac)) {
+                            if macs.len() < 8 && crate::wake::magic(mac).is_ok() && !macs.contains(mac) { macs.push(mac.clone()); }
+                        }
+                        for ip in wake.targets.iter().flat_map(|t|&t.broadcasts) {
+                            if broadcasts.len() < 16 && ip.parse::<std::net::Ipv4Addr>().is_ok() && !broadcasts.contains(ip) { broadcasts.push(ip.clone()); }
+                        }
+                    }
+                }
+                Ok(json!({"macs":macs,"broadcasts":broadcasts}))
+            }
             "artwork" => {
                 let id = v["appID"].as_i64().and_then(|id| i32::try_from(id).ok())
                     .filter(|id| *id > 0).ok_or("invalid app ID")?;

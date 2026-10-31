@@ -57,6 +57,8 @@ rather than rewritten.
 - [x] Native Radeon graphics panel: typed controls, permissions, host read-back, error recovery and restore (automated checks; Big Dawg browsing and permission gating verified; live writes pending Host control; see `GRAPHICS.md`)
 - [x] Classic quit and quit-and-start-another with fresh state, ID/UUID/ownership checks, confirmation and immutable target video profile (automated checks; Big Dawg confirmation/cancel verified; real switch pending; see `GAME-SWITCHING.md`)
 - [x] Live manual bitrate/FPS controls with negotiated host outcomes, bitrate-only fallback, bounded requests and session-only automatic-policy pause (automated checks; Big Dawg negotiation/UI verified; live Apply pending; see `LIVE-RATES.md`)
+- [x] Combined Home across saved paired PCs, native game merging with per-PC copies, favourites/recent play, bounded offline metadata/cover cache and explicit reachability (automated multi-PC checks; Big Dawg browsing/search/Home launch/recent play verified; see `HOME.md`)
+- [x] Basic Wake-on-LAN using remembered physical MAC/subnet addresses and bounded magic packets (packet/ABI checks; real sleeping-PC wake validation pending)
 - [x] Native single-host library browsing against Rubylight's API: cover art, stores, search and running-game details, preserving classic apps and video profiles (automated checks; Big Dawg browsing/search/refresh and Desktop resume verified; see `LIBRARY.md`)
 
 ## Phase 4 — hardening and release

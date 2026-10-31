@@ -165,6 +165,104 @@ public final class ConnectionModel {
             bitrateStatus="Manual rate change uncertain; automatic bitrate paused."
         }
     }
+    public let home: HomeLibrary
+    public var showingHome=true
+    public var selectedHomeGameID: String?
+    public private(set) var homeBusy=false
+    public private(set) var homeMessage="Cached games remain available when a PC is unreachable."
+    @ObservationIgnored private var homeEpoch=UUID()
+    @ObservationIgnored private var homeConnections: [String:any HostService]=[:]
+    @ObservationIgnored private var homeArtRequests=Set<String>()
+    private struct HomePairingRequired: Error {}
+    public func showHome() { guard !isBusy,!hasSession else { return };showingHome=true }
+    public func removeSavedHost(_ endpoint: HostEndpoint) {
+        guard !isBusy,!hasSession else { return }
+        cancelHomeRefresh();savedHosts.remove(endpoint);home.reconcile(savedHosts.hosts)
+    }
+    private func cancelHomeRefresh() {
+        homeEpoch=UUID();homeBusy=false
+        for connection in homeConnections.values { connection.cancel() };homeConnections=[:];homeArtRequests=[]
+        for (id,state) in home.reach where state == .checking { home.setReach(id,.unknown) }
+    }
+    public func refreshHome() async {
+        guard showingHome,!homeBusy,!isBusy,!hasSession else { return }
+        cancelHomeRefresh();let epoch=homeEpoch
+        home.reconcile(savedHosts.hosts);homeBusy=true;homeMessage="Refreshing paired PCs…"
+        defer { if homeEpoch == epoch { homeBusy=false;homeMessage="Home shows live games where reachable and cached games elsewhere." } }
+        var seen=Set<String>()
+        let hosts=savedHosts.hosts,factory=makeHost,vault=vault
+        for saved in hosts {
+            let key=HomePC.key(uniqueID:saved.uniqueID,endpoint:saved.endpoint)
+            guard homeEpoch == epoch,!Task.isCancelled else { return }
+            guard seen.insert(key).inserted else { continue }
+            home.setReach(key,.checking)
+            do {
+                let service=try await Task.detached {
+                    guard let certificate=try vault.certificate(for:saved.endpoint.id) else { throw HomePairingRequired() }
+                    return try factory(saved.endpoint.address,saved.endpoint.port,vault.identity(),certificate)
+                }.value
+                guard homeEpoch == epoch else { service.cancel();return }
+                homeConnections[key]=service
+                let info=try await service.serverInfo()
+                guard homeEpoch == epoch else { return }
+                guard info.paired,(saved.uniqueID == nil || saved.uniqueID == info.uniqueID) else {
+                    home.setReach(key,.pairing,notice:"Pairing or host identity changed. Connect to this PC to verify it.");service.cancel();homeConnections[key]=nil;continue
+                }
+                let classic=try await service.apps()
+                var library: HostLibrary?
+                var libraryFailed=false
+                do { library=try await service.library() } catch { libraryFailed=true }
+                let wake=try? await service.wakeTargets()
+                guard homeEpoch == epoch else { return }
+                if !libraryFailed || home.pc(key) == nil {
+                    home.record(host:info,endpoint:saved.endpoint,apps:library?.merging(apps:classic) ?? classic,library:library,wake:wake)
+                }
+                let realKey=HomePC.key(uniqueID:info.uniqueID,endpoint:saved.endpoint)
+                if realKey != key { homeConnections[realKey]=service;homeConnections[key]=nil }
+                savedHosts.remember(endpoint:saved.endpoint,name:info.name,uniqueID:info.uniqueID)
+                home.setReach(realKey,.online,notice:libraryFailed ? "Native library unavailable; showing cached games or host apps." : nil)
+            } catch {
+                guard homeEpoch == epoch else { return }
+                homeConnections[key]?.cancel();homeConnections[key]=nil
+                if error is HomePairingRequired { home.setReach(key,.pairing,notice:"Pair with this PC to load its library.") }
+                else { home.setReach(key,.offline,notice:error.localizedDescription) }
+            }
+        }
+    }
+    public func loadHomeArt(_ copy: HomeInstallation) async {
+        if home.cachedArt(copy) != nil { return }
+        let key=home.artKey(copy),epoch=homeEpoch
+        guard home.reach[copy.hostID] == .online,let service=homeConnections[copy.hostID],homeArtRequests.insert(key).inserted else { return }
+        let data=try? await service.artwork(appID:copy.app.id)
+        guard homeEpoch == epoch,let data else { return }
+        home.saveArt(data,for:copy)
+    }
+    public func openHomeGame(_ copy: HomeInstallation) async {
+        guard !isBusy,!hasSession,let pc=home.pc(copy.hostID) else { return }
+        connect(to:pc.endpoint)
+        let token=generation
+        await operation?.value
+        guard generation == token,phase == .ready,host?.paired == true,host?.uniqueID == pc.uniqueID else { return }
+        let current=apps.first { candidate in
+            copy.app.uuid.isEmpty ? (candidate.id == copy.app.id && candidate.name == copy.app.name) : candidate.uuid.caseInsensitiveCompare(copy.app.uuid) == .orderedSame
+        }
+        guard let current else { fail("This game is no longer in the host's library. Refresh Home and choose it again.");return }
+        if let gameID=copy.gameID,!gameID.isEmpty,nativeLibrary?.game(appID:current.id)?.game_id != gameID {
+            fail("The host's game identity changed. Refresh Home before launching it.");return
+        }
+        selectedAppID=current.id
+        await requestGameAction(startSelected:true)
+    }
+    public func wakeHomePC(_ id: String) async {
+        guard !homeBusy,!isBusy,!hasSession,let pc=home.pc(id) else { return }
+        homeBusy=true;let epoch=homeEpoch
+        defer { if homeEpoch == epoch { homeBusy=false } }
+        do {
+            _ = try await pc.wake.send(to:pc.endpoint.address)
+            guard homeEpoch == epoch else { return }
+            homeMessage="Wake packets sent to \(pc.name). Wake depends on the PC and network; refresh to check whether it is online."
+        } catch { if homeEpoch == epoch { homeMessage=error.localizedDescription } }
+    }
     public struct GameAction: Identifiable {
         public let id=UUID()
         public let context: UUID
@@ -368,6 +466,7 @@ public final class ConnectionModel {
         guard generation == token,libraryArtworkID == artToken else { return }
         if let bytes {
             artwork[id]=bytes;artworkOrder.append(id)
+            if let host,let target=HostEndpoint(address:connectedAddress,port:connectedPort),let copy=home.pc(HomePC.key(uniqueID:host.uniqueID,endpoint:target))?.games.first(where: { $0.app.id == id }) { home.saveArt(bytes,for:copy) }
             if artworkOrder.count > 64 {
                 let evicted=artworkOrder.removeFirst()
                 artwork.removeValue(forKey:evicted);artworkRequests.remove(evicted)
@@ -401,9 +500,10 @@ public final class ConnectionModel {
     private func reconcileLibrarySelection() {
         if let selectedAppID,!filteredApps.contains(where: { $0.id == selectedAppID }) { self.selectedAppID=filteredApps.first?.id }
     }
-    public var selectedHostEndpointID: String? { host != nil || isBusy || hasSession ? endpoint : nil }
+    public var selectedHostEndpointID: String? { showingHome ? "__home__" : (host != nil || isBusy || hasSession ? endpoint : nil) }
     public func selectHost(_ id: String?) {
         guard let id else { return }
+        if id == "__home__" { showHome();return }
         if let endpoint=savedHosts.hosts.first(where: { $0.id == id })?.endpoint ?? discovery.hosts.first(where: { $0.id == id })?.endpoint {
             if id != selectedHostEndpointID { connect(to:endpoint) }
         }
@@ -466,10 +566,11 @@ public final class ConnectionModel {
                     case .notDetermined: return await AVCaptureDevice.requestAccess(for:.audio)
                     default:return false
                     }
-                },preferences: (any HostPreferencesStorage)? = HostPreferences(),settings: AppSettings? = nil,profiles: StreamProfilesStore? = nil,discovery: HostDiscovery = HostDiscovery(),
+                },preferences: (any HostPreferencesStorage)? = HostPreferences(),settings: AppSettings? = nil,profiles: StreamProfilesStore? = nil,home: HomeLibrary? = nil,discovery: HostDiscovery = HostDiscovery(),
                 makeHost: @escaping @Sendable (String, UInt16, ClientIdentity, String?) throws -> any HostService = {
                     try HostConnection(address: $0, port: $1, identity: $2, certificate: $3)
                 }) {
+        self.home=home ?? HomeLibrary(defaults:rememberHost ? .standard : nil,artRoot:rememberHost ? FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask).first?.appendingPathComponent("com.mystic.streaming/HomeArt",isDirectory:true) : nil)
         self.microphonePermission=microphonePermission
         self.settings=settings ?? AppSettings(storage:rememberHost ? SettingsPreferences() : nil)
         self.profiles=profiles ?? StreamProfilesStore(storage:rememberHost ? StreamProfilePreferences() : nil)
@@ -479,7 +580,7 @@ public final class ConnectionModel {
         port = savedHosts.hosts.first.map { String($0.endpoint.port) } ?? UserDefaults.standard.string(forKey: "lastPort") ?? "47989"
     }
     public func libraryAppeared() { libraryVisible=true;applyLiveSettings() }
-    public func libraryDisappeared() { libraryVisible=false;discovery.stop() }
+    public func libraryDisappeared() { libraryVisible=false;discovery.stop();cancelHomeRefresh() }
     public func applyLiveSettings() {
         audioPlayer?.setVolume(volume,muted:muted)
         if libraryVisible && settings.value.discoveryEnabled { discovery.start() } else { discovery.stop() }
@@ -492,6 +593,7 @@ public final class ConnectionModel {
     }
     public func connect() {
         guard !isBusy, !hasSession else { return }
+        showingHome=false;cancelHomeRefresh()
         guard let port=UInt16(port),let target=HostEndpoint(address:address,port:port) else {
             fail("Enter a host name or IP address, and an HTTP port from 1 to 65535."); return
         }
@@ -564,7 +666,14 @@ public final class ConnectionModel {
         do { library = try await connection.library() }
         catch { notice="Game library unavailable; showing host apps. \(error.localizedDescription)" }
         guard generation == token else { return }
-        if let host { rememberConnectedHost(host) }
+        let wake=try? await connection.wakeTargets()
+        guard generation == token else { return }
+        if let host {
+            rememberConnectedHost(host)
+            if let target=HostEndpoint(address:connectedAddress,port:connectedPort),notice == nil || home.pc(HomePC.key(uniqueID:host.uniqueID,endpoint:target)) == nil {
+                home.record(host:host,endpoint:target,apps:library?.merging(apps:list) ?? list,library:library,wake:wake)
+            }
+        }
         libraryArtworkID=UUID();nativeLibrary=library;libraryNotice=notice;artwork=[:];artworkRequests=[];artworkOrder=[]
         apps = library?.merging(apps:list) ?? list
         selectedAppID = filteredApps.contains(where: { $0.id == previous }) ? previous : filteredApps.first?.id
@@ -699,6 +808,7 @@ public final class ConnectionModel {
     }
     #endif
     public func disconnect() {
+        cancelHomeRefresh()
         clipboard?.stop();clipboard=nil;clipboardBusy=false;clipboardStatus="Clipboard sharing idle"
         plan=nil;recovering=false;hadVideo=false;connectedAt=nil;recovery=StreamRecovery()
         bitrateTask?.cancel();bitrateTask=nil;adaptationActive=false;bitrateStatus="Fixed bitrate"
@@ -779,6 +889,7 @@ public final class ConnectionModel {
         switch event {
         case .connected:
             connectedAt=nowMillis();inputCapture?.setAvailable(true);phase = .streaming
+            if let plan,let target=HostEndpoint(address:connectedAddress,port:connectedPort) { home.played(hostID:HomePC.key(uniqueID:plan.hostID,endpoint:target),app:plan.app) }
             if let session { monitorControllerFeedback(session,token:token) }
             clipboard?.start()
             if let presenter { monitorRendererMetrics(presenter,token:token) }

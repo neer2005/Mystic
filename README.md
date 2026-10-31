@@ -12,7 +12,8 @@ common denominator of its other platforms.
 decoder are wired. Desktop streaming, saved pairing, and reconnect have been verified
 against a Rubylight host. Opus audio playback and keyboard/mouse forwarding are implemented; see
 `docs/AUDIO.md` and `docs/INPUT.md` for controls and remaining validation. See
-`docs/FIRST-VIDEO.md` to run it and `docs/ROADMAP.md` for remaining work.
+`docs/FIRST-VIDEO.md` to run it and `docs/ROADMAP.md` for remaining work. The Home
+library combines paired PCs with favourites, recent play and offline caches; see `docs/HOME.md`.
 
 ## Targets
 

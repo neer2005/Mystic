@@ -13,10 +13,11 @@ must be investigated and documented before a feature is marked inapplicable.
 | Area | Mystic status | Remaining work / evidence |
 | --- | --- | --- |
 | Discovery, manual host, PIN pairing, saved hosts | Implemented | Desktop pairing/restart verified on Big Dawg; broader host coverage pending |
-| Wake-on-LAN, QR/one-time pairing | Pending | Mac pairing-link flow and wake targets |
+| Wake-on-LAN | Implemented, basic | Remembered physical MAC/subnet addresses; packet tests passed; real wake and automatic retry/polling pending |
+| QR/one-time pairing | Pending | Mac pairing-link flow |
 | Native library, artwork, store/title search | Implemented for connected host | Big Dawg browsing/search/refresh verified |
-| Combined Home, store shelves, favourites, recent games | Pending | Cross-host state and native navigation |
-| Offline library/cache | Pending | Persistence and invalidation |
+| Combined Home, favourites, recent games | Implemented | Multi-PC merge/routing tests and Big Dawg live Home verified; store filter present, separate store shelves pending |
+| Offline library/cache | Implemented | Versioned metadata and bounded artwork cache; persistence/invalidation tests; real offline-host validation pending |
 | Launch/resume and per-game video profiles | Implemented | Desktop live verification; extend profiles beyond video |
 | Native session status, resume, disconnect/end/close | Implemented | Live status checks and action validation described in SESSION.md |
 | Classic quit and quit-and-start-another | Implemented | Big Dawg confirmations/cancellation verified; real quit/switch validation pending; see GAME-SWITCHING.md |
@@ -56,6 +57,6 @@ must be investigated and documented before a feature is marked inapplicable.
 | Published latency measurements | Pending | Timestamp and glass-to-glass method |
 | PyroWave | Last | Metal decode, calibration, bandwidth and pacing integration |
 
-Next sequence: complete remaining session actions/live stream controls, expand library/host management,
+Next sequence: validate session actions/live stream controls, finish remaining host/library management,
 sharing, input/audio/diagnostics and remaining video integration, release hardening,
 then PyroWave. Validate each feature as suitable hardware becomes available.
