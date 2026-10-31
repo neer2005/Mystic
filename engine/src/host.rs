@@ -200,6 +200,35 @@ impl MysticHost {
                 validate_session_action(&json!(current),&v)?;
                 Ok(json!({"session":self.client.session_action(action).map_err(HostError::from)?}))
             }
+            "radeon" => {
+                let i=self.client.server_info_https().map_err(HostError::from)?;
+                if !i.capabilities.has(Feature::NativeApi) { return Ok(json!({"radeon":null})); }
+                match self.client.radeon() {
+                    Ok(panel) => Ok(json!({"radeon":panel})),
+                    Err(error) if error.http_status() == Some(404) => Ok(json!({"radeon":null})),
+                    Err(error) => Err(HostError::from(error)),
+                }
+            }
+            "radeonWrite" | "radeonRestore" => {
+                use nightjar_core::http::native_api::radeon::SettingsWrite;
+                let session=self.client.session().map_err(HostError::from)?;
+                let current=json!(session);
+                if current["owner"] != "you" || current["owner"] != v["expectedOwner"]
+                    || current["app"]["app_id"] != v["expectedAppID"]
+                    || !matches!(current["state"].as_str(),Some("streaming" | "suspended")) {
+                    return Err("The owned host session changed. Refresh before changing graphics settings.".into());
+                }
+                let panel=self.client.radeon().map_err(HostError::from)?;
+                validate_radeon_write(&json!(panel),&v,operation == "radeonRestore")?;
+                let updated=if operation == "radeonRestore" {
+                    self.client.restore_radeon()
+                } else {
+                    let write: SettingsWrite=serde_json::from_value(v["write"].clone())
+                        .map_err(|_| HostError::from("Invalid graphics setting value."))?;
+                    self.client.write_radeon(&write)
+                }.map_err(HostError::from)?;
+                Ok(json!({"radeon":updated}))
+            }
             "artwork" => {
                 let id = v["appID"].as_i64().and_then(|id| i32::try_from(id).ok())
                     .filter(|id| *id > 0).ok_or("invalid app ID")?;
@@ -292,6 +321,33 @@ impl MysticHost {
         }
     }
 }
+fn validate_radeon_write(panel: &Value, request: &Value, restore: bool) -> Result<(), HostError> {
+    if panel["host_control"] != true || panel["writable_now"] != true || panel["state"] != "configurable" {
+        return Err("Graphics changes require Host control and an owned session.".into());
+    }
+    if panel["revision"].as_u64().is_none() || panel["revision"] != request["revision"] {
+        return Err("Graphics settings changed on the host. Refresh and try again.".into());
+    }
+    if restore { return Ok(()); }
+    let write=&request["write"];
+    let gpu=panel["gpus"].as_array().and_then(|g|g.iter().find(|g|g["id"] == write["gpu"])).ok_or("The GPU is no longer available.")?;
+    let changes=write["changes"].as_array().filter(|c|c.len() == 1).ok_or("Change one setting at a time.")?;
+    let change=&changes[0];
+    let setting=gpu["settings"].as_array().and_then(|s|s.iter().find(|s|s["id"] == change["id"])).ok_or("The setting is no longer available.")?;
+    let value=&change["value"];
+    let valid=setting["state"] == "configurable" && match setting["kind"].as_str() {
+        Some("toggle") => setting["value"].is_boolean() && value.is_boolean(),
+        Some("choice") => setting["value"].is_string() && value.is_string() && setting["options"].as_array().is_some_and(|o|o.iter().any(|o|o["value"] == *value)),
+        Some("integer") => match (setting["value"].as_i64(),value.as_i64(),setting["range"]["min"].as_i64(),setting["range"]["max"].as_i64(),setting["range"]["step"].as_i64()) {
+            (Some(_),Some(n),Some(min),Some(max),Some(step)) if step > 0 && max > min => n >= min && n <= max && (i128::from(n)-i128::from(min)) % i128::from(step) == 0,
+            _ => false,
+        },
+        _ => false,
+    };
+    if !valid { return Err("This setting is unavailable or the requested value is outside its supported range.".into()); }
+    Ok(())
+}
+
 // Recheck ownership, app identity and permission immediately before a host write.
 fn validate_session_action(current: &Value, request: &Value) -> Result<(), HostError> {
     if current["app"]["app_id"] != request["expectedAppID"] || current["owner"] != request["expectedOwner"] {
@@ -325,6 +381,26 @@ fn dimension(v: &Value, name: &str, max: u32) -> Result<u32, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn graphics_writes_validate_permissions_revision_type_range_and_choices() {
+        let mut panel=json!({"revision":7,"state":"configurable","host_control":true,"writable_now":true,"gpus":[{"id":1,"settings":[
+            {"id":"toggle","kind":"toggle","state":"configurable","value":false},
+            {"id":"number","kind":"integer","state":"configurable","value":30,"range":{"min":30,"max":120,"step":5}},
+            {"id":"choice","kind":"choice","state":"configurable","value":"off","options":[{"value":"on"},{"value":"off"}]},
+            {"id":"locked","kind":"toggle","state":"read_only","value":false}]}]});
+        let request=|id: &str,value: Value| json!({"revision":7,"write":{"gpu":1,"changes":[{"id":id,"value":value}]}});
+        for (id,value) in [("toggle",json!(true)),("number",json!(45)),("choice",json!("on"))] {
+            assert!(validate_radeon_write(&panel,&request(id,value),false).is_ok());
+        }
+        for (id,value) in [("toggle",json!(1)),("number",json!(44)),("number",json!(125)),("choice",json!("unknown")),("locked",json!(true)),("missing",json!(true))] {
+            assert!(validate_radeon_write(&panel,&request(id,value),false).is_err());
+        }
+        assert!(validate_radeon_write(&panel,&json!({"revision":6}),true).is_err());
+        assert!(validate_radeon_write(&panel,&json!({"revision":7}),true).is_ok());
+        panel["host_control"]=json!(false);
+        assert!(validate_radeon_write(&panel,&request("toggle",json!(true)),false).is_err());
+        assert!(validate_radeon_write(&panel,&json!({"revision":7}),true).is_err());
+    }
     #[test]
     fn session_actions_reject_changed_owner_app_and_missing_permissions() {
         let current=json!({"app":{"app_id":12},"owner":"you","actions":[{"id":"end","allowed":true},{"id":"close_game","allowed":false}]});

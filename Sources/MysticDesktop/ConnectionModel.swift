@@ -97,6 +97,73 @@ public final class ConnectionModel {
     public private(set) var inputCapture: StreamInputCapture?
     public private(set) var videoTelemetry: VideoTelemetrySnapshot?
     public private(set) var diagnostics: [String] = []
+    public private(set) var hostGraphics: HostGraphics?
+    public private(set) var graphicsSession: HostSession?
+    public private(set) var graphicsLoadError: String?
+    public private(set) var graphicsWriteError: String?
+    public private(set) var graphicsSupported: Bool?
+    public private(set) var graphicsWriting=false
+    public private(set) var graphicsReading=false
+    public var canWriteGraphics: Bool {
+        (phase == .ready || phase == .streaming) && !hostActionBusy && !graphicsWriting && !graphicsReading
+            && hostGraphics?.writable == true && graphicsSession?.owner == "you"
+            && ["streaming","suspended"].contains(graphicsSession?.state ?? "")
+    }
+    private func resetGraphics() {
+        hostGraphics=nil;graphicsSession=nil;graphicsLoadError=nil;graphicsWriteError=nil
+        graphicsSupported=nil;graphicsWriting=false;graphicsReading=false
+    }
+    public func refreshGraphics() async {
+        guard let connection,!graphicsReading,!graphicsWriting,!hostActionBusy,phase == .ready || phase == .streaming else { return }
+        let token=generation
+        graphicsReading=true
+        defer { if generation == token { graphicsReading=false } }
+        do {
+            let panel=try await connection.graphics()
+            let session=panel == nil ? nil : try await connection.hostSession()
+            guard generation == token else { return }
+            hostGraphics=panel;graphicsSession=session;graphicsSupported=panel != nil;graphicsLoadError=nil
+        } catch {
+            guard generation == token else { return }
+            hostGraphics=nil;graphicsSession=nil;graphicsLoadError=error.localizedDescription
+        }
+    }
+    public func writeGraphics(gpu: Int32,setting: String,value: GraphicsValue,context: UUID) async {
+        guard context == generation,canWriteGraphics,let panel=hostGraphics,let session=graphicsSession,
+            panel.gpus.first(where: { $0.id == gpu })?.settings.first(where: { $0.id == setting })?.accepts(value) == true else { return }
+        await changeGraphics(panel:panel,session:session,gpu:gpu,setting:setting,value:value)
+    }
+    public func restoreGraphics(panel: HostGraphics,session: HostSession,context: UUID) async {
+        guard context == generation,canWriteGraphics,hostGraphics?.revision == panel.revision else { return }
+        await changeGraphics(panel:panel,session:session,gpu:nil,setting:nil,value:nil)
+    }
+    private func changeGraphics(panel: HostGraphics,session: HostSession,gpu: Int32?,setting: String?,value: GraphicsValue?) async {
+        guard let connection else { return }
+        let token=generation
+        graphicsWriting=true;graphicsWriteError=nil
+        inputCapture?.release()
+        defer { if generation == token { graphicsWriting=false } }
+        do {
+            let updated: HostGraphics
+            if let gpu,let setting,let value {
+                updated=try await connection.writeGraphics(gpu:gpu,setting:setting,value:value,expected:panel,session:session)
+            } else { updated=try await connection.restoreGraphics(expected:panel,session:session) }
+            guard generation == token else { return }
+            hostGraphics=updated;graphicsLoadError=nil
+        } catch {
+            guard generation == token else { return }
+            graphicsWriteError=error.localizedDescription
+            // A driver can partially apply a request before reporting failure. Read the host back.
+            do {
+                let current=try await connection.graphics()
+                guard generation == token else { return }
+                hostGraphics=current
+            } catch {
+                guard generation == token else { return }
+                hostGraphics=nil;graphicsLoadError=error.localizedDescription
+            }
+        }
+    }
     public var hostSessionContextID: UUID { generation }
     public private(set) var hostSession: HostSession?
     public private(set) var hostSessionMessage: String?
@@ -105,10 +172,10 @@ public final class ConnectionModel {
     @ObservationIgnored private var hostSessionReading=false
     @ObservationIgnored private var hostActionTerminated=false
     public var canControlHostSession: Bool {
-        (phase == .ready || phase == .streaming) && !hostActionBusy && hostSession != nil
+        (phase == .ready || phase == .streaming) && !hostActionBusy && !graphicsWriting && hostSession != nil
     }
     public func refreshHostSession() async {
-        guard let connection,!hostSessionReading,!hostActionBusy,phase == .ready || phase == .streaming else { return }
+        guard let connection,!hostSessionReading,!hostActionBusy,!graphicsWriting,phase == .ready || phase == .streaming else { return }
         let token=generation
         hostSessionReading=true
         defer { if generation == token { hostSessionReading=false } }
@@ -206,7 +273,7 @@ public final class ConnectionModel {
         }
     }
     public var selectedApp: HostApp? { apps.first { $0.id == selectedAppID } }
-    public var isBusy: Bool { hostActionBusy || [.connecting, .pairing, .launching, .reconnecting, .disconnecting].contains(phase) }
+    public var isBusy: Bool { hostActionBusy || graphicsWriting || [.connecting, .pairing, .launching, .reconnecting, .disconnecting].contains(phase) }
     public var canPlay: Bool { phase == .ready && selectedApp != nil && capabilities != nil }
     public var hasSession: Bool { phase == .streaming || phase == .launching || phase == .reconnecting }
 
@@ -299,6 +366,7 @@ public final class ConnectionModel {
         connectedAddress = address;connectedPort=port
         let endpoint = self.endpoint, vault = vault, factory = makeHost
         phase = .connecting; status = "Loading client identity from Keychain…"; errorMessage = nil
+        resetGraphics()
         hostSession=nil;hostSessionMessage=nil;sessionControlsSupported=nil;hostActionBusy=false;hostSessionReading=false;hostActionTerminated=false
         artworkRequests=[];artworkOrder=[];artwork=[:];nativeLibrary=nil;libraryNotice=nil
         host = nil; apps = []; selectedAppID = nil; pairingPIN = nil; diagnostics = []
@@ -497,6 +565,7 @@ public final class ConnectionModel {
         controllerFeedbackMonitor?.cancel();controllerFeedbackMonitor=nil
         statisticsMonitor?.cancel(); statisticsMonitor = nil; audioStatus = "Audio stopped";audioOutputStatus = .idle
         operation?.cancel(); connection?.cancel(); connection = nil; pairingPIN = nil
+        resetGraphics()
         hostSession=nil;hostSessionMessage=nil;sessionControlsSupported=nil;hostActionBusy=false;hostSessionReading=false;hostActionTerminated=false
         artworkRequests=[];artworkOrder=[];artwork=[:];nativeLibrary=nil;libraryNotice=nil
         host = nil; apps = []; selectedAppID = nil
@@ -603,6 +672,7 @@ public final class ConnectionModel {
             endRecovery("Could not restore the stream within the retry limit. \(message)");return
         }
         clipboard?.stop();clipboard=nil;clipboardBusy=false;clipboardStatus="Clipboard sharing paused during recovery"
+        resetGraphics()
         hostSession=nil;hostSessionReading=false;sessionControlsSupported=nil
         recovering=true;phase = .reconnecting;errorMessage=nil
         status="Connection interrupted. Reconnecting in \(delay/1000) seconds…"

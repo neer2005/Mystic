@@ -35,6 +35,6 @@ Desktop resumed through the existing library flow. End Session and Close Game re
 separate live checks; Close Game requires a host permission change and user-led
 validation because it can discard unsaved progress.
 
-Session graphics/Radeon settings, classic-host Quit Game, quit-and-start-another,
-and live FPS/manual bitrate controls remain separate parity items; this panel does
-not yet claim those features. See NIGHTJAR-PARITY.md for the complete inventory.
+The Graphics tab now provides Radeon controls; see GRAPHICS.md for behavior and
+validation. Classic-host Quit Game, quit-and-start-another and live FPS/manual
+bitrate controls remain separate parity items. See NIGHTJAR-PARITY.md for the complete inventory.
