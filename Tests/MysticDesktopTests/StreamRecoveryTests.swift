@@ -7,6 +7,47 @@ import MysticStream
 
 @MainActor
 final class StreamRecoveryTests: XCTestCase {
+    func testManualHTTPBitratePausesAutomaticControlAndKeepsSavedProfile() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
+        let model=try await running(host,sessions,clock,adaptive:true)
+        model.processMediaSnapshot(picture());try await wait { sessions.all[0].begun == 1 }
+        let profile=model.effectiveVideoSettings
+        await model.changeLiveRates(kbps:40_000,fpsMilliHz:0,context:model.hostSessionContextID)
+        XCTAssertEqual(model.appliedLiveKbps,40_000)
+        let count=host.rates.count
+        sessions.all[0].nextRate=8_000;model.processMediaSnapshot(picture(2))
+        try await Task.sleep(for:.milliseconds(20))
+        XCTAssertEqual(host.rates.count,count)
+        XCTAssertEqual(model.effectiveVideoSettings,profile)
+        await model.changeLiveRates(kbps:30_000,fpsMilliHz:60_000,context:model.hostSessionContextID)
+        XCTAssertEqual(host.rates.count,count,"Bitrate-only hosts cannot receive frame-rate writes")
+        sessions.all[0].emit(.terminated(code:-100))
+        try await wait { sessions.all.count == 2 && model.phase == .streaming }
+        XCTAssertNil(model.appliedLiveKbps)
+        XCTAssertEqual(sessions.all[1].configuration?.bitrateKbps,Int32(profile.bitrateMbps)*1000)
+        model.disconnect()
+    }
+    func testNegotiatedRatesUseHostReadbackAndIgnoreOldConnection() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
+        let model=try await running(host,sessions,clock) { $0.fps=120 }
+        sessions.all[0].setLive(supported:true,fail:false)
+        await model.refreshLiveRates();XCTAssertTrue(model.liveRateAvailable)
+        let context=model.hostSessionContextID
+        await model.changeLiveRates(kbps:40_000,fpsMilliHz:60_000,context:context)
+        XCTAssertEqual(model.appliedLiveKbps,30_000)
+        XCTAssertEqual(model.appliedLiveFPS,59_940)
+        XCTAssertTrue(model.liveRateMessage.contains("limited"))
+        XCTAssertFalse(model.liveRateBusy)
+        await model.changeLiveRates(kbps:40_000,fpsMilliHz:121_000,context:context)
+        XCTAssertEqual(sessions.all[0].liveWrites,1,"Do not exceed the launch frame-rate ceiling")
+        sessions.all[0].setLive(supported:true,fail:true)
+        await model.changeLiveRates(kbps:35_000,fpsMilliHz:60_000,context:context)
+        XCTAssertNil(model.appliedLiveKbps);XCTAssertFalse(model.liveRateBusy)
+        model.disconnect()
+        await model.changeLiveRates(kbps:35_000,fpsMilliHz:60_000,context:context)
+        XCTAssertEqual(sessions.all[0].liveWrites,2)
+        XCTAssertNil(model.appliedLiveFPS)
+    }
     func testReconnectKeepsResolvedGameProfileWhenStoredProfilesAndGlobalsChange() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
         let model=try await running(host,sessions,clock) { model in
@@ -231,6 +272,16 @@ private final class RecoverySession: StreamSessionService, @unchecked Sendable {
         if let startup { failure(startup) } else { event(.connected) }
     }
     func stop(completion:@escaping @Sendable ()->Void) { lock.withLock { stopCount+=1 };completion() }
+    private var liveSupported=false,liveFailure=false,liveCount=0
+    var liveWrites:Int { lock.withLock { liveCount } }
+    func setLive(supported:Bool,fail:Bool) { lock.withLock { liveSupported=supported;liveFailure=fail } }
+    func liveRates(kbps:UInt32,fpsMilliHz:UInt32) async throws -> LiveRates {
+        let (supported,fail)=lock.withLock { if kbps != 0 || fpsMilliHz != 0 { liveCount += 1 };return (liveSupported,liveFailure) }
+        if fail { throw HostConnectionError("Host answer timed out") }
+        if !supported { throw HostConnectionError("Unavailable") }
+        if kbps == 0 && fpsMilliHz == 0 { return try recoveryDecode(#"{"available":true,"pending":false,"result":null,"error":null}"#) }
+        return try recoveryDecode(#"{"available":true,"pending":false,"result":{"kbps":30000,"fpsMilliHz":59940,"bitrateStatus":2,"bitrateReason":4,"fpsStatus":2,"fpsReason":5},"error":null}"#)
+    }
     func takeControllerFeedback() async -> [ControllerFeedback] { [] }
     func requestVideoRecovery() {}
     func setMicrophoneMuted(_ muted:Bool) {}

@@ -31,6 +31,7 @@ protocol StreamSessionService: AnyObject, Sendable {
                microphoneMuted: Bool, microphoneStatus: @escaping @Sendable (String) -> Void)
     func stop(completion: @escaping @Sendable () -> Void)
     func clipboardStep(active: Bool,baseline: Bool,text: String?) async throws -> ClipboardSyncResult
+    func liveRates(kbps: UInt32,fpsMilliHz: UInt32) async throws -> LiveRates
     func takeControllerFeedback() async -> [ControllerFeedback]
     func requestVideoRecovery()
     func setMicrophoneMuted(_ muted: Bool)
@@ -41,6 +42,7 @@ protocol StreamSessionService: AnyObject, Sendable {
 }
 
 extension StreamSessionService {
+    func liveRates(kbps: UInt32,fpsMilliHz: UInt32) async throws -> LiveRates { throw HostConnectionError("Live rate controls are unavailable.") }
     func clipboardStep(active: Bool,baseline: Bool,text: String?) async throws -> ClipboardSyncResult {
         ClipboardSyncResult(available:false,text:nil)
     }
@@ -110,6 +112,14 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
         await withCheckedContinuation { continuation in queue.async { [self] in
             if acceptingInput { engine.appliedBitrate(requested:requested,applied:applied,nowMillis:Self.nowMillis()) }
             continuation.resume()
+        } }
+    }
+    func liveRates(kbps: UInt32,fpsMilliHz: UInt32) async throws -> LiveRates {
+        try await withCheckedThrowingContinuation { continuation in queue.async { [self] in
+            do {
+                guard acceptingInput else { throw HostConnectionError("No stream is running.") }
+                continuation.resume(returning:try engine.liveRates(kbps:kbps,fpsMilliHz:fpsMilliHz))
+            } catch { continuation.resume(throwing:error) }
         } }
     }
     func takeControllerFeedback() async -> [ControllerFeedback] {

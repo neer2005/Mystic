@@ -182,6 +182,10 @@ int main(void) {
     CHECK(clipboard_result != NULL && strstr(clipboard_result, "\"ok\":false") != NULL,
           "clipboard sync before start returns an owned structured error");
     mystic_string_free(clipboard_result);
+    char *rates_result = mystic_session_rates(handle, 0, 0);
+    CHECK(rates_result != NULL && strstr(rates_result, "\"ok\":false") != NULL,
+          "rate control before start returns an owned structured error");
+    mystic_string_free(rates_result);
 
     MysticRecovery *recovery = mystic_recovery_new();
     CHECK(recovery != NULL, "shared recovery policy is allocated");

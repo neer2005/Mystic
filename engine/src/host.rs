@@ -310,6 +310,7 @@ impl MysticHost {
                 let request = LaunchRequest {
                     gamepad_mask: gamepad_mask as u32,
                     app_id,
+                    rate_change: true,
                     app_uuid: v["appUUID"].as_str().unwrap_or("").into(),
                     width,
                     height,

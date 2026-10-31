@@ -37,4 +37,4 @@ validation because it can discard unsaved progress.
 
 The Graphics tab now provides Radeon controls; see GRAPHICS.md for behavior and
 validation. Classic-host Quit Game and quit-and-start-another are available in the library;
-see GAME-SWITCHING.md. Live FPS/manual bitrate controls remain pending. See NIGHTJAR-PARITY.md for the complete inventory.
+see GAME-SWITCHING.md. The Stream tab now provides live FPS/manual bitrate controls; see LIVE-RATES.md. See NIGHTJAR-PARITY.md for the complete inventory.
