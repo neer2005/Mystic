@@ -6,6 +6,48 @@ import MysticCore
 
 @MainActor
 final class ConnectionModelTests: XCTestCase {
+    func testIntentionalHostExitSuppressesRecoveryAndFailureAllowsRetry() async throws {
+        let mock=MockHost(paired:true)
+        let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,makeHost:{ _,_,_,_ in mock })
+        model.address="pc.local";model.connect();try await settle(model)
+        await model.refreshHostSession()
+        XCTAssertTrue(model.hostSession?.allows(.end) == true)
+        mock.lock.withLock { mock.sessionActionFails=true }
+        await model.performHostSessionAction(.end)
+        XCTAssertEqual(model.phase,.ready)
+        XCTAssertNotNil(model.hostSessionMessage)
+        XCTAssertFalse(model.hostActionBusy)
+        mock.lock.withLock { mock.sessionActionFails=false }
+        await model.refreshHostSession()
+        let action=Task { await model.performHostSessionAction(.end) }
+        for _ in 0..<100 {
+            if model.hostActionBusy { break }
+            try await Task.sleep(for:.milliseconds(2))
+        }
+        XCTAssertTrue(model.hostActionBusy)
+        model.connectionEnded(code:-1,videoStarted:true)
+        XCTAssertNotEqual(model.phase,.reconnecting)
+        await action.value
+        XCTAssertEqual(model.phase,.idle)
+        XCTAssertFalse(model.hostActionBusy)
+        XCTAssertNil(model.hostSession)
+    }
+    func testLateSessionReadCannotPopulateAnotherHost() async throws {
+        let mock=MockHost(paired:true)
+        let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,makeHost:{ _,_,_,_ in mock })
+        model.address="pc.local";model.connect();try await settle(model)
+        let oldContext=model.hostSessionContextID
+        let read=Task { await model.refreshHostSession() }
+        try await Task.sleep(for:.milliseconds(5))
+        model.disconnect()
+        await read.value
+        XCTAssertNil(model.hostSession)
+        XCTAssertEqual(model.phase,.idle)
+        model.connect();try await settle(model);await model.refreshHostSession()
+        await model.performHostSessionAction(.end,context:oldContext)
+        XCTAssertEqual(model.phase,.ready,"A confirmation from a previous connection cannot target this host")
+        model.disconnect()
+    }
     func testNativeLibrarySearchRefreshProfilesAndFailureFallback() async throws {
         let mock=MockHost(paired:true,native:true)
         let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,makeHost:{ _,_,_,_ in mock })
@@ -263,6 +305,7 @@ private final class MockHost: HostService, @unchecked Sendable {
     private var paired: Bool
     let native: Bool
     var libraryFails=false
+    var sessionActionFails=false
     let delay: Bool
     let multipleApps: Bool
     let uniqueID: String
@@ -289,6 +332,15 @@ private final class MockHost: HostService, @unchecked Sendable {
         if multipleApps { return try decode("[{\"id\":1,\"name\":\"Desktop\",\"uuid\":\"app1\",\"hdrSupported\":true},{\"id\":2,\"name\":\"Alpha\",\"uuid\":\"app2\",\"hdrSupported\":false},{\"id\":3,\"name\":\"Zulu\",\"uuid\":\"app3\",\"hdrSupported\":true}]") }
         return try JSONDecoder().decode([HostApp].self,from:JSONSerialization.data(withJSONObject:
             [["id":singleAppID,"name":singleAppName,"uuid":singleAppUUID,"hdrSupported":true]]))
+    }
+    func hostSession() async throws -> HostSession? {
+        try await Task.sleep(for:.milliseconds(20))
+        return try decode(#"{"state":"streaming","owner":"you","app":{"app_id":1,"title":"Desktop"},"game_running":true,"actions":[{"id":"end","allowed":true}]}"#)
+    }
+    func performSessionAction(_ action: HostSessionAction,expected: HostSession) async throws -> HostSession {
+        try await Task.sleep(for:.milliseconds(40))
+        if lock.withLock({sessionActionFails}) { throw HostConnectionError("Host busy") }
+        return try await hostSession()!
     }
     func library() async throws -> HostLibrary? {
         if lock.withLock({ libraryFails }) { throw HostConnectionError("Library unavailable") }

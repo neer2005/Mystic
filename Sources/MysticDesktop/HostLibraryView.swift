@@ -6,6 +6,7 @@ import MysticStream
 
 public struct HostLibraryView: View {
     @Bindable private var model: ConnectionModel
+    @State private var showingHostSession=false
     @FocusState private var searchFocused: Bool
     @Environment(\.openWindow) private var openWindow
     public init(model: ConnectionModel) { self.model=model }
@@ -23,6 +24,7 @@ public struct HostLibraryView: View {
                 .navigationTitle("Stream Details")
                 .navigationSplitViewColumnWidth(min:300,ideal:340,max:420)
         }
+        .sheet(isPresented:$showingHostSession) { HostSessionView(model:model) }
         .frame(minWidth:1000,minHeight:580)
         .focusedSceneValue(\.librarySearchAction, { searchFocused=true })
         .task { model.libraryAppeared();await model.prepare() }
@@ -62,6 +64,7 @@ public struct HostLibraryView: View {
         .searchable(text:$model.libraryQuery,prompt:"Search Apps")
         .searchFocused($searchFocused)
         .toolbar {
+            ToolbarItem { Button("Host Session",systemImage:"rectangle.connected.to.line.below") { showingHostSession=true }.disabled(model.phase != .ready || model.host?.paired != true) }
             ToolbarItem { Button("Refresh Library",systemImage:"arrow.clockwise") { model.refreshLibrary() }.disabled(model.phase != .ready || model.host?.paired != true) }
             ToolbarItem {
                 Picker("Library View",selection:setting(\.libraryLayout)) {

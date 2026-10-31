@@ -61,6 +61,8 @@ public protocol HostService: AnyObject, Sendable {
     func serverInfo() async throws -> HostInfo
     func pair(pin: String) async throws -> PairedHost
     func apps() async throws -> [HostApp]
+    func hostSession() async throws -> HostSession?
+    func performSessionAction(_ action: HostSessionAction, expected: HostSession) async throws -> HostSession
     func library() async throws -> HostLibrary?
     func artwork(appID: Int32) async throws -> Data
     func launch(_ options: LaunchOptions) async throws -> LaunchedStream
@@ -72,6 +74,8 @@ public protocol HostService: AnyObject, Sendable {
 }
 
 public extension HostService {
+    func hostSession() async throws -> HostSession? { nil }
+    func performSessionAction(_ action: HostSessionAction, expected: HostSession) async throws -> HostSession { throw HostConnectionError("Session controls are unavailable on this host.") }
     func library() async throws -> HostLibrary? { nil }
     func artwork(appID: Int32) async throws -> Data { throw HostConnectionError("No artwork available.") }
     func setBitrate(kbps: UInt32) async throws -> UInt32 { throw HostConnectionError("This host does not support live bitrate changes.") }
@@ -106,6 +110,18 @@ public final class HostConnection: HostService, @unchecked Sendable {
         return try await request("pair", json: json)
     }
     public func apps() async throws -> [HostApp] { try await request("apps", json: "{}") }
+    public func hostSession() async throws -> HostSession? {
+        struct Result: Decodable, Sendable { let session: HostSession? }
+        let result: Result = try await request("session",json:"{}")
+        return result.session
+    }
+    public func performSessionAction(_ action: HostSessionAction, expected: HostSession) async throws -> HostSession {
+        struct Request: Encodable { let action: String;let expectedAppID: Int32?;let expectedOwner: String }
+        struct Result: Decodable, Sendable { let session: HostSession }
+        let payload=Request(action:action.rawValue,expectedAppID:expected.app?.app_id,expectedOwner:expected.owner)
+        let result: Result = try await request("sessionAction",json:String(decoding:JSONEncoder().encode(payload),as:UTF8.self))
+        return result.session
+    }
     public func library() async throws -> HostLibrary? {
         // The envelope requires a non-null value; represent unsupported hosts explicitly.
         struct Result: Decodable, Sendable { let library: HostLibrary? }

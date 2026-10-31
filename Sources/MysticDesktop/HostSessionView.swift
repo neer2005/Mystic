@@ -1,0 +1,70 @@
+import SwiftUI
+import MysticKit
+
+struct HostSessionView: View {
+    @Bindable var model: ConnectionModel
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openWindow) private var openWindow
+    @State private var confirmation: HostSessionAction?
+    @State private var confirmationSession: HostSession?
+    @State private var confirmationContext: UUID?
+    var body: some View {
+        VStack(alignment:.leading,spacing:16) {
+            HStack {
+                Text("Host Session").font(.title2)
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+            }
+            if let session=model.hostSession {
+                LabeledContent("Game",value:session.app?.title ?? "No game")
+                LabeledContent("State",value:session.state.capitalized)
+                LabeledContent("Owner",value:session.owner == "you" ? "This device" : session.owner.capitalized)
+                if model.phase == .ready,let id=session.app?.app_id,model.apps.contains(where: { $0.id == id }) {
+                    Button("Resume Stream",systemImage:"play.fill") {
+                        model.resumeHostSession()
+                        if model.hasSession { dismiss();openWindow(id:"stream") }
+                    }.disabled(!session.actions.contains { $0.id == "resume" && $0.allowed } || model.isBusy)
+                }
+                Divider()
+                ForEach(HostSessionAction.allCases) { action in
+                    VStack(alignment:.leading,spacing:4) {
+                        Button(action.title,role:action == .closeGame ? .destructive : nil) {
+                            confirmationContext=model.hostSessionContextID;confirmationSession=session;confirmation=action
+                        }.disabled(!model.canControlHostSession || !session.allows(action))
+                        Text(session.blockedReason(action) ?? action.explanation)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            } else if model.hostSessionMessage == nil {
+                if model.phase == .ready || model.phase == .streaming { ProgressView("Reading host session…") }
+                else { Text(model.status).foregroundStyle(.secondary) }
+            }
+            if let message=model.hostSessionMessage {
+                Text(message).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+            HStack {
+                if model.hostActionBusy { ProgressView().controlSize(.small);Text("Waiting for host…") }
+                Spacer()
+                Button("Refresh",systemImage:"arrow.clockwise") { Task { await model.refreshHostSession() } }
+                    .disabled(model.isBusy || (model.phase != .ready && model.phase != .streaming))
+            }
+        }
+        .padding(24).frame(width:460)
+        .confirmationDialog(confirmation?.title ?? "Host Session",isPresented:Binding(get:{confirmation != nil},set:{if !$0 { confirmation=nil }}),titleVisibility:.visible) {
+            if let action=confirmation,let expected=confirmationSession,let context=confirmationContext {
+                Button(action.title,role:action == .closeGame ? .destructive : nil) {
+                    Task { await model.performHostSessionAction(action,expected:expected,context:context) }
+                }
+            }
+            Button("Cancel",role:.cancel) {}
+        } message: { Text(confirmation?.explanation ?? "") }
+        .task {
+            while !Task.isCancelled {
+                guard model.phase == .ready || model.phase == .streaming else { return }
+                await model.refreshHostSession()
+                if model.sessionControlsSupported == false { return }
+                do { try await Task.sleep(for:.seconds(2)) } catch { return }
+            }
+        }
+    }
+}

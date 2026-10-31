@@ -97,6 +97,61 @@ public final class ConnectionModel {
     public private(set) var inputCapture: StreamInputCapture?
     public private(set) var videoTelemetry: VideoTelemetrySnapshot?
     public private(set) var diagnostics: [String] = []
+    public var hostSessionContextID: UUID { generation }
+    public private(set) var hostSession: HostSession?
+    public private(set) var hostSessionMessage: String?
+    public private(set) var sessionControlsSupported: Bool?
+    public private(set) var hostActionBusy=false
+    @ObservationIgnored private var hostSessionReading=false
+    @ObservationIgnored private var hostActionTerminated=false
+    public var canControlHostSession: Bool {
+        (phase == .ready || phase == .streaming) && !hostActionBusy && hostSession != nil
+    }
+    public func refreshHostSession() async {
+        guard let connection,!hostSessionReading,!hostActionBusy,phase == .ready || phase == .streaming else { return }
+        let token=generation
+        hostSessionReading=true
+        defer { if generation == token { hostSessionReading=false } }
+        do {
+            let value=try await connection.hostSession()
+            guard generation == token,!hostActionBusy else { return }
+            hostSession=value;sessionControlsSupported=value != nil
+            hostSessionMessage=value == nil ? "This host does not offer native session controls. Use Disconnect to leave the stream." : nil
+        } catch {
+            guard generation == token else { return }
+            hostSession=nil;hostSessionMessage=error.localizedDescription
+        }
+    }
+    public func performHostSessionAction(_ action: HostSessionAction, expected snapshot: HostSession? = nil, context: UUID? = nil) async {
+        guard context == nil || context == generation else { return }
+        guard canControlHostSession,let connection,let expected=snapshot ?? hostSession,expected.allows(action) else { return }
+        let token=generation
+        hostActionBusy=true;hostActionTerminated=false;hostSessionMessage=nil
+        inputCapture?.release()
+        do {
+            _ = try await connection.performSessionAction(action,expected:expected)
+            guard generation == token else { return }
+            // An intentional host exit must never launch automatic reconnect.
+            disconnect()
+            switch action {
+            case .closeGame: status="The game was closed on the host."
+            case .end: status="Host session ended. The game remains running."
+            case .disconnect: status="Host session suspended. The game remains running."
+            }
+        } catch {
+            guard generation == token else { return }
+            hostActionBusy=false;hostSession=nil
+            if hostActionTerminated { disconnect();errorMessage=error.localizedDescription }
+            else { hostSessionMessage=error.localizedDescription }
+        }
+        if generation == token { hostActionBusy=false }
+    }
+    public func resumeHostSession() {
+        guard phase == .ready,!hostActionBusy,let hostSession,
+            hostSession.actions.contains(where: { $0.id == "resume" && $0.allowed }),
+            let id=hostSession.app?.app_id,apps.contains(where: { $0.id == id }) else { return }
+        selectedAppID=id;play()
+    }
     public private(set) var nativeLibrary: HostLibrary?
     public private(set) var libraryNotice: String?
     public private(set) var libraryArtworkID=UUID()
@@ -151,7 +206,7 @@ public final class ConnectionModel {
         }
     }
     public var selectedApp: HostApp? { apps.first { $0.id == selectedAppID } }
-    public var isBusy: Bool { [.connecting, .pairing, .launching, .reconnecting, .disconnecting].contains(phase) }
+    public var isBusy: Bool { hostActionBusy || [.connecting, .pairing, .launching, .reconnecting, .disconnecting].contains(phase) }
     public var canPlay: Bool { phase == .ready && selectedApp != nil && capabilities != nil }
     public var hasSession: Bool { phase == .streaming || phase == .launching || phase == .reconnecting }
 
@@ -244,6 +299,7 @@ public final class ConnectionModel {
         connectedAddress = address;connectedPort=port
         let endpoint = self.endpoint, vault = vault, factory = makeHost
         phase = .connecting; status = "Loading client identity from Keychain…"; errorMessage = nil
+        hostSession=nil;hostSessionMessage=nil;sessionControlsSupported=nil;hostActionBusy=false;hostSessionReading=false;hostActionTerminated=false
         artworkRequests=[];artworkOrder=[];artwork=[:];nativeLibrary=nil;libraryNotice=nil
         host = nil; apps = []; selectedAppID = nil; pairingPIN = nil; diagnostics = []
         operation = Task { [weak self] in
@@ -441,6 +497,7 @@ public final class ConnectionModel {
         controllerFeedbackMonitor?.cancel();controllerFeedbackMonitor=nil
         statisticsMonitor?.cancel(); statisticsMonitor = nil; audioStatus = "Audio stopped";audioOutputStatus = .idle
         operation?.cancel(); connection?.cancel(); connection = nil; pairingPIN = nil
+        hostSession=nil;hostSessionMessage=nil;sessionControlsSupported=nil;hostActionBusy=false;hostSessionReading=false;hostActionTerminated=false
         artworkRequests=[];artworkOrder=[];artwork=[:];nativeLibrary=nil;libraryNotice=nil
         host = nil; apps = []; selectedAppID = nil
         guard let session else {
@@ -529,6 +586,7 @@ public final class ConnectionModel {
     }
     /// Called after the generation check; the video flag survives attempts in one recovery chain.
     func connectionEnded(code: Int32, videoStarted: Bool) {
+        if hostActionBusy { hostActionTerminated=true;inputCapture?.setAvailable(false);return }
         let message="The host ended the stream (code \(code))."
         guard plan?.reconnect == true, StreamRecovery.recovers(code:code,videoStarted:videoStarted || hadVideo) else {
             endRecovery(message);return
@@ -545,6 +603,7 @@ public final class ConnectionModel {
             endRecovery("Could not restore the stream within the retry limit. \(message)");return
         }
         clipboard?.stop();clipboard=nil;clipboardBusy=false;clipboardStatus="Clipboard sharing paused during recovery"
+        hostSession=nil;hostSessionReading=false;sessionControlsSupported=nil
         recovering=true;phase = .reconnecting;errorMessage=nil
         status="Connection interrupted. Reconnecting in \(delay/1000) seconds…"
         generation=UUID();let token=generation
