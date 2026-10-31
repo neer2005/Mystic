@@ -7,6 +7,12 @@ import MysticStream
 
 @MainActor
 final class StreamRecoveryTests: XCTestCase {
+    func testConnectedStreamsAppearInHomeRecentPlay() async throws {
+        let model=try await running(RecoveryHost(),RecoverySessions(),RecoveryClock())
+        XCTAssertNotNil(model.home.games.first?.lastPlayed)
+        model.disconnect()
+        XCTAssertNotNil(model.home.games.first?.lastPlayed,"Recent history survives disconnect")
+    }
     func testManualHTTPBitratePausesAutomaticControlAndKeepsSavedProfile() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
         let model=try await running(host,sessions,clock,adaptive:true)

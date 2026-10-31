@@ -18,9 +18,9 @@ connection. Host-provided artwork URLs are never navigated. Covers load on deman
 with a maximum of 64 encoded images in memory; absent art uses a placeholder.
 Disconnect, host changes and refresh invalidate stale cover results.
 
-This milestone browses one connected host. Cross-host Home shelves, favourites,
-recent play history, offline library persistence and additional game metadata remain
-future work.
+This document describes the connected-host browser. Combined Home, favourites,
+recent play and offline caching now live alongside it; see HOME.md. Additional game
+metadata and separate store shelves remain future work.
 
 ## Live validation
 

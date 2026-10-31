@@ -5,6 +5,7 @@ public struct HostLibrary: Decodable, Sendable {
     public let revision: String
     public let games: [Game]
     public struct Game: Decodable, Sendable {
+        public let game_id: String?
         public let install_id: String
         public let app_id: Int32
         public let title: String

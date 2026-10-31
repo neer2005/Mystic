@@ -6,6 +6,49 @@ import MysticCore
 
 @MainActor
 final class ConnectionModelTests: XCTestCase {
+    func testHomeRefreshKeepsOfflineGamesAndDoesNotUseUnpinnedHosts() async throws {
+        let vault=MemoryVault(),home=HomeLibrary()
+        let model=ConnectionModel(vault:vault,rememberHost:false,home:home,makeHost:{ address,_,_,pin in
+            XCTAssertNotNil(pin)
+            if address == "offline.local" { throw HostConnectionError("PC unreachable") }
+            return MockHost(paired:true,uniqueID:address)
+        })
+        for address in ["online.local","offline.local","unpaired.local"] {
+            let endpoint=HostEndpoint(address:address,port:47989)!
+            model.savedHosts.remember(endpoint:endpoint,name:address,uniqueID:address)
+            if address != "unpaired.local" { try vault.saveCertificate("pinned",for:endpoint.id) }
+        }
+        let info: HostInfo=try decode(#"{"name":"Offline","uniqueID":"offline.local","paired":true,"codecSupport":1,"currentGame":0}"#)
+        let apps=try await MockHost(paired:true).apps()
+        home.record(host:info,endpoint:HostEndpoint(address:"offline.local",port:47989)!,apps:apps,library:nil)
+        await model.refreshHome()
+        XCTAssertEqual(home.pcs.count,2)
+        XCTAssertEqual(home.reach["host:online.local"],.online)
+        XCTAssertEqual(home.reach["host:offline.local"],.offline)
+        XCTAssertEqual(home.reach["host:unpaired.local"],.pairing)
+        XCTAssertNotNil(home.pc("host:offline.local"))
+        model.removeSavedHost(HostEndpoint(address:"offline.local",port:47989)!)
+        XCTAssertNil(home.pc("host:offline.local"))
+        model.disconnect()
+    }
+    func testHomeLaunchUsesChosenHostAndItsGameProfile() async throws {
+        let vault=MemoryVault(),home=HomeLibrary(),mock=MockHost(paired:true,uniqueID:"second")
+        let endpoint=HostEndpoint(address:"second.local",port:47989)!
+        try vault.saveCertificate("pin",for:endpoint.id)
+        let info: HostInfo=try decode(#"{"name":"Second","uniqueID":"second","paired":true,"codecSupport":1,"currentGame":0}"#)
+        home.record(host:info,endpoint:endpoint,apps:try await mock.apps(),library:nil)
+        let model=ConnectionModel(vault:vault,rememberHost:false,home:home,makeHost:{ address,_,_,_ in XCTAssertEqual(address,"second.local");return mock })
+        await model.prepare()
+        guard (model.capabilities?.supportedFormats ?? 0) & 1 != 0 else { throw XCTSkip("No H.264 hardware") }
+        var video=StreamVideoSettings();video.resolution="1280x720";video.codec="h264"
+        model.profiles.update { try $0.setGame(source:.custom,video:video,host:"id:second",game:"uuid:app1") }
+        await model.openHomeGame(try XCTUnwrap(home.games.first?.copies.first));try await settle(model)
+        XCTAssertEqual(mock.launchedOptions?.width,1280)
+        XCTAssertEqual(mock.launchedOptions?.appUUID,"app1")
+        XCTAssertFalse(model.showingHome)
+        XCTAssertNil(home.games.first?.lastPlayed,"An attempted launch is not recent play until connected")
+        model.disconnect()
+    }
     func testQuitNeedsConfirmationAndRejectsChangedGamesAndOldConnections() async throws {
         let mock=MockHost(paired:true,multipleApps:true)
         mock.lock.withLock { mock.runningGame=1 }

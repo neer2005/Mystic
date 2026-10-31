@@ -62,6 +62,7 @@ public struct HostConnectionError: Error, LocalizedError, Sendable {
 public protocol HostService: AnyObject, Sendable {
     func serverInfo() async throws -> HostInfo
     func pair(pin: String) async throws -> PairedHost
+    func wakeTargets() async throws -> HostWakeTargets
     func quitApp(expected: HostInfo) async throws
     func apps() async throws -> [HostApp]
     func graphics() async throws -> HostGraphics?
@@ -80,6 +81,7 @@ public protocol HostService: AnyObject, Sendable {
 }
 
 public extension HostService {
+    func wakeTargets() async throws -> HostWakeTargets { HostWakeTargets() }
     func quitApp(expected: HostInfo) async throws { throw HostConnectionError("Quitting is unavailable on this host.") }
     func graphics() async throws -> HostGraphics? { nil }
     func writeGraphics(gpu: Int32, setting: String, value: GraphicsValue, expected: HostGraphics, session: HostSession) async throws -> HostGraphics { throw HostConnectionError("Graphics controls are unavailable.") }
@@ -119,6 +121,7 @@ public final class HostConnection: HostService, @unchecked Sendable {
         let json = String(decoding: try JSONEncoder().encode(["pin":pin]), as: UTF8.self)
         return try await request("pair", json: json)
     }
+    public func wakeTargets() async throws -> HostWakeTargets { try await request("wakeTargets",json:"{}") }
     public func quitApp(expected: HostInfo) async throws {
         struct Request: Encodable { let expectedAppID: Int32;let expectedAppUUID: String }
         struct Response: Decodable, Sendable { let quit: Bool }
