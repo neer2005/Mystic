@@ -8,7 +8,7 @@ Work on a `codex/` feature branch. Run relevant checks, commit the completed wor
 
 - [ ] **Fix the resolution picker layout.** Keep the selected resolution concise; put display name and aspect ratio in secondary text. Ensure the picker indicator remains visible.
 - [x] **Complete menu-bar commands.** Expose relevant library and streaming actions, including refresh, favourites, and input capture. Use context-sensitive availability and appropriate shortcuts.
-- [ ] **Unify library keyboard navigation.** Give Home and host libraries consistent arrow-key selection, visible focus, scrolling to selection, and Return-to-play behavior.
+- [x] **Unify library keyboard navigation.** Give Home and host libraries consistent arrow-key selection, visible focus, scrolling to selection, and Return-to-play behavior.
 - [ ] **Improve accessibility.** Expose favourite, availability, and running states on game cards. Test VoiceOver labels, focus order, status feedback, and Full Keyboard Access.
 - [ ] **Clarify the quit action.** Name the actual running game in the button and confirmation, especially when it differs from the selected game.
 - [ ] **Simplify the game inspector.** Reduce repeated information and artwork height. Present a compact video summary with expandable details so common controls are easier to reach.
@@ -36,6 +36,16 @@ Work on a `codex/` feature branch. Run relevant checks, commit the completed wor
   full-screen toolbar behaviour, Mute Microphone with the microphone enabled, Retry
   Audio with an unavailable output, VoiceOver for the new items. The streaming-interface
   item below stays open for those.
+- 2026-10-31: Home and the host library share `GameGrid` (see `UI-DESIGN.md`). Checked in
+  the app: arrow keys on Home (which previously had none) and the host grid,
+  scrolling to the selection, accent/grey selection with and without focus, click,
+  double-click and Return playing a game, context-menu Play, and Return in the search
+  field still only searching. Accessibility Inspector confirms each card's label and
+  value (for example "007 First Light", "Steam, on Big Dawg, Online"). It did not list
+  the cards' custom accessibility actions, and the automation tools could not inspect
+  further, so whether VoiceOver's Actions menu shows Play and Favourites is unverified;
+  the same commands are in each card's context menu. VoiceOver itself, focus order and
+  Full Keyboard Access remain to be checked, so the accessibility item stays open.
 
 ## Review scope
 

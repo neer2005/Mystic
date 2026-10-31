@@ -22,10 +22,8 @@ public final class AppLibraryModel {
 
     public var selected: HostApp? { apps.first { $0.id == selectedID } }
     public func game(_ app: HostApp) -> HostLibrary.Game? { native?.game(appID:app.id) }
-    public var selectedRunning: Bool {
-        guard let app=selected else { return false }
-        return model.host?.currentGame == app.id || game(app)?.running == true
-    }
+    public func isRunning(_ app: HostApp) -> Bool { model.host?.currentGame == app.id || game(app)?.running == true }
+    public var selectedRunning: Bool { selected.map(isRunning) ?? false }
     public var filtered: [HostApp] {
         let query=query.trimmingCharacters(in:.whitespacesAndNewlines)
         let filtered=apps.filter { (!hdrOnly || $0.hdrSupported) && (query.isEmpty || ($0.name.localizedStandardContains(query) || (game($0)?.store?.name.localizedStandardContains(query) ?? false))) }

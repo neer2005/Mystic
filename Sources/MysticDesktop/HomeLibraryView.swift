@@ -4,6 +4,7 @@ import MysticCore
 struct HomeLibraryContent: View {
     @Bindable var model: ConnectionModel
     @FocusState private var searchFocused: Bool
+    @Environment(\.openWindow) private var openWindow
     @State private var query=""
     @State private var shelf="all"
     @State private var store="all"
@@ -33,56 +34,30 @@ struct HomeLibraryContent: View {
             Picker("Collection",selection:$shelf) {
                 Text("All Games").tag("all");Text("Favourites").tag("favourites");Text("Recently Played").tag("recent")
             }.pickerStyle(.segmented).padding(12)
-            ScrollView {
-                VStack(alignment:.leading,spacing:20) {
-                    if filtered.isEmpty {
+            if filtered.isEmpty {
+                ScrollView {
+                    VStack(alignment:.leading,spacing:20) {
                         ContentUnavailableView(model.home.games.isEmpty ? "Your Games, Together" : "No Matching Games",systemImage:"gamecontroller",
                             description:Text(model.home.games.isEmpty ? "Pair a PC in the sidebar, then refresh Home. Cached games stay available when a PC is offline." : "Try another search, store or collection."))
-                    } else {
-                        LazyVGrid(columns:[GridItem(.adaptive(minimum:150),spacing:16)],spacing:20) {
-                            ForEach(filtered) { game in
-                                Button { model.selectedHomeGameID=game.id } label: {
-                                    VStack(alignment:.leading,spacing:6) {
-                                        if let copy=game.copies.first {
-                                            GameArtwork(data:model.home.image(copy),desktop:game.title == "Desktop")
-                                                .aspectRatio(2/3,contentMode:.fit)
-                                                .task(id:model.home.artKey(copy)+"-"+(model.home.reach[copy.hostID]?.rawValue ?? "unknown")) { await model.homeSync.loadArt(copy) }
-                                        }
-                                        HStack { Text(game.title).lineLimit(2);if game.favourite { Image(systemName:"star.fill").foregroundStyle(.yellow) } }.font(.callout)
-                                        Text(Array(Set(game.copies.compactMap(\.store))).sorted().joined(separator:" · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                        Text(game.copies.compactMap { model.home.pc($0.hostID)?.name }.joined(separator:" · ")).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                                        Text(game.copies.contains { model.home.reach[$0.hostID] == .online } ? "Online" : "Cached").font(.caption).foregroundStyle(.secondary)
-                                    }.padding(8)
-                                        .background(model.selectedHomeGameID == game.id ? Color.accentColor.opacity(0.12) : Color.clear,in:RoundedRectangle(cornerRadius:10))
-                                        .overlay { RoundedRectangle(cornerRadius:10).strokeBorder(model.selectedHomeGameID == game.id ? Color.accentColor : Color.clear,lineWidth:2) }
-                                }.buttonStyle(.plain)
-                                    .accessibilityLabel(game.title)
-                                    .accessibilityAddTraits(model.selectedHomeGameID == game.id ? .isSelected : [])
-                                    .contextMenu { Button(game.favourite ? "Remove Favourite" : "Add Favourite",systemImage:game.favourite ? "star.slash" : "star") { model.home.toggleFavourite(game.id) } }
-                            }
+                        yourPCs
+                    }.padding(16)
+                }
+            } else {
+                GameGrid(items:filtered,selection:Bindable(model).selectedHomeGameID,minimumWidth:150,label:"Games",
+                         open:{ game in if let play=playAction(game) { play() } },describe:describe) { game in
+                    VStack(alignment:.leading,spacing:6) {
+                        if let copy=game.copies.first {
+                            GameArtwork(data:model.home.image(copy),desktop:game.title == "Desktop")
+                                .aspectRatio(2/3,contentMode:.fit)
+                                .task(id:model.home.artKey(copy)+"-"+(model.home.reach[copy.hostID]?.rawValue ?? "unknown")) { await model.homeSync.loadArt(copy) }
                         }
+                        HStack { Text(game.title).lineLimit(2);if game.favourite { Image(systemName:"star.fill").foregroundStyle(.yellow) } }.font(.callout)
+                        Text(stores(game).joined(separator:" · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(pcNames(game).joined(separator:" · ")).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        Text(availability(game)).font(.caption).foregroundStyle(.secondary)
                     }
-                    Divider()
-                    Text("Your PCs").font(.headline)
-                    ForEach(savedPCs) { saved in
-                        let key=HomePC.key(uniqueID:saved.uniqueID,endpoint:saved.endpoint)
-                        VStack(alignment:.leading,spacing:4) {
-                            HStack {
-                                Label(saved.name,systemImage:"desktopcomputer")
-                                Spacer()
-                                Text(model.home.reach[key]?.rawValue ?? "Not checked").foregroundStyle(.secondary)
-                            }
-                            if let pc=model.home.pc(key) {
-                                Text("Library saved \(pc.updated.formatted(date:.abbreviated,time:.shortened))").font(.caption).foregroundStyle(.secondary)
-                                Button("Wake \(saved.name)",systemImage:"power") { Task { await model.homeSync.wake(key) } }
-                                    .disabled(pc.wake.macs.isEmpty || model.homeSync.busy || model.isBusy || model.hasSession)
-                            } else { Text("Connect and pair to save this PC's library and wake addresses.").font(.caption).foregroundStyle(.secondary) }
-                            if let notice=model.home.notices[key] { Text(notice).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
-                        }
-                    }
-                    Text("Wake-on-LAN needs a supported PC and a network path for magic packets; VPN connections may not carry broadcasts.").font(.caption).foregroundStyle(.secondary)
-                    if let error=model.home.error { Text(error).font(.caption).foregroundStyle(.red) }
-                }.padding(16)
+                    .contextMenu { gameMenu(game) }
+                } footer: { yourPCs }
             }
             Divider()
             HStack {
@@ -98,6 +73,52 @@ struct HomeLibraryContent: View {
             if let id=model.selectedHomeGameID,!filtered.contains(where: { $0.id == id }) { model.selectedHomeGameID=filtered.first?.id }
         }
         .task { await model.homeSync.refresh() }
+    }
+    @ViewBuilder private var yourPCs: some View {
+        Divider()
+        Text("Your PCs").font(.headline)
+        ForEach(savedPCs) { saved in
+            let key=HomePC.key(uniqueID:saved.uniqueID,endpoint:saved.endpoint)
+            VStack(alignment:.leading,spacing:4) {
+                HStack {
+                    Label(saved.name,systemImage:"desktopcomputer")
+                    Spacer()
+                    Text(model.home.reach[key]?.rawValue ?? "Not checked").foregroundStyle(.secondary)
+                }
+                if let pc=model.home.pc(key) {
+                    Text("Library saved \(pc.updated.formatted(date:.abbreviated,time:.shortened))").font(.caption).foregroundStyle(.secondary)
+                    Button("Wake \(saved.name)",systemImage:"power") { Task { await model.homeSync.wake(key) } }
+                        .disabled(pc.wake.macs.isEmpty || model.homeSync.busy || model.isBusy || model.hasSession)
+                } else { Text("Connect and pair to save this PC's library and wake addresses.").font(.caption).foregroundStyle(.secondary) }
+                if let notice=model.home.notices[key] { Text(notice).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+            }
+        }
+        Text("Wake-on-LAN needs a supported PC and a network path for magic packets; VPN connections may not carry broadcasts.").font(.caption).foregroundStyle(.secondary)
+        if let error=model.home.error { Text(error).font(.caption).foregroundStyle(.red) }
+    }
+    private func stores(_ game: HomeGame) -> [String] { Array(Set(game.copies.compactMap(\.store))).sorted() }
+    private func pcNames(_ game: HomeGame) -> [String] { game.copies.compactMap { model.home.pc($0.hostID)?.name } }
+    private func availability(_ game: HomeGame) -> String { game.copies.contains { model.home.reach[$0.hostID] == .online } ? "Online" : "Cached" }
+    /// Playing from the grid needs a single PC; a game on several PCs is played from its details.
+    private func playAction(_ game: HomeGame) -> (() -> Void)? {
+        guard game.copies.count == 1,let copy=game.copies.first,model.home.pc(copy.hostID) != nil,!model.isBusy,!model.hasSession else { return nil }
+        return { Task { await model.openHomeGame(copy);if model.hasSession { openWindow(id:"stream") } } }
+    }
+    private func describe(_ game: HomeGame) -> GameCardDescription {
+        var value: [String]=game.favourite ? ["Favourite"] : []
+        value+=stores(game)
+        let pcs=pcNames(game)
+        if !pcs.isEmpty { value.append("on "+pcs.joined(separator:" and ")) }
+        value.append(availability(game))
+        var description=GameCardDescription(label:game.title,value:value.joined(separator:", "))
+        if let play=playAction(game),let pc=pcs.first { description.actions.append(("Play on \(pc)",play)) }
+        description.actions.append((game.favourite ? "Remove from Favourites" : "Add to Favourites",{ model.home.toggleFavourite(game.id) }))
+        return description
+    }
+    /// Mirrors the card's accessibility actions, so VoiceOver's menu command reaches them too.
+    @ViewBuilder private func gameMenu(_ game: HomeGame) -> some View {
+        if let play=playAction(game),let pc=pcNames(game).first { Button("Play on \(pc)",systemImage:"play.fill",action:play) }
+        Button(game.favourite ? "Remove from Favourites" : "Add to Favourites",systemImage:game.favourite ? "star.slash" : "star") { model.home.toggleFavourite(game.id) }
     }
     private var homeActions: some View {
         HStack(spacing:8) {
@@ -125,7 +146,7 @@ struct HomeGameDetails: View {
                 Section {
                     if let copy=game.copies.first { GameArtwork(data:model.home.image(copy),desktop:game.title == "Desktop").frame(height:180) }
                     Text(game.title).font(.title2)
-                    Button(game.favourite ? "Remove Favourite" : "Add Favourite",systemImage:game.favourite ? "star.fill" : "star") { model.home.toggleFavourite(game.id) }
+                    Button(game.favourite ? "Remove from Favourites" : "Add to Favourites",systemImage:game.favourite ? "star.fill" : "star") { model.home.toggleFavourite(game.id) }
                     if let date=game.lastPlayed { LabeledContent("Last played",value:date.formatted(date:.abbreviated,time:.shortened)) }
                 }
                 ForEach(game.copies) { copy in
