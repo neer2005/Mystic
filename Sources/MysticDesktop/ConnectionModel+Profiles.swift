@@ -9,7 +9,7 @@ extension ConnectionModel {
         return selectedHostEndpointID.map { "endpoint:"+$0 }
     }
     public var gameProfileKey: String? {
-        guard let app=selectedApp else { return nil }
+        guard let app=library.selected else { return nil }
         return app.uuid.isEmpty ? "app-id:\(app.id)" : "uuid:"+Self.profileIdentifier(app.uuid)
     }
     private static func profileIdentifier(_ value: String) -> String {

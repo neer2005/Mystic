@@ -18,18 +18,18 @@ final class StreamRecoveryTests: XCTestCase {
         let model=try await running(host,sessions,clock,adaptive:true)
         model.processMediaSnapshot(picture());try await wait { sessions.all[0].begun == 1 }
         let profile=model.effectiveVideoSettings
-        await model.changeLiveRates(kbps:40_000,fpsMilliHz:0,context:model.hostSessionContextID)
-        XCTAssertEqual(model.appliedLiveKbps,40_000)
+        await model.rates.change(kbps:40_000,fpsMilliHz:0,context:model.contextID)
+        XCTAssertEqual(model.rates.appliedKbps,40_000)
         let count=host.rates.count
         sessions.all[0].nextRate=8_000;model.processMediaSnapshot(picture(2))
         try await Task.sleep(for:.milliseconds(20))
         XCTAssertEqual(host.rates.count,count)
         XCTAssertEqual(model.effectiveVideoSettings,profile)
-        await model.changeLiveRates(kbps:30_000,fpsMilliHz:60_000,context:model.hostSessionContextID)
+        await model.rates.change(kbps:30_000,fpsMilliHz:60_000,context:model.contextID)
         XCTAssertEqual(host.rates.count,count,"Bitrate-only hosts cannot receive frame-rate writes")
         sessions.all[0].emit(.terminated(code:-100))
         try await wait { sessions.all.count == 2 && model.phase == .streaming }
-        XCTAssertNil(model.appliedLiveKbps)
+        XCTAssertNil(model.rates.appliedKbps)
         XCTAssertEqual(sessions.all[1].configuration?.bitrateKbps,Int32(profile.bitrateMbps)*1000)
         model.disconnect()
     }
@@ -37,22 +37,22 @@ final class StreamRecoveryTests: XCTestCase {
         let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
         let model=try await running(host,sessions,clock) { $0.fps=120 }
         sessions.all[0].setLive(supported:true,fail:false)
-        await model.refreshLiveRates();XCTAssertTrue(model.liveRateAvailable)
-        let context=model.hostSessionContextID
-        await model.changeLiveRates(kbps:40_000,fpsMilliHz:60_000,context:context)
-        XCTAssertEqual(model.appliedLiveKbps,30_000)
-        XCTAssertEqual(model.appliedLiveFPS,59_940)
-        XCTAssertTrue(model.liveRateMessage.contains("limited"))
-        XCTAssertFalse(model.liveRateBusy)
-        await model.changeLiveRates(kbps:40_000,fpsMilliHz:121_000,context:context)
+        await model.rates.refresh();XCTAssertTrue(model.rates.liveAvailable)
+        let context=model.contextID
+        await model.rates.change(kbps:40_000,fpsMilliHz:60_000,context:context)
+        XCTAssertEqual(model.rates.appliedKbps,30_000)
+        XCTAssertEqual(model.rates.appliedFPS,59_940)
+        XCTAssertTrue(model.rates.message.contains("limited"))
+        XCTAssertFalse(model.rates.busy)
+        await model.rates.change(kbps:40_000,fpsMilliHz:121_000,context:context)
         XCTAssertEqual(sessions.all[0].liveWrites,1,"Do not exceed the launch frame-rate ceiling")
         sessions.all[0].setLive(supported:true,fail:true)
-        await model.changeLiveRates(kbps:35_000,fpsMilliHz:60_000,context:context)
-        XCTAssertNil(model.appliedLiveKbps);XCTAssertFalse(model.liveRateBusy)
+        await model.rates.change(kbps:35_000,fpsMilliHz:60_000,context:context)
+        XCTAssertNil(model.rates.appliedKbps);XCTAssertFalse(model.rates.busy)
         model.disconnect()
-        await model.changeLiveRates(kbps:35_000,fpsMilliHz:60_000,context:context)
+        await model.rates.change(kbps:35_000,fpsMilliHz:60_000,context:context)
         XCTAssertEqual(sessions.all[0].liveWrites,2)
-        XCTAssertNil(model.appliedLiveFPS)
+        XCTAssertNil(model.rates.appliedFPS)
     }
     func testReconnectKeepsResolvedGameProfileWhenStoredProfilesAndGlobalsChange() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
@@ -168,11 +168,11 @@ final class StreamRecoveryTests: XCTestCase {
             if scenario < 2 {
                 try await Task.sleep(for:.milliseconds(20));XCTAssertTrue(host.rates.isEmpty)
             } else {
-                try await wait { host.rates.count == 1 && model.bitrateStatus.contains("20 Mbps") }
+                try await wait { host.rates.count == 1 && model.rates.status.contains("20 Mbps") }
                 XCTAssertEqual(host.rates,[20000]);XCTAssertEqual(sessions.all[0].begun,1)
                 host.rejectRate=true;sessions.all[0].nextRate=16000
                 model.processMediaSnapshot(picture(2))
-                try await wait { model.bitrateStatus.contains("stopped") }
+                try await wait { model.rates.status.contains("stopped") }
                 XCTAssertEqual(host.rates,[20000,16000])
                 XCTAssertEqual(model.phase,.streaming)
                 sessions.all[0].nextRate=12000;model.processMediaSnapshot(picture(3))

@@ -56,6 +56,28 @@ from a fast test loop lives.
   frame-to-frame jitter metric. Fixed-size ring buffers: the streaming path must not
   allocate per frame.
 
+## App state (MysticDesktop)
+
+`ConnectionModel` owns one host connection and the stream on it: connect, pairing,
+launch, recovery and disconnect, plus the stream's media status. Each feature keeps
+its own state and logic in a model it exposes:
+
+- `library` (`AppLibraryModel`) — the connected host's apps, native library metadata,
+  artwork, search, filter and selection.
+- `homeSync` (`HomeSync`) — refreshing Home from every saved PC, its artwork and
+  Wake-on-LAN. `home` (`HomeLibrary`) stores and merges what it finds.
+- `rates` (`StreamRatesModel`) — manual live bitrate/frame-rate changes and automatic
+  bitrate.
+- `sessionControls` (`HostSessionModel`) — the host's session status and exits.
+- `graphics` (`HostGraphicsModel`) — the host's graphics panel.
+
+Saved stream settings are pass-throughs to `AppSettings` in `ConnectionModel+Settings`,
+and video profiles are resolved in `ConnectionModel+Profiles`. Feature models hold an
+unowned reference back to `ConnectionModel` for the connection, phase and busy state.
+Their async work records `generation` before it awaits and drops its result if that
+has changed; connect, disconnect and recovery change it. A new feature gets its own
+model and a reset call in those three places rather than more properties here.
+
 ## Capture and present path
 
 - **VideoToolbox** for H.264, HEVC and AV1 (hardware AV1 on M3 and later), decoding

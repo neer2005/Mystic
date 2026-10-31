@@ -60,7 +60,7 @@ public struct StreamingView: View {
                 VideoSurface(presenter: presenter,capture:model.inputCapture)
                     .overlay(alignment:.topLeading) {
                         if model.showLatencyHUD {
-                            LatencyHUD(snapshot:model.videoTelemetry,mode:presenter.pacingMode,output:presenter.videoOutput,bitrate:model.bitrateStatus)
+                            LatencyHUD(snapshot:model.videoTelemetry,mode:presenter.pacingMode,output:presenter.videoOutput,bitrate:model.rates.status)
                                 .padding(12).allowsHitTesting(false)
                         }
                     }
