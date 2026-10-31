@@ -41,11 +41,13 @@ Work on a `codex/` feature branch. Run relevant checks, commit the completed wor
   scrolling to the selection, accent/grey selection with and without focus, click,
   double-click and Return playing a game, context-menu Play, and Return in the search
   field still only searching. Accessibility Inspector confirms each card's label and
-  value (for example "007 First Light", "Steam, on Big Dawg, Online"). It did not list
-  the cards' custom accessibility actions, and the automation tools could not inspect
-  further, so whether VoiceOver's Actions menu shows Play and Favourites is unverified;
-  the same commands are in each card's context menu. VoiceOver itself, focus order and
-  Full Keyboard Access remain to be checked, so the accessibility item stays open.
+  value (for example "007 First Light", "Steam, on Big Dawg, Online"). Accessibility
+  Inspector did not list the cards' custom actions, so the same commands are also in
+  each card's context menu.
+- 2026-10-31: Checked by the user with VoiceOver: cards read their title, state and
+  selection, and the Actions menu (VO-⌘-Space) offers Play and Favourites on Home and
+  Start/Resume Stream in a host library. Focus order across the window and Full
+  Keyboard Access remain to be checked, so the accessibility item stays open.
 
 ## Review scope
 
