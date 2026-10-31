@@ -61,6 +61,8 @@ public protocol HostService: AnyObject, Sendable {
     func serverInfo() async throws -> HostInfo
     func pair(pin: String) async throws -> PairedHost
     func apps() async throws -> [HostApp]
+    func library() async throws -> HostLibrary?
+    func artwork(appID: Int32) async throws -> Data
     func launch(_ options: LaunchOptions) async throws -> LaunchedStream
     func setBitrate(kbps: UInt32) async throws -> UInt32
     func clipboardText() async throws -> String
@@ -70,6 +72,8 @@ public protocol HostService: AnyObject, Sendable {
 }
 
 public extension HostService {
+    func library() async throws -> HostLibrary? { nil }
+    func artwork(appID: Int32) async throws -> Data { throw HostConnectionError("No artwork available.") }
     func setBitrate(kbps: UInt32) async throws -> UInt32 { throw HostConnectionError("This host does not support live bitrate changes.") }
     func clipboardText() async throws -> String { throw HostConnectionError("This host does not support clipboard text transfer.") }
     func sendClipboardText(_ text: String) async throws { throw HostConnectionError("This host does not support clipboard text transfer.") }
@@ -102,6 +106,17 @@ public final class HostConnection: HostService, @unchecked Sendable {
         return try await request("pair", json: json)
     }
     public func apps() async throws -> [HostApp] { try await request("apps", json: "{}") }
+    public func library() async throws -> HostLibrary? {
+        // The envelope requires a non-null value; represent unsupported hosts explicitly.
+        struct Result: Decodable, Sendable { let library: HostLibrary? }
+        let result: Result = try await request("library", json:"{}")
+        return result.library
+    }
+    public func artwork(appID: Int32) async throws -> Data {
+        struct Artwork: Decodable, Sendable { let bytes: [UInt8] }
+        let result: Artwork = try await request("artwork", json:String(decoding:JSONEncoder().encode(["appID":appID]),as:UTF8.self))
+        return Data(result.bytes)
+    }
     public func launch(_ options: LaunchOptions) async throws -> LaunchedStream {
         try await request("launch", json: String(decoding: JSONEncoder().encode(options), as: UTF8.self))
     }

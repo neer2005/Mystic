@@ -97,11 +97,45 @@ public final class ConnectionModel {
     public private(set) var inputCapture: StreamInputCapture?
     public private(set) var videoTelemetry: VideoTelemetrySnapshot?
     public private(set) var diagnostics: [String] = []
+    public private(set) var nativeLibrary: HostLibrary?
+    public private(set) var libraryNotice: String?
+    public private(set) var libraryArtworkID=UUID()
+    public private(set) var artwork: [Int32: Data] = [:]
+    @ObservationIgnored private var artworkRequests = Set<Int32>()
+    @ObservationIgnored private var artworkOrder: [Int32] = []
+    public func loadArtwork(_ id: Int32) async {
+        guard phase == .ready,let connection,artwork[id] == nil,artworkRequests.insert(id).inserted else { return }
+        let token=generation,artToken=libraryArtworkID
+        let bytes=try? await connection.artwork(appID:id)
+        guard generation == token,libraryArtworkID == artToken else { return }
+        if let bytes {
+            artwork[id]=bytes;artworkOrder.append(id)
+            if artworkOrder.count > 64 {
+                let evicted=artworkOrder.removeFirst()
+                artwork.removeValue(forKey:evicted);artworkRequests.remove(evicted)
+            }
+        }
+    }
+    public func libraryGame(_ app: HostApp) -> HostLibrary.Game? { nativeLibrary?.game(appID:app.id) }
+    public var selectedAppRunning: Bool {
+        guard let app=selectedApp else { return false }
+        return host?.currentGame == app.id || libraryGame(app)?.running == true
+    }
+    public func refreshLibrary() {
+        guard phase == .ready,let connection else { return }
+        let token=generation
+        libraryArtworkID=UUID()
+        phase = .connecting
+        operation=Task { [weak self] in
+            do { try await self?.loadApps(connection,token:token) }
+            catch { self?.fail(error.localizedDescription,token:token) }
+        }
+    }
     public var libraryQuery = "" { didSet { reconcileLibrarySelection() } }
     public var libraryHDROnly = false { didSet { reconcileLibrarySelection() } }
     public var filteredApps: [HostApp] {
         let query=libraryQuery.trimmingCharacters(in:.whitespacesAndNewlines)
-        let filtered=apps.filter { (!libraryHDROnly || $0.hdrSupported) && (query.isEmpty || $0.name.localizedStandardContains(query)) }
+        let filtered=apps.filter { (!libraryHDROnly || $0.hdrSupported) && (query.isEmpty || ($0.name.localizedStandardContains(query) || (libraryGame($0)?.store?.name.localizedStandardContains(query) ?? false))) }
         return settings.value.librarySort == "host" ? filtered : filtered.sorted {
             $0.name == $1.name ? $0.id < $1.id : $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
@@ -210,6 +244,7 @@ public final class ConnectionModel {
         connectedAddress = address;connectedPort=port
         let endpoint = self.endpoint, vault = vault, factory = makeHost
         phase = .connecting; status = "Loading client identity from Keychain…"; errorMessage = nil
+        artworkRequests=[];artworkOrder=[];artwork=[:];nativeLibrary=nil;libraryNotice=nil
         host = nil; apps = []; selectedAppID = nil; pairingPIN = nil; diagnostics = []
         operation = Task { [weak self] in
             do {
@@ -258,12 +293,23 @@ public final class ConnectionModel {
         }
     }
     private func loadApps(_ connection: any HostService, token: UUID) async throws {
+        status="Loading game library…"
+        let previous=selectedAppID
         let list = try await connection.apps()
         guard generation == token else { return }
+        var library: HostLibrary?
+        var notice: String?
+        do { library = try await connection.library() }
+        catch { notice="Game library unavailable; showing host apps. \(error.localizedDescription)" }
+        guard generation == token else { return }
         if let host { rememberConnectedHost(host) }
-        apps = list; selectedAppID = filteredApps.first?.id; phase = .ready
-        status = list.isEmpty ? "The host has no streamable apps configured." : "Connected to \(host?.name ?? address)."
+        libraryArtworkID=UUID();nativeLibrary=library;libraryNotice=notice;artwork=[:];artworkRequests=[];artworkOrder=[]
+        apps = library?.merging(apps:list) ?? list
+        selectedAppID = filteredApps.contains(where: { $0.id == previous }) ? previous : filteredApps.first?.id
+        phase = .ready
+        status = apps.isEmpty ? "The host has no streamable apps configured." : "Connected to \(host?.name ?? address)."
     }
+
     public func play() {
         guard canPlay, let connection, let app = selectedApp, let capabilities else { return }
         do {
@@ -395,6 +441,7 @@ public final class ConnectionModel {
         controllerFeedbackMonitor?.cancel();controllerFeedbackMonitor=nil
         statisticsMonitor?.cancel(); statisticsMonitor = nil; audioStatus = "Audio stopped";audioOutputStatus = .idle
         operation?.cancel(); connection?.cancel(); connection = nil; pairingPIN = nil
+        artworkRequests=[];artworkOrder=[];artwork=[:];nativeLibrary=nil;libraryNotice=nil
         host = nil; apps = []; selectedAppID = nil
         guard let session else {
             decoder?.cleanup(); decoder = nil; presenter = nil; audioPlayer?.cleanup(); audioPlayer = nil

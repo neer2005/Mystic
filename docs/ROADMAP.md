@@ -53,7 +53,7 @@ rather than rewritten.
 - [x] Controller handle rumble and supported trigger-motor rumble via Core Haptics (automated checks; physical validation pending)
 - [ ] DualSense PCM haptics and adaptive triggers
 - [x] Opt-in Mac microphone capture, mono Opus and encrypted Apollo/Rubylight forwarding (live Windows input-meter response confirmed on Big Dawg)
-- [ ] Native library browsing against Rubylight's API
+- [x] Native single-host library browsing against Rubylight's API: cover art, stores, search and running-game details, preserving classic apps and video profiles (automated checks; Big Dawg browsing/search/refresh and Desktop resume verified; see `LIBRARY.md`)
 
 ## Phase 4 — hardening and release
 

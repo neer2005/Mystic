@@ -175,6 +175,18 @@ impl MysticHost {
                     .map_err(HostError::from)?;
                 Ok(Value::Array(apps.into_iter().filter(|a| a.control == AppControl::None).map(|a|json!({"id":a.id,"name":a.name,"uuid":a.uuid,"hdrSupported":a.hdr_supported})).collect()))
             }
+            "library" => {
+                let i = self.client.server_info_https().map_err(HostError::from)?;
+                if !i.capabilities.has(Feature::NativeApi) { return Ok(json!({"library":null})); }
+                let library = self.client.library().map_err(HostError::from)?;
+                Ok(json!({"library":library}))
+            }
+            "artwork" => {
+                let id = v["appID"].as_i64().and_then(|id| i32::try_from(id).ok())
+                    .filter(|id| *id > 0).ok_or("invalid app ID")?;
+                let bytes = self.client.box_art(id).map_err(HostError::from)?;
+                Ok(json!({"bytes":bytes}))
+            }
             "clipboardRead" | "clipboardWrite" => {
                 let i=self.client.server_info_https().map_err(HostError::from)?;
                 let (read,write)=clipboard_permissions(&i);
