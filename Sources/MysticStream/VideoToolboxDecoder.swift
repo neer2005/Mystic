@@ -121,8 +121,14 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
                 }
                 let sample = try next.sample(pts: CMTime(value: relative, timescale: 1_000_000))
                 let token = generation
-                // Dropping an encoded reference frame requires IDR recovery, not just dropping display.
-                guard completion.reserve(generation: token) else { return fail("decode queue is full") }
+                // Dropping an encoded reference frame requires IDR recovery, not just dropping display,
+                // and a keyframe at a high rate tends to cause the next backlog. Wi-Fi delivers frames
+                // in clumps, so the decoder waits for a slot before it gives up on one.
+                let fps=liveFrameRate ?? UInt32(setupInfo?.fps ?? 60)
+                guard completion.reserve(generation: token,capacity: DecodeCompletionState.capacity(fps: fps),
+                                         wait: DecodeCompletionState.maxWait) else {
+                    return fail("decode queue is full (\(DecodeCompletionState.capacity(fps: fps)) frames in flight after \(Int(DecodeCompletionState.maxWait*1000)) ms)")
+                }
                 telemetry?.submit(generation:token,hostTenthMs:frame.hostProcessingLatencyTenthMs,
                                   receiveMicros:frame.receiveTimeMicros,completeMicros:frame.enqueueTimeMicros)
                 let state = completion, output = output, log = log, telemetry = telemetry, requestRecovery = requestRecovery, resetOutput = resetOutput
@@ -206,7 +212,11 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
 
 /// Separate from the lifecycle queue: VideoToolbox may complete synchronously during decode.
 final class DecodeCompletionState: @unchecked Sendable {
-    private let lock = NSLock()
+    /// About 100 ms of frames in flight, at least three: 12 at 120 fps, 6 at 60.
+    static func capacity(fps: UInt32) -> Int { max(3,Int((fps+9)/10)) }
+    /// How long a submit waits for a slot before the frame is dropped and a keyframe requested.
+    static let maxWait: TimeInterval = 0.1
+    private let lock = NSCondition()
     private var generation: UInt64 = 0
     private var pending = 0
     private var failed = false
@@ -215,27 +225,34 @@ final class DecodeCompletionState: @unchecked Sendable {
     func reset(generation: UInt64) {
         lock.lock(); defer { lock.unlock() }
         self.generation = generation; pending = 0; failed = false; failureTaken=false; active=false
+        lock.broadcast()
     }
-    func reserve(generation: UInt64) -> Bool {
+    /// A slot for one decode, waiting up to `wait` for one to free; false when the generation
+    /// changed or failed meanwhile, or none freed in time.
+    func reserve(generation: UInt64,capacity: Int = 3,wait: TimeInterval = 0) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard self.generation == generation, !failed, pending < 3 else { return false }
+        let deadline=Date(timeIntervalSinceNow:wait)
+        while self.generation == generation,!failed,pending >= capacity {
+            guard lock.wait(until:deadline) else { break }
+        }
+        guard self.generation == generation, !failed, pending < capacity else { return false }
         active=true;pending += 1; return true
     }
     func complete(generation: UInt64) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard self.generation == generation,active,pending > 0 else { return false }
-        pending -= 1; return true
+        pending -= 1;lock.broadcast(); return true
     }
     @discardableResult
     func fail(generation: UInt64) -> Bool {
         lock.lock();defer { lock.unlock() }
         guard self.generation == generation,active,!failed else { return false }
-        failed=true;return true
+        failed=true;lock.broadcast();return true
     }
     @discardableResult
     func failCurrent() -> UInt64? {
         lock.lock();defer { lock.unlock() }
-        guard active,!failed else { return nil };failed=true;return generation
+        guard active,!failed else { return nil };failed=true;lock.broadcast();return generation
     }
     func takeFailure() -> Bool {
         lock.lock();defer { lock.unlock() }
