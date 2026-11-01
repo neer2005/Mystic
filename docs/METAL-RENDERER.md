@@ -52,8 +52,8 @@ while Metal's includes waiting for a drawable. Screen latency is unmeasured on b
 ### After turning AWDL off, at a fixed bitrate
 
 The same setup a little later, at a fixed 100 Mbps, 90 seconds each, sampled every 30 seconds. Counts
-are at the end of the run. `awdl0` was down at the start but active again at the end, and was not
-checked in between, so these runs do not show AWDL's effect.
+are at the end of the run. `awdl0` was being turned down every 30 seconds and macOS kept bringing it
+back, so these runs do not show AWDL's effect.
 
 | | System | Metal |
 | --- | --- | --- |
@@ -95,8 +95,12 @@ seconds each, one after the other, with `awdl0`'s status logged every 5 seconds.
   72% is promising, not proof. A camera or per-frame display timing still has to confirm it.
 - A display refreshing at or near 120 Hz cannot show every 119.6 fps frame in step, so some drops
   are expected on both.
-- `awdl0` was not simply off after `ifconfig awdl0 down`: its status went active about every
-  30 seconds. These logs cannot yet tie that to the round-trip spikes.
+- **AWDL lines up with the one spike.** A loop ran `ifconfig awdl0 down` every 30 seconds, and macOS
+  brought the interface back between runs of it. System's 19 ms ±23 sample fell inside the only long
+  active stretch logged (14:25:25-14:25:56); samples with it down read 3-6 ms. One coincidence, so
+  suggestive only, and it means these two runs did not see equal network conditions.
+- System's drops kept growing after that stretch (681, 1,942, 2,766 at 30, 60 and 90 s), so AWDL does
+  not explain the gap in drops. Metal's were 330, 440 and 670.
 
 ## Open problems before Metal can be the default
 
