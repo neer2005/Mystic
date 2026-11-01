@@ -43,6 +43,10 @@ public final class VideoTelemetry: @unchecked Sendable {
         lock.lock();defer { lock.unlock() };guard self.generation == generation else { return }
         accumulator.presentationResynchronize()
     }
+    func presentationHold(generation: UInt64,micros: Int64) {
+        lock.lock();defer { lock.unlock() };guard self.generation == generation else { return }
+        accumulator.presentationHold(micros:micros)
+    }
     func rendererMetrics(generation: UInt64,dropped: UInt64?,corrupted: UInt64?) {
         lock.lock();defer { lock.unlock() };guard self.generation == generation else { return }
         accumulator.rendererMetrics(dropped:dropped,corrupted:corrupted)

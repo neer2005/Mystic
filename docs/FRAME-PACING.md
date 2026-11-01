@@ -1,7 +1,7 @@
 # Native frame pacing
 
 Settings → Video → Frame Pacing selects **Low Latency**, **Balanced**, **Balanced
-with FPS Limit** or **Smoothest Video** for the next stream. Older preferences default to Low Latency. The choice is captured
+with FPS Limit**, **Smoothest Video** or **PC Frame Times** for the next stream. Older preferences default to Low Latency. The choice is captured
 with the stream's launch settings and retained through automatic reconnects.
 It cannot change during an active/starting/recovering stream.
 
@@ -12,8 +12,7 @@ at 60 fps or 8.3 ms at 120 fps. It preserves source cadence and tolerates modest
 arrival jitter at the cost of that extra buffer. Audio playback is unchanged;
 real A/V alignment still needs listening/visual validation.
 
-Balanced with FPS Limit and Smoothest Video are Nightjar's two in-order pacings. Neither lets a
-newer frame replace a waiting one that is still fresh: a frame is skipped only once it is over a
+The last three are in-order pacings. None lets a newer frame replace a waiting one that is still fresh: a frame is skipped only once it is over a
 frame old and a newer one waits, or when the three-frame mailbox overflows.
 
 - **Balanced with FPS Limit** follows Nightjar's `cap_slot`: each frame gets the slot one frame
@@ -23,7 +22,17 @@ frame old and a newer one waits, or when the three-frame mailbox overflows.
   frame intervals of lead. This is a Mac choice: Nightjar's desktop shows each frame in turn at
   the refresh, while its PyroWave path maps host timestamps with an extra refresh of buffering.
 
-All four modes work on both renderers. On Metal a frame's time becomes `present(_:atTime:)`, and
+- **PC Frame Times** ports the `schedule` half of Nightjar's `present_clock.rs`: each frame is
+  shown at its timestamp on the PC plus a delay, the 97th percentile of how late the last 128 frames
+  were ready, plus 0.5 ms. The delay rises at once, falls within seconds and never holds a frame over
+  50 ms; the first 250 ms of PC time are shown when ready. The stream's timestamps come from RTP, so
+  they are the PC's frame times. The HUD shows the latest frame's hold.
+
+  Nightjar offers this with VRR, and on Android also snaps frames to a fixed panel's refresh with a
+  lower percentile. Mystic has no refresh timeline yet, so `schedule_on_grid` is not ported: macOS
+  shows the frame at the first refresh it can, and the delay may be longer than a grid would need.
+
+All modes work on both renderers. On Metal a frame's time becomes `present(_:atTime:)`, and
 the in-order modes draw from a first-in, first-out slot of three frames rather than the newest.
 
 The native AVSampleBufferRenderSynchronizer/receiver remains the presentation

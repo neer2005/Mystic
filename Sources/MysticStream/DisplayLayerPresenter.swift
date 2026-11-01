@@ -181,6 +181,7 @@ public final class DisplayLayerPresenter {
                     try checkEnqueue(result)
                     if case .cancelledDueToFlush = result { return }
                     if late { telemetry?.presentationLate(generation:frame.generation) }
+                    if let hold=pacer.holdMicros { telemetry?.presentationHold(generation:frame.generation,micros:hold) }
                     if let timing=frame.timing {
                         telemetry?.enqueue(generation:frame.generation,timing:timing,startMicros:enqueueStarted,endMicros:VideoTelemetry.nowMicros())
                     }

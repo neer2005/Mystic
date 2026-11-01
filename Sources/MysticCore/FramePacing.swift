@@ -4,12 +4,14 @@ public enum FramePacingMode: String, CaseIterable, Codable, Hashable, Sendable {
     case balanced = "balanced"
     case fpsLimit = "fpsLimit"
     case smoothest = "smoothest"
+    case pcFrameTimes = "pcFrameTimes"
     public var label: String {
         switch self {
         case .lowLatency: "Low Latency"
         case .balanced: "Balanced"
         case .fpsLimit: "Balanced with FPS Limit"
         case .smoothest: "Smoothest Video"
+        case .pcFrameTimes: "PC Frame Times"
         }
     }
     public var detail: String {
@@ -18,10 +20,11 @@ public enum FramePacingMode: String, CaseIterable, Codable, Hashable, Sendable {
         case .balanced: "Uses about one frame of buffering to absorb arrival jitter."
         case .fpsLimit: "Shows no more frames a second than the stream's rate: an early frame waits up to one frame for its turn."
         case .smoothest: "Shows every frame in turn at the PC's timing, with about two frames of buffering. Adds the most delay."
+        case .pcFrameTimes: "Shows each frame at its time on the PC, behind a delay that follows recent network and decoder jitter."
         }
     }
-    /// Nightjar's two in-order pacings: a newer frame does not replace an older one that is still fresh.
-    public var keepsOrder: Bool { self == .fpsLimit || self == .smoothest }
+    /// The in-order pacings: a newer frame does not replace an older one that is still fresh.
+    public var keepsOrder: Bool { self != .lowLatency && self != .balanced }
     /// Decoded frames the presenter may hold, besides the one it is working on.
     public var retainedFrames: Int { keepsOrder ? 3 : 1 }
 }
@@ -53,6 +56,9 @@ public struct FramePacer: Sendable {
     private var lastAcceptedAt: Int64?
     private var lastSlot: Int64?
     private var plannedSlot: Int64?
+    private var clock=PresentClock()
+    /// How long `pcFrameTimes` is holding the latest planned frame after it was ready.
+    public private(set) var holdMicros: Int64?
     private var pendingResynchronization = false
     private var futureStrikes = 0
     public init(mode: FramePacingMode = .lowLatency) { self.mode=mode }
@@ -77,6 +83,14 @@ public struct FramePacer: Sendable {
         let buffer=mode == .smoothest ? interval*2 : interval
         if mode == .lowLatency {
             return result(.enqueue(timeMicros:rendererNow,late:ageMicros.map { $0 > UInt64(interval) } ?? false,
+                                   resynchronize:pendingResynchronization))
+        }
+        if mode == .pcFrameTimes {
+            guard sourcePTS <= Int64.max/4,rendererNow <= Int64.max/4 else { return result(.drop(.invalidTimestamp)) }
+            let ready=max(0,rendererNow-Int64(ageMicros ?? 0))
+            let schedule=clock.schedule(hostMicros:sourcePTS,readyMicros:ready)
+            holdMicros=schedule.holdMicros
+            return result(.enqueue(timeMicros:max(schedule.presentMicros,rendererNow),late:schedule.late,
                                    resynchronize:pendingResynchronization))
         }
         if mode == .fpsLimit {
@@ -137,6 +151,7 @@ public struct PresentationMetrics: Sendable, Equatable {
     public private(set) var resynchronizations: UInt64 = 0
     public private(set) var rendererDroppedFrames: UInt64?
     public private(set) var rendererCorruptedFrames: UInt64?
+    public private(set) var holdMicros: Int64?
     public var droppedFrames: UInt64 { drops.values.reduce(0,&+) }
     public init() {}
     public mutating func drop(_ reason: PresentationDropReason,count: UInt64 = 1) {
@@ -146,6 +161,7 @@ public struct PresentationMetrics: Sendable, Equatable {
     public mutating func late() { lateFrames &+= 1 }
     public mutating func queue(depth: Int) { queueDepth=max(0,min(4,depth));peakQueueDepth=max(peakQueueDepth,queueDepth) }
     public mutating func resynchronize() { resynchronizations &+= 1 }
+    public mutating func hold(micros: Int64) { holdMicros=micros }
     public mutating func renderer(dropped: UInt64?,corrupted: UInt64?) {
         rendererDroppedFrames=dropped;rendererCorruptedFrames=corrupted
     }
