@@ -107,6 +107,15 @@ public final class ConnectionModel {
         return "\(config.width)x\(config.height) \(config.fps) fps · \(rates.currentKbps/1000) Mbps"
     }
     public let shortcuts: KeyShortcutsStore
+    public let networkProfiles: PreferenceDocument<NetworkProfiles>
+    public let quitOnLeave: PreferenceDocument<QuitOnLeave>
+    /// The kind of network toward the connected PC, found at connect; nil until known.
+    public private(set) var networkKind: NetworkKind?
+    /// Set when quick resume starts a stream, so the library opens its window.
+    public private(set) var quickResumeLaunch: UUID?
+    @ObservationIgnored private var quickResumePending=false
+    /// The route lookup started at connect, alongside loading the library.
+    @ObservationIgnored private var networkKindLookup: Task<Void,Never>?
     /// The redacted session log on disk; nil in tests that keep nothing.
     @ObservationIgnored let sessionLog: SessionLog?
     public var sessionLogFile: URL? { sessionLog?.file }
@@ -392,6 +401,8 @@ public final class ConnectionModel {
         self.microphonePermission=microphonePermission
         self.settings=settings ?? AppSettings(storage:rememberHost ? SettingsPreferences() : nil)
         self.shortcuts=KeyShortcutsStore(defaults:rememberHost ? .standard : nil)
+        self.networkProfiles=PreferenceDocument(NetworkProfiles(),key:"networkProfiles.v1",defaults:rememberHost ? .standard : nil)
+        self.quitOnLeave=PreferenceDocument(QuitOnLeave(),key:"quitOnLeave.v1",defaults:rememberHost ? .standard : nil)
         self.sessionLog=rememberHost && writesLog ? SessionLog() : nil
         self.profiles=profiles ?? StreamProfilesStore(storage:rememberHost ? StreamProfilePreferences() : nil)
         self.savedHosts=SavedHosts(storage:rememberHost ? preferences : nil);self.discovery=discovery
@@ -427,6 +438,7 @@ public final class ConnectionModel {
         let endpoint = self.endpoint, vault = vault, factory = makeHost
         phase = .connecting; status = "Loading client identity from Keychain…"; errorMessage = nil
         SessionLog.addSecrets([address]);sessionLog?.write("Connecting to \(address):\(port).")
+        networkKind=nil;quickResumePending=quickResume
         cancelGameAction()
         rates.resetManual()
         graphics.reset()
@@ -445,6 +457,7 @@ public final class ConnectionModel {
                 let info = try await connection.serverInfo()
                 guard self.generation == token else { return }
                 self.host = info
+                self.networkKindLookup=Task { [weak self] in await self?.findNetworkKind(token:token) }
                 SessionLog.addSecrets([info.name,info.uniqueID])
                 self.sessionLog?.write("Connected to \(info.name), \(info.paired ? "paired" : "not paired"), host version \(info.appVersion ?? "unknown").")
                 if info.paired { try await self.loadApps(connection, token: token) }
@@ -509,10 +522,23 @@ public final class ConnectionModel {
         library.replace(apps:list,library:native,notice:notice,keeping:previous)
         phase = .ready
         status = library.apps.isEmpty ? "The host has no streamable apps configured." : "Connected to \(host?.name ?? address)."
+        // Quick resume: a PC chosen while it runs a game goes straight back into that game.
+        if quickResumePending {
+            quickResumePending=false
+            // The launch needs the network's profile.
+            await networkKindLookup?.value
+            guard generation == token,phase == .ready else { return }
+            if let running=host?.currentGame,running > 0,library.apps.contains(where: { $0.id == running }) {
+                library.selectedID=running
+                record("Quick resume: back into the game running on \(host?.name ?? "the host").",token:token)
+                play()
+                if hasSession { quickResumeLaunch=UUID() }
+            }
+        }
     }
 
     private func preparedPlan(app: HostApp,capabilities: VideoCapabilities) throws -> StreamPlan {
-            let video=effectiveVideoSettings
+            let video=launchVideoSettings
             let dims = video.resolution.split(separator: "x").compactMap { UInt32($0) }
             guard dims.count == 2 else { throw HostConnectionError("Invalid stream resolution.") }
             var mask: UInt32 = capabilities.supportedFormats
@@ -557,6 +583,43 @@ public final class ConnectionModel {
         self.plan=plan;streamingAppName=plan.app.name;reportedHeadroom=[:]
         statistics=StreamStatistics();statisticsStart=nowMillis();canSaveStatistics=false
         launchStream(plan,connection:connection,capabilities:capabilities)
+    }
+    /// The route toward the PC decides which network profile a launch uses.
+    private func findNetworkKind(token: UUID) async {
+        let address=connectedAddress,report=await lookUpRoute(address,connectedPort)
+        guard generation == token else { return }
+        networkKind=NetworkKind.of(metered:report.metered,vpn:report.vpn,localHost:NetworkKind.isLocal(address),wireless:report.route?.wireless)
+        let profile=activeNetworkProfile.map { " Network profile: \($0.name) (\($0.overrides.summary))." } ?? ""
+        record("Network toward the host: \(networkKind?.label ?? "unknown").\(profile)",token:token)
+    }
+    /// The player leaves the stream. A game chosen for quit on leave is quit on the PC too, as
+    /// Nightjar does; a lost connection or an error ends the stream through `disconnect` and
+    /// never quits.
+    public func leave() {
+        guard phase == .streaming,let plan,let host,
+              let hostKey=hostProfileKey,quitOnLeave.value.quits(host:hostKey,game:gameKey(plan.app)) else {
+            disconnect();return
+        }
+        let app=plan.app
+        sessionLog?.write("Quitting \(app.name) on the host, as chosen for leaving its stream.")
+        disconnect()
+        status="Quitting \(app.name) on \(host.name)…"
+        let token=generation
+        Task { [weak self] in
+            guard let self else { return }
+            var message="\(app.name) was quit on \(host.name)."
+            do {
+                let connection=try await self.detachedHost()
+                defer { connection.cancel() }
+                let info=try await connection.serverInfo()
+                if info.currentGame == app.id { try await connection.quitApp(expected:info) } else { message="\(app.name) was no longer running on \(host.name)." }
+            } catch { message="\(app.name) could not be quit on \(host.name): \(error.localizedDescription)" }
+            self.sessionLog?.write(message)
+            // After the disconnect's own status, which says the game keeps running.
+            while self.phase == .disconnecting,self.generation == token { try? await Task.sleep(for:.milliseconds(50)) }
+            guard self.generation == token,self.phase == .idle else { return }
+            self.status=message
+        }
     }
     public func play() {
         guard canPlay,let connection,let app=library.selected,let capabilities else { return }

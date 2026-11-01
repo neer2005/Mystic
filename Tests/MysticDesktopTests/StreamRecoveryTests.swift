@@ -98,6 +98,76 @@ final class StreamRecoveryTests: XCTestCase {
         XCTAssertNil(model.hostHardware.reading)
         XCTAssertTrue(model.canSaveStatistics,"the last stream's figures can still be saved")
     }
+    private func connected(_ host: RecoveryHost,_ sessions: RecoverySessions,before: (ConnectionModel) -> Void = { _ in }) async throws -> ConnectionModel {
+        let model=ConnectionModel(vault:RecoveryVault(),rememberHost:false,makeHost:{ _,_,_,_ in host })
+        model.makeSession={ _,_ in sessions.make() }
+        model.startNetworkWatch={ _,_,_ in nil }
+        await model.prepare()
+        guard model.capabilities?.supportedFormats ?? 0 != 0 else { throw XCTSkip("No hardware video decoder") }
+        before(model)
+        model.address="127.0.0.1";model.connect()
+        return model
+    }
+    func testANetworkProfileIsChosenByTheRouteTowardThePC() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        nonisolated(unsafe) var vpn=false
+        let model=try await connected(host,sessions) { model in
+            model.lookUpRoute={ _,_ in NetworkRoute.Report(route:NetworkRoute(wireless:false,linkMbps:1000,source:"route"),vpn:vpn,interface:vpn ? "utun4" : "en0") }
+            model.networkProfiles.update { profiles in
+                let cable=try profiles.create(name:"Cable",overrides:VideoOverrides(bitrateMbps:40))
+                let away=try profiles.create(name:"Away",overrides:VideoOverrides(resolution:"1280x720",bitrateMbps:10))
+                profiles.automatic=true;profiles.rules=[.wired:cable,.remote:away]
+            }
+        }
+        try await wait { model.phase == .ready }
+        XCTAssertEqual(model.networkKind,.wired);XCTAssertEqual(model.activeNetworkProfile?.name,"Cable")
+        model.play();try await wait { model.phase == .streaming }
+        XCTAssertEqual(sessions.all[0].configuration?.bitrateKbps,40_000,"the profile's bitrate, over the game's")
+        XCTAssertEqual(sessions.all[0].configuration?.width,1920,"what the profile does not name stays")
+        model.disconnect();try await wait { model.phase == .idle }
+        vpn=true;model.connect();try await wait { model.phase == .ready }
+        XCTAssertEqual(model.networkKind,.remote)
+        model.play();try await wait { model.phase == .streaming && sessions.all.count == 2 }
+        XCTAssertEqual(sessions.all[1].configuration?.width,1280);XCTAssertEqual(sessions.all[1].configuration?.bitrateKbps,10_000)
+        model.disconnect()
+    }
+    func testQuickResumeGoesStraightBackIntoTheRunningGame() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        let model=try await connected(host,sessions) { $0.quickResume=true }
+        try await wait { model.phase == .streaming }
+        XCTAssertEqual(model.library.selectedID,1);XCTAssertNotNil(model.quickResumeLaunch)
+        model.disconnect()
+        // Off, or with nothing running, choosing the PC opens its library.
+        let idle=RecoveryHost();idle.changeApp(0)
+        let library=try await connected(idle,RecoverySessions()) { $0.quickResume=true }
+        try await wait { library.phase == .ready }
+        try await Task.sleep(for:.milliseconds(30))
+        XCTAssertEqual(library.phase,.ready);XCTAssertNil(library.quickResumeLaunch)
+        library.disconnect()
+    }
+    func testOnlyALeaveTheUserChoseQuitsTheGame() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        let model=try await running(host,sessions,RecoveryClock(),reconnect:false,configure:{ $0.quitsOnLeave=true })
+        XCTAssertTrue(model.quitsOnLeave)
+        // A connection that ends on its own leaves the game running.
+        sessions.all[0].emit(.terminated(code:-100))
+        try await wait { model.phase != .streaming }
+        try await Task.sleep(for:.milliseconds(50))
+        XCTAssertEqual(host.quits,0)
+        model.disconnect()
+        let again=try await running(RecoveryHost(),RecoverySessions(),RecoveryClock())
+        again.disconnect()
+        let chosen=RecoveryHost(),chosenSessions=RecoverySessions()
+        let leaving=try await running(chosen,chosenSessions,RecoveryClock(),configure:{ $0.quitsOnLeave=true })
+        leaving.leave()
+        try await wait { chosen.quits == 1 }
+        try await wait { leaving.status.contains("was quit") }
+        // Without the choice, leaving only disconnects.
+        let plain=RecoveryHost()
+        let other=try await running(plain,RecoverySessions(),RecoveryClock())
+        other.leave();try await Task.sleep(for:.milliseconds(50))
+        XCTAssertEqual(plain.quits,0)
+    }
     func testASavedShortcutIsPressedAndReleasedOnTheHost() async throws {
         let sessions=RecoverySessions()
         let model=try await running(RecoveryHost(),sessions,RecoveryClock())
@@ -645,6 +715,9 @@ private final class RecoveryHost: HostService,@unchecked Sendable {
     // Tests set these before a request starts; access from the main actor's async calls only.
     var supportsBitrate=true,rejectRate=false
     var liveKbps:UInt32=0,liveRuntime=true
+    private var quitCount=0
+    var quits:Int { lock.withLock { quitCount } }
+    func quitApp(expected:HostInfo) async throws { lock.withLock { quitCount+=1;currentApp=0 } }
     /// The host's hardware readings, when set.
     var hardware:HostHardware?
     private var hardwareCount=0

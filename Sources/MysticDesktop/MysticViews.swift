@@ -64,7 +64,7 @@ public struct StreamingView: View {
                 .help("Session, graphics and stream rates")
         }
         ToolbarItem(id:"disconnect") {
-            Button("Disconnect",systemImage:"xmark.circle") { model.disconnect() }
+            Button("Disconnect",systemImage:"xmark.circle") { model.leave() }
                 .disabled(!model.canDisconnect)
                 .help("End the stream. The game keeps running on the host.")
         }
@@ -117,7 +117,7 @@ public struct StreamingView: View {
             if model.errorMessage == nil { dismissWindow(id:"stream") }
             else if let window,window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
         }
-        .onDisappear { if model.hasSession { model.disconnect() } }
+        .onDisappear { if model.hasSession { model.leave() } }
     }
 }
 

@@ -24,9 +24,9 @@ must be investigated and documented before a feature is marked inapplicable.
 | Launch/resume and per-game video profiles | Implemented | Desktop live verification; extend profiles beyond video |
 | Native session status, resume, disconnect/end/close | Implemented | Live status checks and action validation described in SESSION.md |
 | Classic quit and quit-and-start-another | Implemented | Big Dawg confirmations/cancellation verified; real quit/switch validation pending; see GAME-SWITCHING.md |
-| Quick resume / quit on leave | Pending | Per-game opt-in policy |
+| Quick resume / quit on leave | Implemented, live validation pending | Nightjar's policy: quick resume global and off by default; quit on leave per game, only on a leave the player chose; see SESSION.md |
 | Remote Monitor, input-only, co-op | Pending | Explicit roles and permissions |
-| Network profiles, launch shortcuts/CLI | Partial | Nightjar's command line and `mystic://stream` links, with Copy Launch Link/Command Line (LAUNCHING.md). Profiles by network pending |
+| Network profiles, launch shortcuts/CLI | Implemented, live validation pending | Nightjar's command line and `mystic://stream` links (LAUNCHING.md); settings profiles by hand or by network, told by the route rather than the Wi-Fi name (no Location permission); see PROFILES.md |
 | Host details/web UI, PIN lock, languages | Partial / pending | Host sidebar exists; full controls and localization pending |
 | Window position memory | Implemented by macOS | AppKit saves each window's frame by scene (`NSWindow Frame stream`, `… library`) and reopens it on the same display, position and size, constrained to the screens present; Nightjar's `window_place.rs` does this by hand |
 | Controller menu navigation | Pending | Nightjar (`console.rs`, `nav_repeat.rs`) drives every screen from a controller |

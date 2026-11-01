@@ -33,7 +33,7 @@ struct MysticApp: App {
                 CommandGroup(after: .newItem) {
                     Button("Connect to Host") { model.connect() }.keyboardShortcut("k", modifiers: .command)
                         .disabled(model.isBusy || model.hasSession)
-                    Button("Disconnect") { model.disconnect() }.keyboardShortcut("d", modifiers: [.command, .shift])
+                    Button("Disconnect") { model.leave() }.keyboardShortcut("d", modifiers: [.command, .shift])
                         .disabled(!model.canDisconnect)
                 }
             }
