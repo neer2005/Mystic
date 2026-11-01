@@ -39,6 +39,10 @@ extension ConnectionModel {
         get { settings.value.muted }
         set { settings.update { $0.muted=newValue };audioPlayer?.setVolume(volume,muted:muted) }
     }
+    public var overlayMode: OverlayMode {
+        get { OverlayMode(rawValue:settings.value.overlayMode ?? "") ?? .compact }
+        set { settings.update { $0.overlayMode=newValue == .compact ? nil : newValue.rawValue } }
+    }
     public var showLatencyHUD: Bool {
         get { settings.value.showLatencyHUD }
         set { settings.update { $0.showLatencyHUD=newValue } }

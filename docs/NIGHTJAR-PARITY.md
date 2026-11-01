@@ -37,7 +37,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | Full-chroma/true 4:4:4 | Pending | Codec/presentation integration and supported-hardware checks, with a decoder check as above |
 | Upscaling | Pending | Choose Mac-native rendering path |
 | Native pacing, HUD | Implemented, partial parity | Low Latency/Balanced; Balanced with FPS limit, Smoothest video, PTS Metal renderer, VRR/phase-lock remain |
-| Performance overlay modes and host telemetry | Pending | Nightjar (`overlay.rs`) has Compact, Statistics and Debug, with the host's CPU/GPU load, temperatures, power and clocks |
+| Performance overlay modes and host telemetry | Implemented, live validation pending | Nightjar's Compact, Statistics and Debug with the shared health mark and hardware poll; see LATENCY.md |
 | Fractional refresh rate | Implemented, live validation pending | The screen's exact rate goes in `client_refresh_rate_x100` at launch and in the ANNOUNCE, as Nightjar's desktop client sends it; see FRAME-PACING.md |
 | Virtual display controls | Pending | Native settings and host capability negotiation |
 | Recovery, automatic bitrate | Implemented | Big Dawg reconnect passed; congestion testing pending. Startup stage allowlist matches Nightjar. A network back on an address the stream cannot continue over reconnects at once (NETWORK.md); a real network drop not yet tested |
@@ -50,7 +50,9 @@ must be investigated and documented before a feature is marked inapplicable.
 | VPN route packet size | Implemented | Tunnel/PPP interfaces or an MTU under 1500 stream as remote with 1024-byte packets, as Nightjar; see NETWORK.md. Not yet tried over a real VPN |
 | Client roaming | Implemented, live validation pending | Network watcher, roaming and metered-network settings (on and off by default, as Nightjar); see NETWORK.md |
 | Stream health report and bitrate trial | Implemented | Nightjar's StreamHealth/BitrateTrial via the engine; HUD network figures. Big Dawg report verified; the trial is tested with fakes only (no lossy link yet); see STREAM-HEALTH.md |
-| Connection test, benchmark, CSV timings, input latency test | Pending | Native diagnostics and export; Nightjar desktop has the timing CSV (`timing_csv.rs`) and Remote access check (`network_test.rs`) |
+| Remote access check | Implemented, live validation pending | Android's and Nightjar's check (`host_page.rs`): five pinned probes, then the host's route; the PC's context menu |
+| Statistics CSV | Implemented | Nightjar's Save statistics columns, per second, last hour; Stream → Save Statistics… |
+| Bandwidth test, per-frame timing CSV, input latency test | Pending | Nightjar's `network_test.rs` (Rubylight and Foundation probes) and `timing_csv.rs` (per-frame, joined with host records) |
 | Stereo playback, mute, output changes | Implemented | User verified on Big Dawg. Late packets are filled with Opus concealment and skipped on arrival, Nightjar's playout rule run on the decode side; see AUDIO.md |
 | 5.1/7.1 discrete PCM | Implemented, physical validation pending | Speaker identity and downmix checks |
 | 7.1.4/passthrough | Pending | Mac output capability investigation |
@@ -73,7 +75,8 @@ must be investigated and documented before a feature is marked inapplicable.
 | Accessibility and system appearance | Partial | SwiftUI/accessibility labels present; systematic audit pending |
 | Release packaging, CI, notarization | Pending | Signed local app exists; distribution and release checks remain |
 | Update check | Implemented | Nightjar's `update_check.rs` against Mystic's GitHub releases, once per launch; offers nothing until a release is published; see SETTINGS.md |
-| Redacted reports / crash records | Pending | Privacy-safe diagnostics and export; Nightjar desktop writes redacted logs (`logfile.rs`, `report::redact`) and crash dumps (`crash_dump.rs`) |
+| Redacted session log | Implemented | Nightjar's `logfile.rs` rules: this run and the last, 4 MiB cap, each line redacted by `report::redact`; Help → Show Session Log in Finder |
+| Crash records | Implemented by macOS | macOS writes crash reports (Console → Crash Reports); Nightjar's `crash_dump.rs` exists for Windows minidumps. A problem report that bundles them is pending |
 | Published latency measurements | Pending | Timestamp and glass-to-glass method |
 | PyroWave | Last | Metal decode, calibration, bandwidth and pacing integration |
 

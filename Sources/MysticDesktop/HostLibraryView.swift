@@ -339,6 +339,7 @@ public struct HostLibraryView: View {
 private struct HostSidebar: View {
     @Bindable var model: ConnectionModel
     @State private var addingHost=false
+    @State private var checkingRemote=false
     private var locked: Bool { model.hasSession || model.isBusy }
     var body: some View {
         List(selection:Binding(get:{model.selectedHostEndpointID},set:{model.selectHost($0)})) {
@@ -349,6 +350,7 @@ private struct HostSidebar: View {
                         .contextMenu {
                             if isActive(host.id) {
                                 Button("Disconnect",systemImage:"eject") { model.disconnect() }.disabled(!model.canDisconnect)
+                                Button("Check Remote Access…",systemImage:"globe") { checkingRemote=true }.disabled(!model.remoteCheck.available)
                             } else if !locked {
                                 Button("Connect",systemImage:"network") { model.connect(to:host.endpoint) }
                             }
@@ -378,6 +380,7 @@ private struct HostSidebar: View {
         .listStyle(.sidebar)
         .onAppear { addingHost=model.savedHosts.hosts.isEmpty }
         .toolbar { ToolbarItem { Button("Add Host",systemImage:"plus") { addingHost=true }.disabled(locked) } }
+        .sheet(isPresented:$checkingRemote) { RemoteCheckView(check:model.remoteCheck) }
     }
     private func isActive(_ id: String) -> Bool { !model.showingHome && model.selectedHostEndpointID == id }
     /// The connected host's row carries its state and an eject button, as Finder does for servers.

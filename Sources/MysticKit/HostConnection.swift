@@ -113,6 +113,10 @@ public protocol HostService: AnyObject, Sendable {
     func stopHostBitrate() async throws
     /// Reports the network to the host's controller; the answer carries any bitrate it moved to.
     func hostBitrateFeedback(_ feedback: HostBitrateFeedback) async throws -> HostBitrateAction
+    /// The host's hardware readings for the performance overlay.
+    func hardwareMetrics() async throws -> HostHardware
+    /// Android's remote access check; blocks for up to about 20 seconds.
+    func remoteCheck(uniqueID: String) async throws -> RemoteCheckResult
     func clipboardText() async throws -> String
     func sendClipboardText(_ text: String) async throws
     /// Permanently cancels this connection, including in-flight pairing and launch requests.
@@ -134,6 +138,8 @@ public extension HostService {
     func startHostBitrate(maxKbps: UInt32) async throws -> HostBitrateStart? { nil }
     func stopHostBitrate() async throws {}
     func hostBitrateFeedback(_ feedback: HostBitrateFeedback) async throws -> HostBitrateAction { throw HostConnectionError("This host runs no bitrate controller.") }
+    func hardwareMetrics() async throws -> HostHardware { HostHardware(available:false) }
+    func remoteCheck(uniqueID: String) async throws -> RemoteCheckResult { RemoteCheckResult(outcome:.unreachable,error:"Unavailable.") }
     func clipboardText() async throws -> String { throw HostConnectionError("This host does not support clipboard text transfer.") }
     func sendClipboardText(_ text: String) async throws { throw HostConnectionError("This host does not support clipboard text transfer.") }
 }
@@ -222,6 +228,10 @@ public final class HostConnection: HostService, @unchecked Sendable {
     }
     public func launch(_ options: LaunchOptions) async throws -> LaunchedStream {
         try await request("launch", json: String(decoding: JSONEncoder().encode(options), as: UTF8.self))
+    }
+    public func hardwareMetrics() async throws -> HostHardware { try await request("hardwareMetrics",json:"{}") }
+    public func remoteCheck(uniqueID: String) async throws -> RemoteCheckResult {
+        try await request("remoteCheck",json:String(decoding:JSONEncoder().encode(["uniqueID":uniqueID]),as:UTF8.self))
     }
     public func startHostBitrate(maxKbps: UInt32) async throws -> HostBitrateStart? {
         struct Started: Decodable, Sendable { let on: Bool;let initialKbps: UInt32?;let maxKbps: UInt32? }

@@ -81,6 +81,23 @@ final class StreamRecoveryTests: XCTestCase {
         XCTAssertEqual(plainSessions.all[0].layouts,[]);XCTAssertEqual(plainSessions.all[0].textFieldRequests,0)
         other.disconnect()
     }
+    func testAStreamRecordsStatisticsAndPollsHostReadingsOnlyWhileTheOverlayShowsThem() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        host.hardware=try JSONDecoder().decode(HostHardware.self,from:Data(#"{"available":true,"sampledAtUnixMs":1,"intervalMs":1000,"cpu":{"cpu_usage_percent":12},"gpus":[]}"#.utf8))
+        let model=try await running(host,sessions,RecoveryClock(),configure:{ $0.showLatencyHUD=false })
+        model.processMediaSnapshot(picture())
+        try await wait(seconds:3) { model.canSaveStatistics }
+        XCTAssertEqual(host.hardwareRequests,0,"Compact or hidden: the host is not asked")
+        model.showLatencyHUD=true;model.overlayMode = .statistics
+        try await wait(seconds:3) { model.hostHardware.reading?.cpu?["cpu_usage_percent"] == 12 }
+        let file=FileManager.default.temporaryDirectory.appendingPathComponent("mystic-stats-\(UUID().uuidString).csv")
+        defer { try? FileManager.default.removeItem(at:file) }
+        XCTAssertNil(model.saveStatistics(to:file))
+        XCTAssertTrue(try String(contentsOf:file,encoding:.utf8).hasPrefix(StreamStatistics.header))
+        model.disconnect()
+        XCTAssertNil(model.hostHardware.reading)
+        XCTAssertTrue(model.canSaveStatistics,"the last stream's figures can still be saved")
+    }
     func testASavedShortcutIsPressedAndReleasedOnTheHost() async throws {
         let sessions=RecoverySessions()
         let model=try await running(RecoveryHost(),sessions,RecoveryClock())
@@ -506,8 +523,8 @@ final class StreamRecoveryTests: XCTestCase {
         for _ in 0..<count { telemetry.decode(startMicros:1000,endMicros:3000) }
         return telemetry.snapshot(nowMicros:10000)
     }
-    private func wait(_ done: () -> Bool) async throws {
-        for _ in 0..<400 { if done() { return };try await Task.sleep(for:.milliseconds(5)) }
+    private func wait(seconds: Double = 2,_ done: () -> Bool) async throws {
+        for _ in 0..<Int(seconds*200) { if done() { return };try await Task.sleep(for:.milliseconds(5)) }
         XCTFail("Timed out waiting for stream state")
     }
 }
@@ -628,6 +645,13 @@ private final class RecoveryHost: HostService,@unchecked Sendable {
     // Tests set these before a request starts; access from the main actor's async calls only.
     var supportsBitrate=true,rejectRate=false
     var liveKbps:UInt32=0,liveRuntime=true
+    /// The host's hardware readings, when set.
+    var hardware:HostHardware?
+    private var hardwareCount=0
+    var hardwareRequests:Int { lock.withLock { hardwareCount } }
+    func hardwareMetrics() async throws -> HostHardware {
+        lock.withLock { hardwareCount+=1 };return hardware ?? HostHardware(available:false)
+    }
     /// The launch reply says the host takes layout reports and sends text field notices.
     var keyboardExtras=false
     /// A Foundation Sunshine host's own bitrate controller, when set.

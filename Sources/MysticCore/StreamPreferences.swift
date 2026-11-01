@@ -25,6 +25,7 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public var localCursor: Bool? = nil // Missing in older documents; defaults on, as Nightjar.
     public var checkForUpdates: Bool? = nil // Missing in older documents; defaults on, as Nightjar.
     public var showLatencyHUD = false
+    public var overlayMode: String? = nil // Missing in older documents; Compact, as Nightjar.
     public var libraryLayout = "grid"
     public var librarySort = "name"
     public var discoveryEnabled = true
@@ -60,12 +61,20 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
         value.volume=value.volume.isFinite ? min(1,max(0,value.volume)) : 0.8
         if !["grid","list"].contains(value.libraryLayout) { value.libraryLayout="grid" }
         if !["name","host"].contains(value.librarySort) { value.librarySort="name" }
-        if !["general","video","audio","network"].contains(value.settingsPane) { value.settingsPane="general" }
+        if !["general","video","audio","keyboard","network"].contains(value.settingsPane) { value.settingsPane="general" }
         if let seconds=value.networkGraceSeconds,NetworkGrace(rawValue:seconds) == nil { value.networkGraceSeconds=nil }
         if let choice=value.errorCorrection,ErrorCorrection(rawValue:choice) == nil { value.errorCorrection=nil }
+        if let mode=value.overlayMode,OverlayMode(rawValue:mode) == nil || mode == OverlayMode.compact.rawValue { value.overlayMode=nil }
         if let mode=value.automaticQuality,AutomaticQuality(rawValue:mode) == nil || mode == AutomaticQuality.off.rawValue { value.automaticQuality=nil }
         return value
     }
+}
+
+/// The performance overlay's detail, as Nightjar's and Android's: Compact's one line behind a
+/// health mark, Statistics' lines with the host's hardware, or Debug's every measurement.
+public enum OverlayMode: String, Codable, CaseIterable, Sendable {
+    case compact,statistics,debug
+    public var label: String { switch self { case .compact: "Compact";case .statistics: "Statistics";case .debug: "Debug" } }
 }
 
 /// Nightjar's automatic quality: which way the stream gives way when this Mac or the network

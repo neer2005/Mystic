@@ -32,6 +32,7 @@ mod display;
 mod quality;
 mod cursor;
 mod keyboard;
+mod diagnostics;
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::{Arc, Mutex};
@@ -373,7 +374,11 @@ impl VideoDecoder for VideoAdapter {
     }
 
     fn submit(&mut self, frame: &Frame) -> DecodeStatus {
-        self.network.lock().unwrap_or_else(|e| e.into_inner()).frame(frame.rtp_timestamp, frame.receive_time_us, u32::from(frame.host_processing_latency) * 100);
+        {
+            let mut network = self.network.lock().unwrap_or_else(|e| e.into_inner());
+            network.frame(frame.rtp_timestamp, frame.receive_time_us, u32::from(frame.host_processing_latency) * 100);
+            network.received_bytes += frame.data().len() as u64;
+        }
         let Some(f) = self.callbacks.video_submit else {
             return DecodeStatus::Ok;
         };

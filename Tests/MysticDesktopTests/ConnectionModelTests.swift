@@ -366,7 +366,7 @@ final class ConnectionModelTests: XCTestCase {
         try vault.saveCertificate("existing pin",for:endpoint.id)
         let mock=MockHost(paired:true)
         let calls=HostFactoryCalls()
-        let model=ConnectionModel(vault:vault,preferences:preferences,makeHost: { address,port,_,certificate in
+        let model=ConnectionModel(vault:vault,preferences:preferences,writesLog:false,makeHost: { address,port,_,certificate in
             calls.record(address:address,port:port,certificate:certificate);return mock
         })
         model.connect(to:endpoint);try await settle(model)

@@ -98,7 +98,28 @@ public final class ConnectionModel {
     }
     @ObservationIgnored public var startupLaunchHandled=false
     public let updates=UpdateChecker()
+    /// The host's CPU and GPU readings for the performance overlay.
+    @ObservationIgnored public private(set) lazy var hostHardware=HostHardwareModel(model:self)
+    @ObservationIgnored public private(set) lazy var remoteCheck=RemoteCheckModel(model:self)
+    /// The overlay's Stream line: the launch's size, rate and bitrate.
+    public var overlayStreamLine: String {
+        guard let config=plan?.configuration else { return "—" }
+        return "\(config.width)x\(config.height) \(config.fps) fps · \(rates.currentKbps/1000) Mbps"
+    }
     public let shortcuts: KeyShortcutsStore
+    /// The redacted session log on disk; nil in tests that keep nothing.
+    @ObservationIgnored let sessionLog: SessionLog?
+    public var sessionLogFile: URL? { sessionLog?.file }
+    /// This stream's per-second figures, for Stream → Save Statistics.
+    @ObservationIgnored public private(set) var statistics=StreamStatistics()
+    @ObservationIgnored private var statisticsStart: UInt64=0
+    /// Observed by the menu, unlike the rows that change every second.
+    public private(set) var canSaveStatistics=false
+    /// Writes the statistics CSV; nil when it was written, else why not.
+    public func saveStatistics(to url: URL) -> String? {
+        do { try Data(statistics.csv.utf8).write(to:url,options:.atomic);return nil }
+        catch { return error.localizedDescription }
+    }
     @ObservationIgnored private var quitWhenStreamEnds=false
     @ObservationIgnored private var shortcutFromCommandLine=false
     @ObservationIgnored private var shortcutStreamed=false
@@ -363,6 +384,7 @@ public final class ConnectionModel {
                     default:return false
                     }
                 },preferences: (any HostPreferencesStorage)? = HostPreferences(),settings: AppSettings? = nil,profiles: StreamProfilesStore? = nil,home: HomeLibrary? = nil,discovery: HostDiscovery = HostDiscovery(),
+                writesLog: Bool = true,
                 makeHost: @escaping @Sendable (String, UInt16, ClientIdentity, String?) throws -> any HostService = {
                     try HostConnection(address: $0, port: $1, identity: $2, certificate: $3)
                 }) {
@@ -370,11 +392,14 @@ public final class ConnectionModel {
         self.microphonePermission=microphonePermission
         self.settings=settings ?? AppSettings(storage:rememberHost ? SettingsPreferences() : nil)
         self.shortcuts=KeyShortcutsStore(defaults:rememberHost ? .standard : nil)
+        self.sessionLog=rememberHost && writesLog ? SessionLog() : nil
         self.profiles=profiles ?? StreamProfilesStore(storage:rememberHost ? StreamProfilePreferences() : nil)
         self.savedHosts=SavedHosts(storage:rememberHost ? preferences : nil);self.discovery=discovery
         self.vault = vault; self.makeHost = makeHost; self.rememberHost = rememberHost
         address = savedHosts.hosts.first?.endpoint.address ?? UserDefaults.standard.string(forKey: "lastHost") ?? ""
         port = savedHosts.hosts.first.map { String($0.endpoint.port) } ?? UserDefaults.standard.string(forKey: "lastPort") ?? "47989"
+        // Nightjar's `add_secrets`: every saved PC's name, ID and address stays out of the log.
+        for saved in savedHosts.hosts { SessionLog.addSecrets([saved.name,saved.uniqueID,saved.endpoint.address]) }
     }
     public func libraryAppeared() { libraryVisible=true;applyLiveSettings() }
     public func libraryDisappeared() { libraryVisible=false;discovery.stop();homeSync.cancel() }
@@ -401,10 +426,12 @@ public final class ConnectionModel {
         connectedAddress = address;connectedPort=port
         let endpoint = self.endpoint, vault = vault, factory = makeHost
         phase = .connecting; status = "Loading client identity from Keychain…"; errorMessage = nil
+        SessionLog.addSecrets([address]);sessionLog?.write("Connecting to \(address):\(port).")
         cancelGameAction()
         rates.resetManual()
         graphics.reset()
         sessionControls.reset()
+        remoteCheck.reset()
         library.clear()
         host = nil; pairingPIN = nil; diagnostics = []
         operation = Task { [weak self] in
@@ -418,6 +445,8 @@ public final class ConnectionModel {
                 let info = try await connection.serverInfo()
                 guard self.generation == token else { return }
                 self.host = info
+                SessionLog.addSecrets([info.name,info.uniqueID])
+                self.sessionLog?.write("Connected to \(info.name), \(info.paired ? "paired" : "not paired"), host version \(info.appVersion ?? "unknown").")
                 if info.paired { try await self.loadApps(connection, token: token) }
                 else {
                     self.rememberConnectedHost(info)
@@ -526,6 +555,7 @@ public final class ConnectionModel {
     private func startPreparedPlan(_ plan: StreamPlan,connection: any HostService,capabilities: VideoCapabilities) {
         recovery=StreamRecovery();recovering=false;hadVideo=false;connectedAt=nil
         self.plan=plan;streamingAppName=plan.app.name;reportedHeadroom=[:]
+        statistics=StreamStatistics();statisticsStart=nowMillis();canSaveStatistics=false
         launchStream(plan,connection:connection,capabilities:capabilities)
     }
     public func play() {
@@ -640,7 +670,7 @@ public final class ConnectionModel {
         layoutWatch?.stop();layoutWatch=nil;reportedLayout=nil
         plan=nil;streamingAppName=nil;recovering=false;hadVideo=false;connectedAt=nil;recovery=StreamRecovery()
         rates.stopAutomatic(status:"Fixed bitrate")
-        health.reset();quality.reset()
+        health.reset();quality.reset();hostHardware.reset()
         inputCapture?.setAvailable(false);inputCapture = nil
         generation = UUID(); let token = generation
         microphoneStatus="Microphone off"
@@ -653,6 +683,7 @@ public final class ConnectionModel {
         rates.resetManual()
         graphics.reset()
         sessionControls.reset()
+        remoteCheck.reset()
         library.clear()
         host = nil
         guard let session else {
@@ -678,6 +709,8 @@ public final class ConnectionModel {
                 await self.health.tick(snapshot)
                 guard self.generation == token else { return }
                 self.rates.hostBitrateTick(snapshot,measures:self.health.measures)
+                self.hostHardware.tick(nowMillis:self.nowMillis())
+                self.recordStatistics(snapshot)
                 await self.quality.tick()
                 guard self.generation == token else { return }
                 await self.rates.refresh()
@@ -838,7 +871,7 @@ public final class ConnectionModel {
         controllerFeedbackMonitor?.cancel();controllerFeedbackMonitor=nil
         statisticsMonitor?.cancel();statisticsMonitor=nil
         rates.stopAutomatic()
-        health.reset();quality.reset()
+        health.reset();quality.reset();hostHardware.reset()
         let previous=session;session=nil
         decoder=nil;presenter=nil;audioPlayer=nil;telemetry=nil;videoTelemetry=nil;rates.clearDecodedCount()
         let address=connectedAddress, port=connectedPort, endpoint=endpoint
@@ -886,6 +919,7 @@ public final class ConnectionModel {
     }
     private func fail(_ message: String, token: UUID? = nil) {
         if let token, generation != token { return }
+        sessionLog?.write("Failed: \(message)")
         errorMessage = message; phase = host?.paired == true && !library.apps.isEmpty ? .ready : .failed
         status = "Connection needs attention."; pairingPIN = nil
     }
@@ -942,10 +976,20 @@ public final class ConnectionModel {
             }
         }
     }
+    private func recordStatistics(_ snapshot: VideoTelemetrySnapshot) {
+        guard phase == .streaming else { return }
+        let network=health.measures,now=nowMillis()
+        func ms(_ stage: VideoTimingStage) -> Double? { snapshot.timings[stage].map { Double($0.p50Micros)/1000 } }
+        statistics.add(.init(elapsedMs:now >= statisticsStart ? now-statisticsStart : 0,receivedFps:network?.receivedFps,
+            decodedFps:snapshot.decodedFPS,shownFps:snapshot.enqueuedFPS,lossPercent:network?.lossPercent,rttMs:network?.rttMs,
+            decodeMs:ms(.decode),renderMs:ms(.rendererEnqueue),bitrateKbps:rates.currentKbps))
+        if !canSaveStatistics { canSaveStatistics=true }
+    }
     /// A line in the current stream's session log.
     func recordStream(_ message: String) { record(message,token:generation) }
     private func record(_ message: String, token: UUID) {
         guard generation == token else { return }
+        sessionLog?.write(message)
         diagnostics.append(message)
         if diagnostics.count > 40 { diagnostics.removeFirst(diagnostics.count - 40) }
     }
