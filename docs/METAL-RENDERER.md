@@ -178,8 +178,25 @@ runs of each, one after the other, figures at 90 s. Window state not logged. By 
 - **About 117 fps reached the decoder, and nearly all reached the renderer.** The frames go missing at presentation, not on the network.
 - **With sync on, shown gaps sit on the panel's 8.3 and 16.7 ms steps; with sync off they do not.** This fits the
   jitter seen with sync off, but sync on has not been watched yet, and the drop counts of Metal and System may not mean the same thing.
-- **Sync on cost about 35 ms here,** against 16 ms on the 60 fps title screen: near the panel's rate, "GPU done to shown" sat at a steady 40 ms,
-  which looks like frames queuing for drawables. The cause is not confirmed.
+- **Sync on cost about 35 ms here,** against 16 ms on the 60 fps title screen, with "GPU done to shown" at a steady 40 ms. It is
+  not frames queuing in Mystic; see below.
+
+### Drawing the newest frame at each refresh, tried and not kept
+
+A `CAMetalDisplayLink` at frame latency 1 drew the newest frame as each refresh came up. Same TestUFO setup, 2026-11-01, medians at the
+last reading. It is on the local branch `codex/metal-newest-at-refresh`, not on `main`, because it adds delay.
+
+| | Decoded to screen, ms | GPU done to shown, ms | Shown (reading) | Uneven |
+| --- | --- | --- | --- | --- |
+| Sync off, as on `main` | 7.3-8.8 | 6.5-7.7 | 5,950 at 60 s; 7,282-8,065 at 90 s | 36-64% |
+| New mode, 3 drawables | 33-45 | 29-41 | 5,116 at 60 s; 7,107-8,224 at 90 s | 12-34% |
+| New mode, 2 drawables | 46-48 | 40-41 | 4,828-6,294 at 60 s | 5-34% |
+| New mode, one present in flight | 44 | 41 | 1,114 at 60 s | 11% |
+
+- The new mode is much more even, as the shown gaps stay on the panel's steps, but costs about 25-40 ms.
+- **The delay is not frames queuing in Mystic:** with one present in flight, about 20 shown a second, "GPU done to shown" was still 41 ms.
+- Full screen did not remove it. Window state turned out to stick: a run that did not ask for full screen logged it, so
+  the earlier TestUFO and refresh runs may have been in full screen too. Why the title screen's sync-on runs were about 21 ms is not known.
 
 ## Open problems before Metal can be the default
 
