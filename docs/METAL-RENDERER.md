@@ -49,12 +49,34 @@ on Debug. One sitting of mostly idle content on a remote address; a first look, 
 Enqueue times are not like for like: the display layer's returns before the screen is involved,
 while Metal's includes waiting for a drawable. Screen latency is unmeasured on both.
 
+### With AWDL off and a fixed bitrate
+
+The same setup a little later, with `awdl0` down and a fixed 100 Mbps, 90 seconds each, sampled
+every 30 seconds. Counts are at the end of the run.
+
+| | System | Metal |
+| --- | --- | --- |
+| Rendered fps at 30 / 60 / 90 s | 117 / 112 / 117 | 118 / 100 / 117 |
+| Round trip at 30 / 60 / 90 s, ms | 3 / 26 / 4 | 4 / 14 / 3 |
+| Video loss | 0% | 0% |
+| Decoded / enqueued frames | 10,383 / 10,089 | 10,423 / 8,980 |
+| Superseded before the renderer | 294 | 1,437 |
+| Dropped by the renderer | 2,499 | not reported |
+| Client submit → enqueue p50 / p95 ms | 4.23 / 7.27 | 7.46 / 16.20 |
+
+- Round-trip spikes happen on both, so they come from the network path, not the renderer.
+- No loss was seen in these runs, where one earlier AWDL-on run showed 5.1%. That suggests AWDL
+  matters but does not prove it: the conditions were not controlled, and spikes remained with it off.
+- System's rendered figure counts frames accepted, not shown: its renderer dropped about a quarter
+  of them. Metal has no such counter, so **neither path's true shown rate is known yet**, and
+  System's 117 and Metal's 117 are not the same measurement.
+
 ## Open problems before Metal can be the default
 
-- **Throughput is not yet steady.** Runs move between about 88 and 119 fps, and round trip moves with
-  them. The cause is unknown. Two drawables stayed near 88 fps in the one-minute run measured.
-- **Automatic bitrate fell further on Metal** (48-64 Mbps with no menu open, against 100 on System),
-  which needs a repeat with bitrate fixed. It fell on System too (64 Mbps) once a menu was open.
+- **Metal supersedes more frames** (about 14% against 3%) and takes longer to hand one over, because
+  waiting for a drawable holds up the next frame. Dips track round-trip spikes on both paths, larger
+  on Metal.
+- **Count shown frames on Metal.** Compare with System's renderer drops before judging either.
 - **Not tried live:** SDR, HLG, Video Size other than Fit, moving between screens, a real game.
 - Screen latency needs a camera or timestamp measurement before any claim that Metal matches.
 - Renderer-reported drop counters do not apply, and drawable timeouts are not counted, so a frame
