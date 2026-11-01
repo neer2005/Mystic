@@ -394,6 +394,8 @@ impl MysticHost {
                     "runtimeBitrate":i.capabilities.has(Feature::RuntimeBitrate),
                     // The stream's DESCRIBE must offer 0x5540 as well; the session checks that.
                     "cursorShapes":i.capabilities.has(Feature::CursorShape),
+                    "keyboardLayout":i.capabilities.has(Feature::ClientKeyboardLayout),
+                    "textFields":i.capabilities.has(Feature::TextInput),
                     // As Nightjar's desktop client: only a Rubylight host is told the route is wireless.
                     "clientWireless":v["clientWireless"].as_bool().unwrap_or(false)
                         && i.capabilities.family() == nightjar_core::http::Family::Rubylight,

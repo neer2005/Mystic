@@ -397,6 +397,24 @@ int32_t mystic_session_cursor_shapes(const MysticSession *session, bool enabled)
 int32_t mystic_session_take_cursor(const MysticSession *session, MysticCursorShape *out,
                                    uint8_t *pixels, size_t capacity);
 
+/* Keyboard layout and host text fields (additive to ABI 5). The layout report's source is
+ * 0 unknown, 1 a Windows layout in klid, 2 a BCP-47 tag, 3 an XKB layout; tag is at most 64
+ * printable ASCII bytes. Asking for text field notices and the report return 0, or
+ * MYSTIC_ERR_UNIMPLEMENTED when the host does not take them. The field is the host's newest
+ * notice. Text is UTF-8 that came without a key, without control characters. */
+#define MYSTIC_TEXT_FIELD_NONE 0xFF
+typedef struct {
+    uint8_t input_type; /* 0 text, 1 number, 2 decimal, 3 phone, 4 email, 5 URL, 6 password,
+                         * 7 search, 8 multiline; MYSTIC_TEXT_FIELD_NONE when none has focus */
+    bool sensitive;
+    bool notices; /* the host sends notices for this stream */
+} MysticTextField;
+int32_t mystic_session_keyboard_layout(const MysticSession *session, uint8_t source, uint32_t klid,
+                                       const char *tag);
+int32_t mystic_session_text_fields(const MysticSession *session);
+int32_t mystic_session_text_field(const MysticSession *session, MysticTextField *out);
+int32_t mystic_session_text(MysticSession *session, const char *utf8);
+
 #ifdef __cplusplus
 }
 #endif

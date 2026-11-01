@@ -33,6 +33,12 @@ protocol StreamSessionService: AnyObject, Sendable {
     func clipboardStep(active: Bool,baseline: Bool,text: String?) async throws -> ClipboardSyncResult
     func liveRates(kbps: UInt32,fpsMilliHz: UInt32) async throws -> LiveRates
     func takeControllerFeedback() async -> [ControllerFeedback]
+    /// Reports the keyboard layout; false when the host does not take reports.
+    func reportKeyboardLayout(_ layout: KeyboardLayoutReport) async -> Bool
+    /// Asks for text field notices; false when the host sends none.
+    func requestTextFields() async -> Bool
+    /// Text that came without a key, for the host's focused field.
+    func sendText(_ text: String) async -> TextDelivery
     /// Starts or stops host cursor shapes; false when the host does not take them.
     func setCursorShapes(_ enabled: Bool) async -> Bool
     func takeCursorShapes() async -> [HostCursorShape]
@@ -58,6 +64,8 @@ protocol StreamSessionService: AnyObject, Sendable {
 }
 
 enum DisplayReport: Equatable, Sendable { case sent, unchanged, unsupported, failed }
+/// `noField`: the host says no text field has focus, so the text did not go.
+enum TextDelivery: Equatable, Sendable { case sent, noField, failed }
 
 /// The app's side of a stream doctor tick: its own recent timings, NaN when unknown.
 struct HealthTimings: Sendable {
@@ -77,6 +85,9 @@ extension StreamSessionService {
     func qualityBegin(_ mode: AutomaticQuality) async -> Bool? { false }
     func qualityTick(decodedWidth: UInt32,decodedHeight: UInt32,suspended: Bool) async -> QualityTick? { nil }
     func qualityEnd() async {}
+    func reportKeyboardLayout(_ layout: KeyboardLayoutReport) async -> Bool { false }
+    func requestTextFields() async -> Bool { false }
+    func sendText(_ text: String) async -> TextDelivery { .failed }
     func setCursorShapes(_ enabled: Bool) async -> Bool { false }
     func takeCursorShapes() async -> [HostCursorShape] { [] }
     func liveRates(kbps: UInt32,fpsMilliHz: UInt32) async throws -> LiveRates { throw HostConnectionError("Live rate controls are unavailable.") }
@@ -194,6 +205,24 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
             continuation.resume(returning:acceptingInput ? engine.takeControllerFeedback() : [])
         } }
     }
+    func reportKeyboardLayout(_ layout: KeyboardLayoutReport) async -> Bool {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            continuation.resume(returning:acceptingInput && (try? engine.reportKeyboardLayout(layout)) != nil)
+        } }
+    }
+    func requestTextFields() async -> Bool {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            continuation.resume(returning:acceptingInput && (try? engine.requestTextFields()) != nil)
+        } }
+    }
+    func sendText(_ text: String) async -> TextDelivery {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            guard acceptingInput else { continuation.resume(returning:.failed);return }
+            guard engine.textField().takesText else { continuation.resume(returning:.noField);return }
+            // Through the input mailbox, so the text stays in order with keys.
+            continuation.resume(returning:send(.text(text)) ? .sent : .failed)
+        } }
+    }
     func setCursorShapes(_ enabled: Bool) async -> Bool {
         await withCheckedContinuation { continuation in queue.async { [self] in
             continuation.resume(returning:acceptingInput && (try? engine.cursorShapes(enabled:enabled)) != nil)
@@ -296,6 +325,7 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
             do { try engine.controllerMotion(slot:slot,kind:kind,x:x,y:y,z:z) } catch EngineError.unsupportedByHost {}
         case let .controllerBattery(slot,battery):
             do { try engine.controllerBattery(slot:slot,battery:battery) } catch EngineError.unsupportedByHost {}
+        case let .text(text): try engine.sendText(text)
         case .releaseAll: break
         }
     }

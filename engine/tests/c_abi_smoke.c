@@ -114,6 +114,15 @@ int main(void) {
           "a cursor pixel buffer below the largest image is refused");
     CHECK(mystic_session_cursor_shapes(handle, true) == MYSTIC_ERR_NOT_STARTED,
           "cursor shapes before start are refused");
+    MysticTextField field;
+    CHECK(sizeof(MysticTextField) == 3, "MysticTextField layout matches Rust");
+    CHECK(mystic_session_text_field(handle, &field) == 0 && field.input_type == MYSTIC_TEXT_FIELD_NONE && !field.notices,
+          "no text field has focus before start");
+    CHECK(mystic_session_keyboard_layout(handle, 1, 0x0407, "00000407") == MYSTIC_ERR_NOT_STARTED,
+          "a layout report before start is refused");
+    CHECK(mystic_session_keyboard_layout(handle, 2, 0, "de DE") == MYSTIC_ERR_INVALID_ARGUMENT,
+          "a layout tag the wire cannot carry is refused");
+    CHECK(mystic_session_text(handle, "a") == MYSTIC_ERR_NOT_STARTED, "text before start is refused");
     CHECK(mystic_session_controller_arrival(handle, 16, 1) == MYSTIC_ERR_INVALID_ARGUMENT,
           "invalid controller slot");
     CHECK(mystic_session_controller(handle, 0, 1, 0x400000, 0, 0, 0, 0, 0, 0) == MYSTIC_ERR_INVALID_ARGUMENT,

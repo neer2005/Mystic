@@ -66,6 +66,9 @@ public struct LaunchedStream: Codable, Sendable {
     public var clientWireless: Bool? = nil
     /// The host can send its cursor shapes, if the stream also offers them.
     public var cursorShapes: Bool? = nil
+    /// The host takes keyboard layout reports and sends text field notices, if the stream offers them.
+    public var keyboardLayout: Bool? = nil
+    public var textFields: Bool? = nil
 }
 /// The host's bitrate controller is on.
 public struct HostBitrateStart: Codable, Sendable, Equatable {

@@ -10,6 +10,8 @@ public enum RemoteInputEvent: Sendable, Equatable {
     /// Accelerometer in m/s² with gravity, gyroscope in degrees per second.
     case controllerMotion(slot: UInt8, kind: ControllerMotionKind, x: Float, y: Float, z: Float)
     case controllerBattery(slot: UInt8, battery: ControllerBattery)
+    /// Text that came without a key, such as from the emoji picker or dictation, as UTF-8.
+    case text(String)
     /// Release keys, pointer buttons and controllers accepted by the engine; discard unsent input.
     case releaseAll
 }

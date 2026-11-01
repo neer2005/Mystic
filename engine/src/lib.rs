@@ -31,6 +31,7 @@ mod health;
 mod display;
 mod quality;
 mod cursor;
+mod keyboard;
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::{Arc, Mutex};
@@ -485,6 +486,7 @@ struct ListenerAdapter {
     rates: Arc<Mutex<rates::Rates>>,
     display: Arc<Mutex<display::DisplayReports>>,
     cursor: Arc<Mutex<cursor::CursorQueue>>,
+    text_fields: Arc<Mutex<keyboard::TextFields>>,
     reconfigure: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -522,6 +524,10 @@ impl Listener for ListenerAdapter {
         if matches!(event, nightjar_core::control::ControlEvent::CursorShape(_)
             | nightjar_core::control::ControlEvent::CursorShapeRejected(_)) {
             self.cursor.lock().unwrap_or_else(|e| e.into_inner()).receive(event);
+            return;
+        }
+        if matches!(event, nightjar_core::control::ControlEvent::TextInput(_)) {
+            self.text_fields.lock().unwrap_or_else(|e| e.into_inner()).receive(event);
             return;
         }
         if matches!(event, nightjar_core::control::ControlEvent::Rumble { .. }
@@ -578,6 +584,7 @@ pub struct MysticSession {
     rates: Arc<Mutex<rates::Rates>>,
     display: Arc<Mutex<display::DisplayReports>>,
     cursor: Arc<Mutex<cursor::CursorQueue>>,
+    text_fields: Arc<Mutex<keyboard::TextFields>>,
     doctor: health::Doctor,
     /// The host takes Reconfigure (0x5532), for automatic quality.
     reconfigure: Arc<std::sync::atomic::AtomicBool>,
@@ -643,6 +650,7 @@ pub extern "C" fn mystic_session_new() -> *mut MysticSession {
         rates: Arc::new(Mutex::new(rates::Rates::default())),
         display: Arc::new(Mutex::new(display::DisplayReports::default())),
         cursor: Arc::new(Mutex::new(cursor::CursorQueue::default())),
+        text_fields: Arc::new(Mutex::new(keyboard::TextFields::default())),
         reconfigure: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         quality: None,
         last_tick: None,
@@ -715,6 +723,7 @@ pub unsafe extern "C" fn mystic_session_start(
     *handle.rates.lock().unwrap_or_else(|e|e.into_inner()) = rates::Rates::default();
     *handle.feedback.lock().unwrap_or_else(|e| e.into_inner()) = controller_feedback::FeedbackMailbox::default();
     *handle.cursor.lock().unwrap_or_else(|e| e.into_inner()) = cursor::CursorQueue::default();
+    *handle.text_fields.lock().unwrap_or_else(|e| e.into_inner()) = keyboard::TextFields::default();
     handle.quality = None;
     handle.last_tick = None;
     handle.reconfigure.store(false, std::sync::atomic::Ordering::Release);
@@ -749,7 +758,7 @@ pub unsafe extern "C" fn mystic_session_start(
         network: handle.network.clone(),
     });
     let audio: Box<dyn AudioRenderer> = Box::new(AudioAdapter { callbacks });
-    let listener = Arc::new(ListenerAdapter { callbacks, feedback: handle.feedback.clone(), clipboard: handle.clipboard.clone(), rates:handle.rates.clone(), display: handle.display.clone(), cursor: handle.cursor.clone(), reconfigure: handle.reconfigure.clone() });
+    let listener = Arc::new(ListenerAdapter { callbacks, feedback: handle.feedback.clone(), clipboard: handle.clipboard.clone(), rates:handle.rates.clone(), display: handle.display.clone(), cursor: handle.cursor.clone(), text_fields: handle.text_fields.clone(), reconfigure: handle.reconfigure.clone() });
 
     match Session::start(
         &host_info,

@@ -15,6 +15,20 @@ extension FocusedValues {
     }
 }
 
+/// The saved shortcuts, for the Stream menu and the stream toolbar.
+struct ShortcutMenuItems: View {
+    let model: ConnectionModel
+    var body: some View {
+        ForEach(model.shortcuts.shortcuts.data) { shortcut in
+            Button("\(shortcut.name) (\(shortcut.chord))") { model.sendShortcut(shortcut) }
+                .disabled(!model.canSendShortcut)
+        }
+        if model.shortcuts.shortcuts.data.isEmpty { Text("No Saved Shortcuts") }
+        Divider()
+        SettingsLink { Text("Edit Shortcuts…") }
+    }
+}
+
 /// Stream actions live in the menu bar; the stream toolbar keeps only the frequent ones.
 /// While input is captured, keys go to the host, so these shortcuts work only after release.
 public struct StreamCommands: Commands {
@@ -49,6 +63,8 @@ public struct StreamCommands: Commands {
             }
             Button("Retry Audio Output") { model.retryAudioOutput() }
                 .disabled(!model.canRetryAudio)
+            Divider()
+            Menu("Send Shortcut") { ShortcutMenuItems(model:model) }
             Divider()
             Button("Send Clipboard Text to Host") { model.sendClipboardToHost() }
                 .disabled(!model.canSendClipboard)

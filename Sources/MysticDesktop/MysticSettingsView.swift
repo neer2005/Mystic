@@ -33,6 +33,8 @@ public struct MysticSettingsView: View {
                     Section("Playback") { AudioPreferencesView(model:model) }
                     Section { Text("Volume and mute apply immediately. Surround plays on a configured multichannel output, with stereo fallback for other devices.").foregroundStyle(.secondary) }
                 }.tabItem { Label("Audio",systemImage:"speaker.wave.2") }.tag("audio")
+                KeyboardSettingsView(model:model)
+                    .tabItem { Label("Keyboard",systemImage:"keyboard") }.tag("keyboard")
                 Form {
                     Section("Stream Recovery") {
                         Toggle("Reconnect Interrupted Streams",isOn:$model.automaticReconnect)

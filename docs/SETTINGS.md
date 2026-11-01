@@ -12,7 +12,9 @@ Mystic's latest release (`api.github.com/repos/neer2005/Mystic/releases/latest`)
 stable release is newer than this build, shows a notice in the library window with a link to
 its github.com page. Nothing is downloaded or installed; drafts and pre-releases are never
 offered; a build without a bundle version is never checked. The result of the check, including
-a rate limit or no published release, shows under the switch rather than as an alert. Video contains resolution, frame
+a rate limit or no published release, shows under the switch rather than as an alert.
+Keyboard holds the saved key shortcuts, with Import and Export, and explains the layout
+report; see [INPUT.md](INPUT.md). Video contains resolution, frame
 rate, frame pacing, bitrate, codec and HDR. Audio contains the host channel layout, local volume
 and mute, plus opt-in Mac microphone forwarding with a separate microphone mute. Network controls interrupted-stream recovery and local host discovery while the library is
 open. Automatic reconnect defaults on; automatic bitrate in Video defaults off.
