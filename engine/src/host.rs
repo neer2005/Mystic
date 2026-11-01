@@ -5,6 +5,13 @@ use serde_json::{json, Value};
 use std::ffi::{c_char, CStr, CString};
 use std::sync::Arc;
 
+/// Nightjar's release at the pinned revision (Cargo.toml). Hosts see the engine they talk to;
+/// the suffix says it runs inside Mystic.
+const NIGHTJAR_RELEASE: &str = "4.0.1";
+pub(crate) fn app_version() -> String {
+    format!("{NIGHTJAR_RELEASE}+mystic.{}", env!("CARGO_PKG_VERSION"))
+}
+
 struct HostError { message: String, retryable: bool }
 impl From<String> for HostError {
     fn from(message: String) -> Self { Self { message, retryable: false } }
@@ -83,6 +90,8 @@ pub unsafe extern "C" fn mystic_host_new(
     error: *mut c_char,
     capacity: usize,
 ) -> *mut MysticHost {
+    // Every request's User-Agent then reads `Nightjar/<version>`; the first call wins.
+    nightjar_core::http::set_app_version(&app_version());
     let result: Result<MysticHost, String> = (|| {
         if port == 0 {
             return Err("HTTP port must be nonzero".into());
@@ -442,6 +451,13 @@ fn dimension(v: &Value, name: &str, max: u32) -> Result<u32, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn hosts_see_the_engine_release_and_mystic() {
+        let version = app_version();
+        assert_eq!(version, format!("4.0.1+mystic.{}", env!("CARGO_PKG_VERSION")));
+        // The engine keeps printable ASCII only; nothing of the version may be dropped.
+        assert!(version.chars().all(|c| c.is_ascii_graphic()));
+    }
     #[test]
     fn quit_permission_uses_launch_grant_and_allows_legacy_hosts() {
         use nightjar_core::http::{PERMISSION_LAUNCH,PERMISSION_VIEW};

@@ -53,6 +53,12 @@ public struct MysticSettingsView: View {
                         Text("A Rubylight host paces video for Wi-Fi from the first frame. A wired link speed lets any host cap its sending rate. Over a VPN, the Mac's own connection decides.")
                             .foregroundStyle(.secondary)
                     }.disabled(model.hasSession || model.isBusy)
+                    Section("Network Changes") {
+                        Toggle("Keep Streams When the Network Changes",isOn:$model.clientRoaming)
+                        Toggle("Also onto Metered Networks",isOn:$model.roamingOnMeteredNetworks).disabled(!model.clientRoaming)
+                        Text("Moves a stream to a new network, such as from Wi-Fi to Ethernet, with hosts that support client roaming. Metered networks include iPhone hotspots. On any host, a stream whose network comes back on a new address reconnects at once.")
+                            .foregroundStyle(.secondary)
+                    }.disabled(model.hasSession || model.isBusy)
                     Section("Host Discovery") {
                         Toggle("Discover Hosts on the Local Network",isOn:setting(\.discoveryEnabled))
                         Text(model.discovery.status).font(.caption).foregroundStyle(.secondary)

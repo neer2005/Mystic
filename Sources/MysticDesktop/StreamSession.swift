@@ -46,6 +46,8 @@ protocol StreamSessionService: AnyObject, Sendable {
     func trialClear() async
     /// The display's EDR headroom; whether the host took it (unchanged values count).
     func reportDisplay(headroom: Float) async -> DisplayReport
+    /// The network toward the host changed; nil when no stream is running.
+    func networkChanged(metered: Bool) async -> NetworkChange?
 }
 
 enum DisplayReport: Equatable, Sendable { case sent, unchanged, unsupported, failed }
@@ -64,6 +66,7 @@ extension StreamSessionService {
     func trialApplied(undo: Bool,previousKbps: UInt32,appliedKbps: UInt32) async {}
     func trialClear() async {}
     func reportDisplay(headroom: Float) async -> DisplayReport { .unsupported }
+    func networkChanged(metered: Bool) async -> NetworkChange? { nil }
     func liveRates(kbps: UInt32,fpsMilliHz: UInt32) async throws -> LiveRates { throw HostConnectionError("Live rate controls are unavailable.") }
     func clipboardStep(active: Bool,baseline: Bool,text: String?) async throws -> ClipboardSyncResult {
         ClipboardSyncResult(available:false,text:nil)
@@ -177,6 +180,11 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
     func takeControllerFeedback() async -> [ControllerFeedback] {
         await withCheckedContinuation { continuation in queue.async { [self] in
             continuation.resume(returning:acceptingInput ? engine.takeControllerFeedback() : [])
+        } }
+    }
+    func networkChanged(metered: Bool) async -> NetworkChange? {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            continuation.resume(returning:acceptingInput ? try? engine.networkChanged(metered:metered) : nil)
         } }
     }
     func reportDisplay(headroom: Float) async -> DisplayReport {

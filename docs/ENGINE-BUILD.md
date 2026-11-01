@@ -3,6 +3,19 @@
 Tracking whether Nightjar's `nightjar-core` builds and behaves on the Mac, which is the
 gate for Mystic Phase 1.
 
+## ABI 5: network changes and wake plan (2026-10-31)
+
+Same Nightjar revision. `MysticStreamConfig` gains `location`, `client_roaming`,
+`roaming_metered` and `network_hints` (a layout change, hence ABI 5). New entry points:
+`mystic_session_network_changed`, `mystic_recovery_retry_now` and
+`mystic_reconnects_at_once`. `mystic_wake` takes the PC's port and this Mac's broadcasts
+and IPv6 links, and sends Nightjar's plan. Host requests carry the User-Agent
+`Nightjar/4.0.1+mystic.0.1.0`. See `NETWORK.md`, `AUDIO.md` and `HOME.md`.
+
+Verified on macOS arm64 with Xcode 27: 49 Rust tests and the C smoke test passed;
+`swift test --disable-sandbox`: 261 tests passed, four AV1 hardware tests skipped;
+`.build/Mystic.app` rebuilt and signed. No live host, VPN or sleeping PC was available.
+
 ## ABI 4: controllers and display luminance (2026-10-31)
 
 Same Nightjar revision. ABI 4 adds `mystic_session_controller_announce` (type, buttons

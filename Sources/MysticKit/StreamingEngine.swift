@@ -66,8 +66,29 @@ public struct StreamConfiguration: Sendable, Equatable {
     public var clientWireless = false
     /// Wired link speed toward the host in Mbit/s; 0 on Wi-Fi or when unknown.
     public var linkMbps: Int32 = 0
+    /// The engine decides from the address unless the route says otherwise (a VPN is remote).
+    public var location: StreamLocation = .automatic
+    /// Client roaming, with hosts that advertise it; `roamingMetered` also onto metered networks.
+    public var clientRoaming = false
+    public var roamingMetered = false
+    /// The app reports every network change with `networkChanged(metered:)`.
+    public var networkHints = false
 
     public init() {}
+}
+
+public enum StreamLocation: UInt8, Sendable {
+    case automatic = 0, local = 1, remote = 2
+}
+
+/// What a network change means for the stream.
+public enum NetworkChange: Int32, Sendable {
+    /// The stream moved onto the new network.
+    case roamed = 0
+    /// Its connection carries on: the same address toward the host, or no route yet.
+    case carriesOn = 1
+    /// The route now leaves from another address and the stream did not move there.
+    case cannotContinue = 2
 }
 
 /// Stage numbers the engine reports, mirroring `MysticCallbacks::stage`.
@@ -120,7 +141,7 @@ public enum EngineEvent: Sendable, Equatable {
 /// ``start(host:configuration:onEvent:)``.
 public final class StreamingEngine {
     /// The ABI this Swift layer was written against.
-    public static let expectedABI: UInt32 = 4
+    public static let expectedABI: UInt32 = 5
 
     private var handle: OpaquePointer?
     var clipboardHandle: OpaquePointer? { handle }
@@ -410,6 +431,13 @@ public final class StreamingEngine {
         try check(mystic_session_send_microphone(requireHandle(),packet.bindMemory(to:UInt8.self).baseAddress,packet.count))
     }
 
+    /// The network toward the host changed; `metered` when it bills by data.
+    public func networkChanged(metered: Bool) throws -> NetworkChange {
+        let result=mystic_session_network_changed(requireHandle(),metered)
+        if let change=NetworkChange(rawValue:result) { return change }
+        try check(result);return .carriesOn
+    }
+
     public func requestIDR() throws {
         try check(mystic_session_request_idr(requireHandle()))
     }
@@ -479,6 +507,10 @@ extension StreamConfiguration {
         config.video_fec = self.videoFEC
         config.client_wireless = self.clientWireless
         config.link_mbps = self.linkMbps
+        config.location = self.location.rawValue
+        config.client_roaming = self.clientRoaming
+        config.roaming_metered = self.roamingMetered
+        config.network_hints = self.networkHints
 
         return config
     }

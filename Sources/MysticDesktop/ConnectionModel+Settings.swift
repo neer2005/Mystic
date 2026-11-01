@@ -71,6 +71,14 @@ extension ConnectionModel {
         get { settings.value.tellHostLinkSpeed ?? true }
         set { settings.update { $0.tellHostLinkSpeed=newValue } }
     }
+    public var clientRoaming: Bool {
+        get { settings.value.clientRoaming ?? true }
+        set { settings.update { $0.clientRoaming=newValue } }
+    }
+    public var roamingOnMeteredNetworks: Bool {
+        get { settings.value.roamingOnMeteredNetworks ?? false }
+        set { settings.update { $0.roamingOnMeteredNetworks=newValue } }
+    }
     public var adaptiveBitrate: Bool {
         get { settings.value.adaptiveBitrate ?? false }
         set { settings.update { $0.adaptiveBitrate=newValue } }

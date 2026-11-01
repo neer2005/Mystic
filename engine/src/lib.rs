@@ -43,7 +43,7 @@ use nightjar_core::video::{Frame, FrameType};
 
 /// Bumped whenever a struct layout or function signature changes. The Swift side refuses
 /// to run against a mismatch rather than misreading memory.
-pub const MYSTIC_ABI_VERSION: u32 = 4;
+pub const MYSTIC_ABI_VERSION: u32 = 5;
 
 // ---------------------------------------------------------------------------
 // Result codes
@@ -157,7 +157,20 @@ pub struct MysticStreamConfig {
     pub video_fec: i16,
     /// This Mac's wired link speed toward the host in Mbit/s; 0 on Wi-Fi or when unknown.
     pub link_mbps: i32,
+    /// `MYSTIC_LOCATION_*`. Auto decides from the address; a VPN route is streamed as remote.
+    pub location: u8,
+    /// Client roaming (Nightjar's default on): move the stream onto a new network, with hosts
+    /// that advertise it.
+    pub client_roaming: bool,
+    /// "Continue on mobile data": roam onto a metered network too.
+    pub roaming_metered: bool,
+    /// The app reports every network change with `mystic_session_network_changed`.
+    pub network_hints: bool,
 }
+
+pub const MYSTIC_LOCATION_AUTO: u8 = 0;
+pub const MYSTIC_LOCATION_LOCAL: u8 = 1;
+pub const MYSTIC_LOCATION_REMOTE: u8 = 2;
 
 /// `MysticStreamConfig::video_fec`: the host's own error correction.
 pub const MYSTIC_FEC_HOST: i16 = -1;
@@ -204,11 +217,35 @@ impl Default for MysticStreamConfig {
             network_grace_ms: 0,
             video_fec: MYSTIC_FEC_HOST,
             link_mbps: 0,
+            location: MYSTIC_LOCATION_AUTO,
+            client_roaming: false,
+            roaming_metered: false,
+            network_hints: false,
         }
     }
 }
 
 impl MysticStreamConfig {
+    /// As Nightjar's desktop `session_config`: without hints the session cannot tell which
+    /// networks are metered, so roaming then needs "Continue on mobile data" too.
+    fn session(&self) -> SessionConfig {
+        use nightjar_core::session::{Location, RoamingConfig};
+        SessionConfig {
+            stream: self.to_engine(),
+            location: match self.location {
+                MYSTIC_LOCATION_LOCAL => Location::Local,
+                MYSTIC_LOCATION_REMOTE => Location::Remote,
+                _ => Location::Auto,
+            },
+            network_grace: std::time::Duration::from_millis(u64::from(self.network_grace_ms)),
+            roaming: RoamingConfig {
+                enabled: self.client_roaming && (self.network_hints || self.roaming_metered),
+                metered: self.roaming_metered,
+                platform_hints: self.network_hints,
+            },
+            ..SessionConfig::default()
+        }
+    }
     fn to_engine(&self) -> StreamConfig {
         StreamConfig {
             width: self.width,
@@ -680,11 +717,7 @@ pub unsafe extern "C" fn mystic_session_start(
         *callbacks
     };
 
-    let session_config = SessionConfig {
-        stream: (*config).to_engine(),
-        network_grace: std::time::Duration::from_millis(u64::from((*config).network_grace_ms)),
-        ..SessionConfig::default()
-    };
+    let session_config = (*config).session();
 
     let video: Box<dyn VideoDecoder> = Box::new(VideoAdapter {
         callbacks,
@@ -964,6 +997,20 @@ pub unsafe extern "C" fn mystic_session_controller_battery(handle: *mut MysticSe
     with_optional_input(handle, |q| q.send_controller_battery(slot, state, percent))
 }
 
+/// The network toward the host changed (`metered`: it bills by data). Returns 0 when the
+/// stream roamed onto it, 1 when its connection carries on, 2 when it cannot continue there
+/// (another address, not roamed), or a negative error. Serialized with start/stop.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_network_changed(handle: *const MysticSession, metered: bool) -> i32 {
+    use nightjar_core::session::{NetworkChange, NetworkHint};
+    let Some(session) = handle.as_ref().and_then(|h| h.session.as_ref()) else { return MYSTIC_ERR_NOT_STARTED };
+    match session.network_changed(NetworkHint { metered }) {
+        NetworkChange::Roamed => 0,
+        NetworkChange::CarriesOn => 1,
+        NetworkChange::CannotContinue => 2,
+    }
+}
+
 /// Live handle, serialized with start/stop. Only encrypted negotiated streams are exposed.
 #[no_mangle]
 pub unsafe extern "C" fn mystic_session_microphone_available(handle:*const MysticSession) -> bool {
@@ -1043,7 +1090,32 @@ mod tests {
 
     #[test]
     fn abi_version_is_stable() {
-        assert_eq!(mystic_abi_version(), 4);
+        assert_eq!(mystic_abi_version(), 5);
+    }
+
+    #[test]
+    fn session_location_and_roaming_follow_desktop_rules() {
+        use nightjar_core::session::Location;
+        let base = MysticStreamConfig { network_grace_ms: 30_000, ..Default::default() };
+        let auto = base.session();
+        assert!(matches!(auto.location, Location::Auto));
+        assert_eq!(auto.network_grace, std::time::Duration::from_secs(30));
+        assert!(!auto.roaming.enabled, "roaming is off unless asked for");
+        assert!(matches!(MysticStreamConfig { location: MYSTIC_LOCATION_REMOTE, ..base }.session().location, Location::Remote));
+        assert!(matches!(MysticStreamConfig { location: MYSTIC_LOCATION_LOCAL, ..base }.session().location, Location::Local));
+        assert!(matches!(MysticStreamConfig { location: 9, ..base }.session().location, Location::Auto));
+        let watched = MysticStreamConfig { client_roaming: true, network_hints: true, ..base }.session().roaming;
+        assert!(watched.enabled && watched.platform_hints && !watched.metered);
+        // Without hints the session cannot tell a metered network, so it roams only when that is allowed.
+        assert!(!MysticStreamConfig { client_roaming: true, ..base }.session().roaming.enabled);
+        let anywhere = MysticStreamConfig { client_roaming: true, roaming_metered: true, ..base }.session().roaming;
+        assert!(anywhere.enabled && anywhere.metered && !anywhere.platform_hints);
+        unsafe {
+            assert_eq!(mystic_session_network_changed(std::ptr::null(), false), MYSTIC_ERR_NOT_STARTED);
+            let handle = mystic_session_new();
+            assert_eq!(mystic_session_network_changed(handle, true), MYSTIC_ERR_NOT_STARTED);
+            mystic_session_free(handle);
+        }
     }
 
     #[test]

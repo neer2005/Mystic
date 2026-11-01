@@ -191,6 +191,71 @@ private final class TestAudioOutputMonitor: AudioOutputMonitoring,@unchecked Sen
     func stop() { lock.withLock { handler=nil } }
     func emit() { callback?() }
 }
+final class AudioPlayoutTests: XCTestCase {
+    private let ms: UInt64=1_000_000
+    func testLatePacketIsConcealedOnceTheRingRunsLowAndSkippedWhenItArrives() {
+        var playout=AudioPlayout(packetMs:5)
+        XCTAssertEqual(playout.lowWater,480)
+        XCTAssertEqual(playout.tick(queued:0,nowNanos:50*ms),0,"nothing is concealed before the first packet")
+        XCTAssertTrue(playout.packet(lost:false,nowNanos:0))
+        XCTAssertEqual(playout.tick(queued:100,nowNanos:4*ms),0,"not late yet")
+        XCTAssertEqual(playout.tick(queued:600,nowNanos:6*ms),0,"late, but the ring still holds enough")
+        XCTAssertEqual(playout.tick(queued:100,nowNanos:6*ms),2,"fills up to the low-water mark")
+        XCTAssertFalse(playout.packet(lost:false,nowNanos:7*ms))
+        XCTAssertFalse(playout.packet(lost:true,nowNanos:8*ms),"a packet the engine gave up on is owed too")
+        XCTAssertTrue(playout.packet(lost:false,nowNanos:9*ms))
+        XCTAssertEqual(playout.skipped,2)
+    }
+    func testConcealmentStopsAfterAHundredMillisecondsAndWhatFollowsIsNew() {
+        var playout=AudioPlayout(packetMs:5)
+        _=playout.packet(lost:false,nowNanos:0)
+        var concealed=0
+        for step in 1...40 { concealed += playout.tick(queued:0,nowNanos:UInt64(step)*10*ms) }
+        XCTAssertEqual(concealed,20,"100 ms of 5 ms packets")
+        XCTAssertTrue(playout.packet(lost:false,nowNanos:401*ms),"after the outage, packets are new, not late")
+        XCTAssertEqual(playout.skipped,0)
+        XCTAssertEqual(playout.tick(queued:0,nowNanos:410*ms),2,"a new packet starts a new allowance")
+    }
+    func testResetForgetsOwedPacketsAndWaitsForAPacket() {
+        var playout=AudioPlayout(packetMs:10,outputFrames:1024)
+        XCTAssertEqual(playout.lowWater,1024)
+        _=playout.packet(lost:false,nowNanos:0)
+        XCTAssertEqual(playout.tick(queued:0,nowNanos:20*ms),3)
+        playout.reset()
+        XCTAssertEqual(playout.tick(queued:0,nowNanos:40*ms),0)
+        XCTAssertTrue(playout.packet(lost:false,nowNanos:41*ms))
+    }
+}
+
+final class AudioLatePacketTests: XCTestCase {
+    func testThePlayerFillsALatePacketsTimeAndSkipsItOnArrival() throws {
+        struct Fixture: Decodable { let packets: [Data] }
+        let url=try XCTUnwrap(Bundle.module.url(forResource:"audio-stereo",withExtension:"json",subdirectory:"Fixtures"))
+        let packets=try JSONDecoder().decode(Fixture.self,from:Data(contentsOf:url)).packets
+        let clock=TestClock(),outputs=TestAudioOutputs()
+        let player=AudioPlayer(monitor:TestAudioOutputMonitor(),makeOutput:{ info,gain,reason,changed in
+            try outputs.make(info:info,gain:gain,reason:reason,changed:changed) },clock:{ clock.now },concealTimer:false)
+        try player.setup(AudioSetupInfo(channelCount:2,channelMask:3,packetDurationMs:5,samplesPerFrame:240));player.start()
+        let output=try XCTUnwrap(outputs.all.first)
+        packets[0].withUnsafeBytes { player.play($0) }
+        _=output.read(240)
+        clock.now=6_000_000
+        player.concealLatePackets()
+        XCTAssertEqual(player.statistics.concealedPackets,2)
+        XCTAssertEqual(player.statistics.queuedFrames,480,"two packets' worth filled the gap")
+        packets[1].withUnsafeBytes { player.play($0) };packets[2].withUnsafeBytes { player.play($0) }
+        packets[3].withUnsafeBytes { player.play($0) }
+        let stats=player.statistics
+        XCTAssertEqual(stats.skippedLatePackets,2);XCTAssertEqual(stats.decodedPackets,2)
+        XCTAssertEqual(stats.queuedFrames,720,"latency did not grow past the concealment and one packet")
+        player.cleanup()
+    }
+}
+private final class TestClock: @unchecked Sendable {
+    private let lock=NSLock();private var value: UInt64=0
+    var now: UInt64 { get { lock.withLock { value } } set { lock.withLock { value=newValue } } }
+}
+
 private final class TestAudioOutputs: @unchecked Sendable {
     private let lock=NSLock()
     private var outputs: [TestAudioOutput] = []

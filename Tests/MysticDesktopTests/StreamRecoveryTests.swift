@@ -247,6 +247,60 @@ final class StreamRecoveryTests: XCTestCase {
             model.disconnect()
         }
     }
+    func testVPNRoutesStreamAsRemoteWithSmallPacketsAndRoamingFollowsTheWatcher() async throws {
+        let sessions=RecoverySessions()
+        let model=try await running(RecoveryHost(),sessions,RecoveryClock(),configure:{ model in
+            model.lookUpRoute={ _,_ in NetworkRoute.Report(route:nil,vpn:true,interface:"utun4") }
+            model.startNetworkWatch={ _,_,_ in nil }
+        })
+        let config=try XCTUnwrap(sessions.all[0].configuration)
+        XCTAssertEqual(config.location,.remote);XCTAssertEqual(config.packetSize,1024)
+        XCTAssertTrue(config.clientRoaming,"roaming is on by default, as Nightjar")
+        XCTAssertFalse(config.networkHints,"no watcher, so no hints and the engine's roaming stays off")
+        model.disconnect()
+        let lan=RecoverySessions(),events=WatchEvents()
+        let other=try await running(RecoveryHost(),lan,RecoveryClock(),configure:{ model in
+            model.clientRoaming=false;model.startNetworkWatch=events.start
+        })
+        let plain=try XCTUnwrap(lan.all[0].configuration)
+        XCTAssertEqual(plain.location,.automatic);XCTAssertEqual(plain.packetSize,1392)
+        XCTAssertFalse(plain.clientRoaming)
+        other.disconnect()
+    }
+    func testANetworkBackOnANewAddressReconnectsAtOnceOnlyWhenTheStreamCannotContinue() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock(),events=WatchEvents()
+        let model=try await running(host,sessions,clock,configure:{ $0.startNetworkWatch=events.start })
+        XCTAssertTrue(try XCTUnwrap(sessions.all[0].configuration).networkHints)
+        model.processMediaSnapshot(picture())
+        // The same address back: the stream carries on and nothing reconnects.
+        events.send(.lost);try await wait { model.status.hasPrefix("Network lost") }
+        events.send(.changed(metered:false,afterLoss:true))
+        try await wait { sessions.all[0].networkChanges == [false] }
+        try await Task.sleep(for:.milliseconds(30))
+        XCTAssertEqual(sessions.all.count,1);XCTAssertTrue(model.status.hasPrefix("Streaming"))
+        // A change without a loss goes to the session for roaming, nothing more.
+        sessions.all[0].change = .cannotContinue
+        events.send(.changed(metered:true,afterLoss:false))
+        try await wait { sessions.all[0].networkChanges == [false,true] }
+        try await Task.sleep(for:.milliseconds(30))
+        XCTAssertEqual(sessions.all.count,1)
+        // Back on an address the stream cannot continue over: reconnect now, without the delay.
+        events.send(.lost);events.send(.changed(metered:false,afterLoss:true))
+        try await wait { sessions.all.count == 2 && model.phase == .streaming }
+        XCTAssertEqual(clock.delays,[0])
+        model.disconnect()
+    }
+    func testAMeteredReturnWithoutPermissionWaitsForTheConnectionsTimeout() async throws {
+        let sessions=RecoverySessions(),events=WatchEvents()
+        let model=try await running(RecoveryHost(),sessions,RecoveryClock(),configure:{ $0.startNetworkWatch=events.start })
+        model.processMediaSnapshot(picture())
+        sessions.all[0].change = .cannotContinue
+        events.send(.lost);events.send(.changed(metered:true,afterLoss:true))
+        try await wait { sessions.all[0].networkChanges == [true] }
+        try await Task.sleep(for:.milliseconds(30))
+        XCTAssertEqual(sessions.all.count,1)
+        model.disconnect()
+    }
     func testDisplayHeadroomGoesToTheLaunchAndOncePerScreenToTheHost() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions()
         let model=try await running(host,sessions,RecoveryClock(),configure:{ $0.launchHeadroom={ 3.5 } })
@@ -292,6 +346,19 @@ final class StreamRecoveryTests: XCTestCase {
         XCTFail("Timed out waiting for stream state")
     }
 }
+/// Stands in for the network watcher: keeps its event handler and starts no real watcher.
+/// A nil watcher would mean "no route", so it hands back a watcher on loopback.
+private final class WatchEvents: @unchecked Sendable {
+    private let lock=NSLock();private var handler:(@Sendable (LinkEvent)->Void)?
+    var start: @Sendable (String,UInt16,@escaping @Sendable (LinkEvent)->Void) async -> NetworkWatch? {
+        { [self] _,_,onEvent in
+            lock.withLock { handler=onEvent }
+            let watch=NetworkWatch.start(host:"127.0.0.1",port:9) { _ in }
+            return watch
+        }
+    }
+    func send(_ event:LinkEvent) { lock.withLock { handler }?(event) }
+}
 private final class RecoveryClock: @unchecked Sendable {
     private let lock=NSLock();private var time: UInt64=1000;private var waits:[UInt64]=[]
     var now: UInt64 { lock.withLock { time } }
@@ -333,6 +400,11 @@ private final class RecoverySession: StreamSessionService, @unchecked Sendable {
         return try recoveryDecode(#"{"available":true,"pending":false,"result":{"kbps":30000,"fpsMilliHz":59940,"bitrateStatus":2,"bitrateReason":4,"fpsStatus":2,"fpsReason":5},"error":null}"#)
     }
     func takeControllerFeedback() async -> [ControllerFeedback] { [] }
+    private var networkResults:[Bool]=[]
+    private var nextChange:NetworkChange = .carriesOn
+    var networkChanges:[Bool] { lock.withLock { networkResults } }
+    var change:NetworkChange { get { lock.withLock { nextChange } } set { lock.withLock { nextChange=newValue } } }
+    func networkChanged(metered:Bool) async -> NetworkChange? { lock.withLock { networkResults.append(metered);return nextChange } }
     private var reports:[Float]=[]
     var displayReports:[Float] { lock.withLock { reports } }
     func reportDisplay(headroom:Float) async -> DisplayReport { lock.withLock { reports.append(headroom) };return .sent }

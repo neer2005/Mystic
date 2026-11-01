@@ -20,6 +20,8 @@ public enum AudioOutputStatus: String, Sendable {
 public struct AudioPlaybackStats: Sendable {
     public let decodedPackets: UInt64
     public let concealedPackets: UInt64
+    /// Packets whose time concealment had already played, skipped so latency does not grow.
+    public let skippedLatePackets: UInt64
     public let decodeErrors: UInt64
     public let renderedFrames: UInt64
     public let queuedFrames: UInt32
@@ -60,6 +62,10 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
     private var starts: UInt64=0,discarded: UInt64=0
     private var retired=MysticPCMStats()
     private var decoded: UInt64=0,concealed: UInt64=0,errors: UInt64=0
+    private var playout: AudioPlayout?
+    private var lateTimer: DispatchSourceTimer?
+    private let clock: @Sendable () -> UInt64
+    private let concealTimer: Bool
     public convenience init(log: @escaping @Sendable (String) -> Void = { _ in }) {
         self.init(monitor:AudioOutputMonitor(),makeOutput:{ info,gain,reason,changed in
             try AudioPipeline(volume:gain,info:info,forceStereoReason:reason,configurationChanged:changed)
@@ -68,15 +74,18 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
     init(monitor: any AudioOutputMonitoring,
          makeOutput: @escaping @Sendable (AudioSetupInfo,Float,String?,@escaping @Sendable () -> Void) throws -> any AudioOutputPipeline,
          retryDelay: TimeInterval = 1,routeDelay: TimeInterval = 0.15,
+         clock: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },concealTimer: Bool = true,
          log: @escaping @Sendable (String) -> Void = { _ in }) {
         self.monitor=monitor;self.makeOutput=makeOutput;self.retryDelay=retryDelay;self.routeDelay=routeDelay;self.log=log
+        self.clock=clock;self.concealTimer=concealTimer
     }
-    deinit { pending?.cancel();monitor.stop();pipeline?.stop() }
+    deinit { pending?.cancel();lateTimer?.cancel();monitor.stop();pipeline?.stop() }
     public func setup(_ info: AudioSetupInfo) throws {
         try queue.sync {
             stopLocked();decoder=nil
             decoded=0;concealed=0;errors=0;starts=0;discarded=0;retired=MysticPCMStats()
             decoder=try OpusAudioDecoder(info)
+            playout=AudioPlayout(packetMs:Int(info.packetDurationMs))
             log("Audio setup: Opus \(info.channelCount) channels at \(info.sampleRate) Hz, \(info.samplesPerFrame) samples/packet")
         }
     }
@@ -97,11 +106,30 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
             } catch { log("Audio device monitoring unavailable: \(error.localizedDescription)") }
             recoveryRevision &+= 1
             attemptOutput(generation:token,recovery:recoveryRevision,retries:3)
+            if concealTimer,let decoder {
+                let timer=DispatchSource.makeTimerSource(queue:queue)
+                let interval=DispatchTimeInterval.milliseconds(Int(decoder.info.packetDurationMs))
+                timer.schedule(deadline:.now()+interval,repeating:interval,leeway:.microseconds(500))
+                timer.setEventHandler { [weak self] in self?.concealLateLocked() }
+                timer.resume();lateTimer=timer
+            }
+        }
+    }
+    /// Fills the time of a late packet before the output runs dry (`AudioPlayout`).
+    func concealLatePackets() { queue.sync { concealLateLocked() } }
+    private func concealLateLocked() {
+        guard running,let decoder,let pipeline else { return }
+        let queued=Int(mystic_pcm_ring_stats(pipeline.render.ring).queued_frames)
+        guard let packets=playout?.tick(queued:queued,nowNanos:clock()),packets > 0 else { return }
+        for _ in 0..<packets {
+            do { try decode(decoder,packet:nil);concealed += 1 }
+            catch { errors += 1;if errors <= 3 { log("Opus concealment failed: \(error.localizedDescription)") };return }
         }
     }
     public func play(_ packet: UnsafeRawBufferPointer?) {
         queue.sync {
             guard running,let decoder else { return }
+            guard playout?.packet(lost:packet == nil,nowNanos:clock()) != false else { return }
             do {
                 try decode(decoder,packet:packet)
                 if packet == nil { concealed += 1 } else { decoded += 1 }
@@ -140,7 +168,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
         queue.sync {
             let s=pipeline.map { mystic_pcm_ring_stats($0.render.ring) } ?? MysticPCMStats()
             let sampleRate=pipeline?.sampleRate
-            return AudioPlaybackStats(decodedPackets:decoded,concealedPackets:concealed,decodeErrors:errors,
+            return AudioPlaybackStats(decodedPackets:decoded,concealedPackets:concealed,skippedLatePackets:playout?.skipped ?? 0,decodeErrors:errors,
                 renderedFrames:retired.rendered_frames+s.rendered_frames,queuedFrames:s.queued_frames,
                 droppedFrames:retired.dropped_frames+s.dropped_frames,underrunFrames:retired.underrun_frames+s.underrun_frames,
                 outputStatus:status,outputDevice:pipeline?.device?.name,
@@ -192,6 +220,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
     }
     private func retireOutput() {
         outputRevision &+= 1
+        playout?.reset()
         guard let pipeline else { return }
         pipeline.stop()
         let stats=mystic_pcm_ring_stats(pipeline.render.ring)
@@ -201,7 +230,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
     }
     private func stopLocked() {
         generation &+= 1;recoveryRevision &+= 1;running=false
-        pending?.cancel();pending=nil;monitor.stop();retireOutput();status = .idle
+        pending?.cancel();pending=nil;lateTimer?.cancel();lateTimer=nil;monitor.stop();retireOutput();status = .idle
     }
 }
 

@@ -13,6 +13,10 @@ public final class HomeSync {
     @ObservationIgnored private var connections: [String:any HostService]=[:]
     @ObservationIgnored private var artRequests=Set<String>()
     @ObservationIgnored private unowned let model: ConnectionModel
+    @ObservationIgnored var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
+    @ObservationIgnored var sleep: (Duration) async throws -> Void = { try await Task.sleep(for:$0) }
+    /// How often a waking PC is asked whether it answers.
+    static let wakeCheck=Duration.seconds(2)
     private struct PairingRequired: Error {}
     init(model: ConnectionModel) { self.model=model }
 
@@ -78,14 +82,61 @@ public final class HomeSync {
         guard self.epoch == epoch,let data else { return }
         home.saveArt(data,for:copy)
     }
+    /// Wakes the PC as Nightjar does: packets at once and again every 8 seconds while it stays
+    /// away, until it answers or 90 seconds pass. An answering PC is refreshed.
     public func wake(_ id: String) async {
         guard !busy,!blocked,let pc=home.pc(id) else { return }
         busy=true;let epoch=epoch
-        defer { if self.epoch == epoch { busy=false } }
+        var wait=WakeWait(start:now())
+        var online=false
         do {
-            _ = try await pc.wake.send(to:pc.endpoint.address)
-            guard self.epoch == epoch else { return }
-            message="Wake packets sent to \(pc.name). Wake depends on the PC and network; refresh to check whether it is online."
-        } catch { if self.epoch == epoch { message=error.localizedDescription } }
+            while self.epoch == epoch {
+                switch wait.next(online:online,now:now()) {
+                case .online:
+                    busy=false;message="\(pc.name) is awake."
+                    await refresh();return
+                case .timedOut:
+                    busy=false
+                    message="\(pc.name) did not wake within \(Int(WakeWait.timeout.components.seconds)) seconds. Check that it allows Wake-on-LAN and that this Mac shares its network."
+                    return
+                case .send:
+                    _ = try await pc.wake.send(to:pc.endpoint.address,port:pc.endpoint.port)
+                    guard self.epoch == epoch else { return }
+                    message="Waking \(pc.name)…"
+                case .wait: break
+                }
+                try await sleep(Self.wakeCheck)
+                guard self.epoch == epoch else { return }
+                online=await answers(pc)
+            }
+        } catch { if self.epoch == epoch { busy=false;message=error.localizedDescription } }
+    }
+    private func answers(_ pc: HomePC) async -> Bool {
+        let factory=model.makeHost,vault=model.vault,endpoint=pc.endpoint
+        guard let service=try? await Task.detached(operation: { () throws -> any HostService in
+            guard let certificate=try vault.certificate(for:endpoint.id) else { throw PairingRequired() }
+            return try factory(endpoint.address,endpoint.port,vault.identity(),certificate)
+        }).value else { return false }
+        defer { service.cancel() }
+        return (try? await service.serverInfo()) != nil
+    }
+}
+
+/// Nightjar's `WakeWait`: send a wake packet at once, again every `resend` while the PC stays
+/// away, and give up after `timeout`. It reads no clock, so the timing is tested with plain instants.
+struct WakeWait {
+    enum Step: Equatable { case wait,send,online,timedOut }
+    /// A resume from sleep takes well under this on the hardware Nightjar knows of.
+    static let timeout=Duration.seconds(90)
+    static let resend=Duration.seconds(8)
+    private let start: ContinuousClock.Instant
+    private var lastSent: ContinuousClock.Instant?
+    init(start: ContinuousClock.Instant) { self.start=start }
+    /// An answering PC wins over everything, including the time that ran out in the same tick.
+    mutating func next(online: Bool,now: ContinuousClock.Instant) -> Step {
+        if online { return .online }
+        if now-start >= Self.timeout { return .timedOut }
+        if lastSent.map({ now-$0 >= Self.resend }) ?? true { lastSent=now;return .send }
+        return .wait
     }
 }

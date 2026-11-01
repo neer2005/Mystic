@@ -23,8 +23,39 @@ keys. A recovery request cannot launch an app that has stopped or replace anothe
 app. Callback generations fence old sessions and HTTP responses. Disconnect,
 closing the stream window and quitting cancel pending recovery.
 
-This restores sessions after transient termination. Route-change monitoring,
-proactive network-return probes and client roaming are not integrated yet.
+This restores sessions after transient termination.
+
+## Network changes and client roaming
+
+As Nightjar's desktop client, every stream runs a network watcher: it checks the address
+this Mac uses toward the host once a second and on every macOS path change. Its events:
+
+- **Lost.** No route toward the host. The session log says so and the status reads
+  "Network lost". The stream rides it out for as long as Ride Out Network Drops allows.
+- **Changed.** A new address toward the host, or one back after a loss. Each change
+  goes to the engine, which roams onto the new network when the host advertises client
+  roaming and Settings → Network → Keep Streams When the Network Changes is on (the
+  default, as Nightjar). Metered networks (an iPhone hotspot, cellular, or Low Data Mode)
+  need Also onto Metered Networks.
+- **Back on an address the stream cannot continue over** (it did not roam): Mystic
+  reconnects at once instead of waiting for the connection to time out, using Nightjar's
+  shared rule. Not when automatic reconnect is off, before the first picture, on a
+  metered network without permission, or when a drop tolerance above 10 seconds holds
+  the connection. The attempt starts without its delay but still counts toward the
+  reconnect budget.
+
+Without a route when the stream starts, the watcher does not run and the engine's roaming
+stays off unless metered networks are allowed, as in Nightjar.
+
+## VPN routes
+
+The route lookup also reads the interface toward the host. A tunnel or PPP interface (utun,
+which carries WireGuard, Tailscale and the system VPNs; ipsec, ppp, tun, tap; ZeroTier's
+feth and zt) or an MTU under 1500 makes it a VPN route, Moonlight's rule as Nightjar applies
+it. Such a stream goes as remote with 1024-byte video packets: a tunnel's smaller MTU
+(WireGuard's 1420, Tailscale's 1280) would fragment every 1392-byte packet. Before this, a
+VPN to a private address, such as Tailscale's IPv6 `fd7a:` range, streamed as local.
+Other routes leave the choice to the engine, which streams public addresses as remote.
 
 ## Network drops, error correction and link hints
 
