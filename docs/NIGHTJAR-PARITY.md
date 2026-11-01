@@ -54,7 +54,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | 5.1/7.1 discrete PCM | Implemented, physical validation pending | Speaker identity and downmix checks |
 | 7.1.4/passthrough | Pending | Mac output capability investigation |
 | Microphone | Implemented | Live host input-meter response verified previously |
-| Microphone echo cancellation | Pending, design decision | macOS voice processing removes only what plays through the same audio engine as the microphone; Mystic plays and records on separate engines, and voice processing also alters playback while on |
+| Microphone echo cancellation | Deferred (2026-10-31) | macOS voice processing removes only what plays through the same audio engine as the microphone; Mystic plays and records on separate engines. Doing it means playing the stream through the microphone's engine while it is on, which likely limits surround to stereo and applies voice processing to game sound. If taken up: Nightjar's Automatic (off with headphones), On and Off |
 | Keyboard/mouse and fullscreen | Implemented | User verified on Big Dawg |
 | Keyboard follows text fields, layout report | Pending | Nightjar (`text_field.rs`) handles host text-field notices (0x553B) and reports the keyboard layout (0x553E); Mystic sends US key positions only |
 | Saved key chords, import/export | Pending | Nightjar (`shortcuts.rs`) shares Android's file format; Mystic has only its release chord |
