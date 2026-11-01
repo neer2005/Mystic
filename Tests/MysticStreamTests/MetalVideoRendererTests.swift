@@ -103,6 +103,13 @@ final class MetalVideoRendererTests: XCTestCase {
         slot.discardWaiting();XCTAssertEqual(slot.missed,2,"a drawable timeout misses one frame")
         XCTAssertEqual(slot.take(),4);XCTAssertFalse(slot.isWaiting)
     }
+    @MainActor func testTheLayerFollowsThePacingsRefreshWait() throws {
+        do {
+            let free=try MetalPresentationReceiver(clock:{ .zero },waitsForRefresh:false)
+            XCTAssertFalse(free.layer.displaySyncEnabled)
+            XCTAssertTrue(try MetalPresentationReceiver(clock:{ .zero }).layer.displaySyncEnabled)
+        } catch VideoDecoderError.unsupported { throw XCTSkip("No Metal device") }
+    }
     func testADrawFailureIsReportedOnce() {
         let slot=MetalFrameSlot<Int>()
         XCTAssertNil(slot.takeFailure())

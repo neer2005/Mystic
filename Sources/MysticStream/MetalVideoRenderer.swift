@@ -144,13 +144,14 @@ final class MetalPresentationReceiver: PresentationReceiver {
     private var lastFormat: VideoLayerFormat?
     /// Seconds since the decoder finished the frame about to be enqueued.
     var nextFrameAge: CFTimeInterval?
-    init(clock: @escaping @Sendable () -> CMTime,capacity: Int = 1) throws {
+    init(clock: @escaping @Sendable () -> CMTime,capacity: Int = 1,waitsForRefresh: Bool = true) throws {
         drawer=try MetalFrameDrawer();self.clock=clock;slot=MetalFrameSlot(capacity:capacity)
         layer.device=drawer.device
         layer.framebufferOnly=true;layer.isOpaque=true
         // Two made a frame wait out a refresh for a drawable, and at 120 Hz most were then superseded.
         layer.maximumDrawableCount=3
-        layer.displaySyncEnabled=true
+        // Off about halved decoded-to-screen time; see METAL-RENDERER.md.
+        layer.displaySyncEnabled=waitsForRefresh
         layer.pixelFormat = .bgra8Unorm
         layer.colorspace=CGColorSpace(name:CGColorSpace.itur_709)
         layer.backgroundColor=CGColor(gray:0,alpha:1)

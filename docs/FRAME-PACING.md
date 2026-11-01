@@ -39,8 +39,9 @@ the in-order modes draw from a first-in, first-out slot of three frames rather t
 The native AVSampleBufferRenderSynchronizer/receiver remains the presentation
 path. Source timestamps retain their independent origin; new uncompressed sample
 buffers carry renderer-relative timestamps and the negotiated frame duration.
-Pixel buffers and HDR attachments are retained without a CPU image copy. This
-does not add Metal rendering, refresh-rate switching, VRR control or beam racing.
+Pixel buffers and HDR attachments are retained without a CPU image copy. On Metal,
+Low Latency also skips the wait for the refresh, and the picture may tear; see METAL-RENDERER.md. This
+does not add refresh-rate switching, VRR control or beam racing.
 
 ## Display refresh rate
 
