@@ -119,7 +119,7 @@ final class FramePresentationTests: XCTestCase {
         let presenter=DisplayLayerPresenter(telemetry:nil,mode:.balanced,receiverOverride:receiver,rendererClock:{ clock.now },onFailure:{ failures.add($0) })
         presenter.reset(generation:1);presenter.offer(try frame(pts:0,generation:1))
         try await wait { receiver.accepted.count == 1 }
-        presenter.offer(try frame(pts:83333,generation:1))
+        presenter.offer(try frame(pts:16000,generation:1))
         try await wait { presenter.isWaitingForPresentation }
         presenter.reset(generation:2)
         presenter.offer(try frame(pts:0,generation:2,fps:120))

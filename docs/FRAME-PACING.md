@@ -62,10 +62,11 @@ waits and suspended enqueues are cancelled/flushed on generation resets.
 
 Low Latency drops images older than two frame intervals at the presenter.
 Balanced allows up to the greater of 100 ms or three intervals for local image
-age. It reanchors after long stalls or a negotiated frame-rate change, flushing
+age. It reanchors after long stalls, when a frame comes over two buffers early against
+the timeline, or on a negotiated frame-rate change, flushing
 old renderer scheduling while preserving the current displayed image. Corrupt,
 negative, duplicate and out-of-order timestamps cannot commit source ordering.
-One implausible forward timestamp is dropped; repeated forward jumps request
+One forward timestamp far ahead of the time since the last frame is dropped; repeated jumps request
 keyframe/timeline recovery through the existing decoder recovery gate.
 
 Reset/stop clear the displayed image and fence late decoder, wait, enqueue and
@@ -94,7 +95,9 @@ HEVC 10-bit HDR, 3024×1890 at 120 fps negotiated, fixed 100 Mbps, on a 120 Hz p
   the spread between runs of the same pacing is as large as the difference. Neither is settled.
 - Decoded to screen uses the renderer's `presentedTime`, so it stops at the system's report, not the panel.
 - **Balanced reset the video timeline 12 times in 100 s** with "Presentation timestamp discontinuity" and lost 1,214
-  frames; an open bug, also seen once on Desktop. See `FramePacer.futureTimestamp`.
+  frames, and did so once on Desktop. A spike anchored its timeline on late frames, so on-time frames
+  looked over 100 ms in the future and were treated as corrupt; smaller shifts made each frame wait until
+  the next replaced it. Such frames now realign the timeline; the fix has automated checks, not a new run.
 - This is one title screen in one sitting, with no AWDL record for these runs and no camera.
 
 ## HUD measurements
