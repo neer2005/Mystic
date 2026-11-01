@@ -7,6 +7,8 @@ import MysticKit
 public struct StreamingView: View {
     @State private var showingHostSession=false
     @State private var showingHealth=false
+    @State private var window: NSWindow?
+    @Environment(\.dismissWindow) private var dismissWindow
     @Bindable private var model: ConnectionModel
     public init(model: ConnectionModel) { self.model = model }
     private var streaming: Bool { model.phase == .streaming }
@@ -97,6 +99,15 @@ public struct StreamingView: View {
             }
         }
         .windowToolbarFullScreenVisibility(.onHover)
+        .background(WindowReader { window=$0 })
+        .fullScreenCommandTarget()
+        // When the stream ends, a full-screen window must not be left showing an empty Space.
+        // A deliberate end closes the window; one that ended with an error stays to show it.
+        .onChange(of:model.phase) { old,new in
+            guard old != new,new == .idle || new == .failed else { return }
+            if model.errorMessage == nil { dismissWindow(id:"stream") }
+            else if let window,window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
+        }
         .onDisappear { if model.hasSession { model.disconnect() } }
     }
 }

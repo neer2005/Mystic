@@ -78,6 +78,13 @@ Work on a `codex/` feature branch. Run relevant checks, commit the completed wor
 
   Not tested: the inline pairing view (no unpaired host was available), Increase
   Contrast (a system setting), Tab order and Full Keyboard Access, and the stream window.
+- 2026-10-31: Full screen. View → Enter Full Screen was missing whenever the stream window
+  was in front, and the Grid/List toggles removed it everywhere. Mystic now owns the
+  item and follows the focused window (see `UI-DESIGN.md`). Checked in the app: one item
+  on Home and the host library, present while streaming, Enter from the menu, the title
+  changing to Exit Full Screen, ⌃⌘F out, and Disconnect from full screen closing the
+  stream window and its Space. Not tested: a stream ending with an error while in full
+  screen, which should leave full screen and keep the window.
 
 ## Review scope
 

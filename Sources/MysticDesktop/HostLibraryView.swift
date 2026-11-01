@@ -41,6 +41,7 @@ public struct HostLibraryView: View {
         .sheet(isPresented:$showingHostSession) { HostSessionView(model:model) }
         .focusedSceneValue(\.libraryMenuActions,menuActions)
         .focusedSceneValue(\.hostSessionAction,canShowHostSession ? { showingHostSession=true } : nil)
+        .fullScreenCommandTarget()
         .frame(minWidth:1000,minHeight:580)
         .task { model.libraryAppeared();await model.prepare() }
         .onChange(of:model.showingHome) { if model.showingHome { Task { await model.homeSync.refresh() } } }
