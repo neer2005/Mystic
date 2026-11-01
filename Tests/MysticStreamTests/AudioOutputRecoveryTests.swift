@@ -14,7 +14,10 @@ final class AudioOutputRecoveryTests: XCTestCase {
     }
     private func player(_ outputs: TestAudioOutputs,_ monitor: TestAudioOutputMonitor,
                         retryDelay: TimeInterval = 0.01,routeDelay: TimeInterval = 0.02) -> AudioPlayer {
-        AudioPlayer(monitor:monitor,makeOutput:{ info,gain,reason,changed in try outputs.make(info:info,gain:gain,reason:reason,changed:changed) },retryDelay:retryDelay,routeDelay:routeDelay)
+        // No real-time concealment timer: these tests are about outputs, and a tick between their
+        // steps on a busy machine would conceal and then skip the packets they read back.
+        AudioPlayer(monitor:monitor,makeOutput:{ info,gain,reason,changed in try outputs.make(info:info,gain:gain,reason:reason,changed:changed) },
+                    retryDelay:retryDelay,routeDelay:routeDelay,concealTimer:false)
     }
     private func wait(_ condition: () -> Bool) async throws {
         for _ in 0..<300 { if condition() { return };try await Task.sleep(for:.milliseconds(5)) }
@@ -40,13 +43,15 @@ final class AudioOutputRecoveryTests: XCTestCase {
         XCTAssertEqual(first.stops,1);XCTAssertEqual(stats.outputDevice,"Headphones")
         XCTAssertEqual(stats.outputSampleRate,44_100);XCTAssertEqual(stats.outputRestarts,1)
         XCTAssertEqual(stats.renderedFrames,rendered)
-        XCTAssertEqual(stats.queuedFrames,0);XCTAssertEqual(stats.discardedOutputFrames,140)
+        // The first packet's lead (992 frames) and the packet, less the 100 read.
+        XCTAssertEqual(stats.queuedFrames,0);XCTAssertEqual(stats.discardedOutputFrames,1132)
         XCTAssertEqual(second.initialGain,0)
+        let lead=992
         packets[1].withUnsafeBytes { player.play($0) }
-        XCTAssertTrue(second.read(240).allSatisfy { $0 == 0 },"Mute must be effective from the first sample after a route change")
+        XCTAssertTrue(second.read(lead+240).allSatisfy { $0 == 0 },"Mute must be effective from the first sample after a route change")
         player.setVolume(0.35,muted:false)
         packets[2].withUnsafeBytes { player.play($0) }
-        XCTAssertTrue(second.read(240).contains { abs($0) > 0.001 })
+        XCTAssertTrue(second.read(lead+240).suffix(480).contains { abs($0) > 0.001 },"after the lead on the emptied queue")
         XCTAssertEqual(player.statistics.decodedPackets,3)
         player.cleanup()
     }
@@ -72,6 +77,7 @@ final class AudioOutputRecoveryTests: XCTestCase {
         packets[5].withUnsafeBytes { player.play($0) }
         var expected: [Float] = []
         try packets[5].withUnsafeBytes { try reference.decode($0) { samples,frames in expected=Array(samples.prefix(frames*2)) } }
+        XCTAssertTrue(output.read(992).allSatisfy { $0 == 0 },"the first packet on the new output is led with silence")
         let actual=output.read(240)
         // The gain transition is complete after 128 frames. Remaining PCM must match
         // a continuously advanced decoder, not a restarted/frozen Opus state.
@@ -146,12 +152,13 @@ final class AudioOutputRecoveryTests: XCTestCase {
         try await wait { outputs.all.count == 3 && player.statistics.outputStatus == .playing }
         let surround=try XCTUnwrap(outputs.all.last)
         XCTAssertEqual(surround.render.channels,8);XCTAssertNil(player.statistics.stereoFallbackReason)
+        let lead=992
         packets[2].withUnsafeBytes { player.play($0) }
-        XCTAssertTrue(surround.read(240).allSatisfy { $0 == 0 })
+        XCTAssertTrue(surround.read(lead+240).allSatisfy { $0 == 0 })
         player.setVolume(0.25,muted:false)
         packets[3].withUnsafeBytes { player.play($0) }
-        let audible=surround.read(240)
-        for channel in 0..<8 { XCTAssertTrue((128..<240).contains { abs(audible[$0*8+channel]) > 0.001 }) }
+        let audible=surround.read(lead+240)
+        for channel in 0..<8 { XCTAssertTrue((lead+128..<lead+240).contains { abs(audible[$0*8+channel]) > 0.001 }) }
         first.changed();try await Task.sleep(for:.milliseconds(35))
         XCTAssertEqual(outputs.attempts,3);XCTAssertEqual(player.statistics.decodedPackets,4)
         XCTAssertEqual(player.statistics.decodeErrors,0)
@@ -193,42 +200,75 @@ private final class TestAudioOutputMonitor: AudioOutputMonitoring,@unchecked Sen
 }
 final class AudioPlayoutTests: XCTestCase {
     private let ms: UInt64=1_000_000
-    func testLatePacketIsConcealedOnceTheRingRunsLowAndSkippedWhenItArrives() {
+    func testAnEmptyQueueIsLedWithSilenceAndALatePacketConcealedOnlyBeforeTheOutputStarves() {
         var playout=AudioPlayout(packetMs:5)
-        XCTAssertEqual(playout.lowWater,480)
+        XCTAssertEqual(playout.lowWater,512,"the output's usual read")
+        XCTAssertEqual(playout.lead,992,"Nightjar's 10 ms past one read")
         XCTAssertEqual(playout.tick(queued:0,nowNanos:50*ms),0,"nothing is concealed before the first packet")
-        XCTAssertTrue(playout.packet(lost:false,nowNanos:0))
+        XCTAssertEqual(playout.packet(lost:false,queued:0,nowNanos:0),.play(lead:992))
         XCTAssertEqual(playout.tick(queued:100,nowNanos:4*ms),0,"not late yet")
-        XCTAssertEqual(playout.tick(queued:600,nowNanos:6*ms),0,"late, but the ring still holds enough")
-        XCTAssertEqual(playout.tick(queued:100,nowNanos:6*ms),2,"fills up to the low-water mark")
-        XCTAssertFalse(playout.packet(lost:false,nowNanos:7*ms))
-        XCTAssertFalse(playout.packet(lost:true,nowNanos:8*ms),"a packet the engine gave up on is owed too")
-        XCTAssertTrue(playout.packet(lost:false,nowNanos:9*ms))
+        XCTAssertEqual(playout.tick(queued:600,nowNanos:6*ms),0,"late, but the next read is covered")
+        XCTAssertEqual(playout.tick(queued:100,nowNanos:6*ms),2,"fills up to one read")
+        XCTAssertEqual(playout.packet(lost:false,queued:580,nowNanos:7*ms),.skip)
+        XCTAssertEqual(playout.packet(lost:true,queued:580,nowNanos:8*ms),.skip,"a packet the engine gave up on is owed too")
+        XCTAssertEqual(playout.packet(lost:false,queued:300,nowNanos:9*ms),.play(lead:0),"a queue that holds audio needs no lead")
         XCTAssertEqual(playout.skipped,2)
+        XCTAssertEqual(playout.packet(lost:false,queued:0,nowNanos:200*ms),.play(lead:992),"ran dry: led again")
     }
     func testConcealmentStopsAfterAHundredMillisecondsAndWhatFollowsIsNew() {
         var playout=AudioPlayout(packetMs:5)
-        _=playout.packet(lost:false,nowNanos:0)
+        _=playout.packet(lost:false,queued:0,nowNanos:0)
         var concealed=0
         for step in 1...40 { concealed += playout.tick(queued:0,nowNanos:UInt64(step)*10*ms) }
         XCTAssertEqual(concealed,20,"100 ms of 5 ms packets")
-        XCTAssertTrue(playout.packet(lost:false,nowNanos:401*ms),"after the outage, packets are new, not late")
+        XCTAssertEqual(playout.packet(lost:false,queued:0,nowNanos:401*ms),.play(lead:992),"after the outage, packets are new, not late")
         XCTAssertEqual(playout.skipped,0)
-        XCTAssertEqual(playout.tick(queued:0,nowNanos:410*ms),2,"a new packet starts a new allowance")
+        XCTAssertEqual(playout.tick(queued:0,nowNanos:410*ms),3,"a new packet starts a new allowance")
     }
-    func testResetForgetsOwedPacketsAndWaitsForAPacket() {
+    func testTheOutputsOwnReadSetsTheMarks() {
         var playout=AudioPlayout(packetMs:10,outputFrames:1024)
-        XCTAssertEqual(playout.lowWater,1024)
-        _=playout.packet(lost:false,nowNanos:0)
+        XCTAssertEqual(playout.lowWater,1024);XCTAssertEqual(playout.lead,1504)
+        _=playout.packet(lost:false,queued:0,nowNanos:0)
         XCTAssertEqual(playout.tick(queued:0,nowNanos:20*ms),3)
         playout.reset()
         XCTAssertEqual(playout.tick(queued:0,nowNanos:40*ms),0)
-        XCTAssertTrue(playout.packet(lost:false,nowNanos:41*ms))
+        XCTAssertEqual(playout.packet(lost:false,queued:0,nowNanos:41*ms),.play(lead:1504),"after a reset the queue is led again")
+    }
+    /// The case behind choppy audio on Wi-Fi: 5 ms packets arriving in order with a few ms of
+    /// jitter, read 512 frames at a time. Concealing below 10 ms with no lead replaced about 12
+    /// packets a second (6 %) with concealment and threw the real ones away.
+    func testOrdinaryWiFiJitterIsNeverConcealed() {
+        var playout=AudioPlayout(packetMs:5)
+        var seed: UInt64=7
+        func uniform() -> Double { seed=seed &* 6364136223846793005 &+ 1442695040888963407;return Double(seed >> 11)/Double(1 << 53) }
+        var arrivals: [Double]=[],previous=0.0
+        for packet in 0..<12_000 {
+            // About 3 ms of jitter, sum of uniforms for a bell shape, never out of order.
+            let jitter=(uniform()+uniform()+uniform())*2
+            previous=max(previous,Double(packet)*5+jitter);arrivals.append(previous)
+        }
+        enum Event { case packet,read,tick }
+        var events: [(Double,Event)]=arrivals.map { ($0,.packet) }
+        events+=stride(from:0.0,to:60_000,by:512.0/48).map { ($0,.read) }
+        events+=stride(from:0.0,to:60_000,by:5.0).map { ($0,.tick) }
+        events.sort { $0.0 < $1.0 }
+        var queued=0,concealed=0,underrun=0
+        for (at,event) in events {
+            let now=UInt64(at*1_000_000)
+            switch event {
+            case .packet:
+                if case let .play(lead)=playout.packet(lost:false,queued:queued,nowNanos:now) { queued=min(2880,queued+lead+240) }
+            case .read: if queued < 512 { underrun+=512-queued;queued=0 } else { queued-=512 }
+            case .tick: let n=playout.tick(queued:queued,nowNanos:now);concealed+=n;queued+=n*240
+            }
+        }
+        XCTAssertEqual(concealed,0,"no real packet was replaced")
+        XCTAssertEqual(underrun,512,"silent only for the read before the first packet arrived")
     }
 }
 
 final class AudioLatePacketTests: XCTestCase {
-    func testThePlayerFillsALatePacketsTimeAndSkipsItOnArrival() throws {
+    func testThePlayerLeadsTheFirstPacketFillsALatePacketsTimeAndSkipsItOnArrival() throws {
         struct Fixture: Decodable { let packets: [Data] }
         let url=try XCTUnwrap(Bundle.module.url(forResource:"audio-stereo",withExtension:"json",subdirectory:"Fixtures"))
         let packets=try JSONDecoder().decode(Fixture.self,from:Data(contentsOf:url)).packets
@@ -238,16 +278,17 @@ final class AudioLatePacketTests: XCTestCase {
         try player.setup(AudioSetupInfo(channelCount:2,channelMask:3,packetDurationMs:5,samplesPerFrame:240));player.start()
         let output=try XCTUnwrap(outputs.all.first)
         packets[0].withUnsafeBytes { player.play($0) }
-        _=output.read(240)
+        XCTAssertEqual(player.statistics.queuedFrames,992+240,"the first packet is led with silence")
+        _=output.read(1032)
         clock.now=6_000_000
         player.concealLatePackets()
         XCTAssertEqual(player.statistics.concealedPackets,2)
-        XCTAssertEqual(player.statistics.queuedFrames,480,"two packets' worth filled the gap")
+        XCTAssertEqual(player.statistics.queuedFrames,680,"two packets' worth covered the next read")
         packets[1].withUnsafeBytes { player.play($0) };packets[2].withUnsafeBytes { player.play($0) }
         packets[3].withUnsafeBytes { player.play($0) }
         let stats=player.statistics
         XCTAssertEqual(stats.skippedLatePackets,2);XCTAssertEqual(stats.decodedPackets,2)
-        XCTAssertEqual(stats.queuedFrames,720,"latency did not grow past the concealment and one packet")
+        XCTAssertEqual(stats.queuedFrames,920,"latency did not grow past the concealment and one packet")
         player.cleanup()
     }
 }
