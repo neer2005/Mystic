@@ -164,6 +164,23 @@ including the ones meant to be windowed, for a reason not yet known, so a window
 - With sync off, shown intervals stop falling on the 8.3 ms steps of the panel, and evenness is no better.
 - Stretches with gaps near 100 ms appear with sync on and off, so sync does not cause them. Their cause is not known.
 
+### TestUFO, the standard moving test
+
+TestUFO on Big Dawg's Desktop, Low Latency, HDR, 3024×1890 at 120 fps negotiated, recommended bitrate, 2026-11-01: two 98-second
+runs of each, one after the other, figures at 90 s. Window state not logged. By eye, the user found Metal with sync off much more jittery than System.
+
+| | Decoded | Enqueued | Dropped by renderer | Shown | Shown every p50 / p95 / p99, ms | Decoded to screen p50, ms |
+| --- | --- | --- | --- | --- | --- | --- |
+| Metal, sync off | 10,501-10,558 | 10,413-10,457 | 2,145-2,204 | 8,199-8,299 | 8.4 / 17 / 19 | 7.7-8.0 |
+| Metal, sync on | 10,528-10,572 | 10,441-10,488 | 3,827-4,121 | 6,310-6,639 | 8.3 / 17 / 17-75 | 43 |
+| System | 10,540-10,667 | 10,423-10,560 | 2,773-4,928 | not reported | not reported | not reported |
+
+- **About 117 fps reached the decoder, and nearly all reached the renderer.** The frames go missing at presentation, not on the network.
+- **With sync on, shown gaps sit on the panel's 8.3 and 16.7 ms steps; with sync off they do not.** This fits the
+  jitter seen with sync off, but sync on has not been watched yet, and the drop counts of Metal and System may not mean the same thing.
+- **Sync on cost about 35 ms here,** against 16 ms on the 60 fps title screen: near the panel's rate, "GPU done to shown" sat at a steady 40 ms,
+  which looks like frames queuing for drawables. The cause is not confirmed.
+
 ## Open problems before Metal can be the default
 
 - **Automatic bitrate** still needs comparing, since these runs used a fixed one.
