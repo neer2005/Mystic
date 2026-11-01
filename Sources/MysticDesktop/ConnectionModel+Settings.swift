@@ -98,6 +98,22 @@ extension ConnectionModel {
         get { settings.value.roamingOnMeteredNetworks ?? false }
         set { settings.update { $0.roamingOnMeteredNetworks=newValue } }
     }
+    public var videoSizing: VideoSizing {
+        get { VideoSizing(rawValue:settings.value.videoSizing ?? "") ?? .fit }
+        set { settings.update { $0.videoSizing=newValue == .fit ? nil : newValue.rawValue } }
+    }
+    public var alignVideoTop: Bool {
+        get { settings.value.alignVideoTop ?? false }
+        set { settings.update { $0.alignVideoTop=newValue } }
+    }
+    public var playAudioOnHost: Bool {
+        get { settings.value.playAudioOnHost ?? false }
+        set { settings.update { $0.playAudioOnHost=newValue } }
+    }
+    public var inputPreferences: InputPreferences {
+        get { settings.value.input ?? InputPreferences() }
+        set { settings.update { $0.input=newValue } }
+    }
     public var adaptiveBitrate: Bool {
         get { settings.value.adaptiveBitrate ?? false }
         set { settings.update { $0.adaptiveBitrate=newValue } }

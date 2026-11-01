@@ -27,6 +27,9 @@ must be investigated and documented before a feature is marked inapplicable.
 | Quick resume / quit on leave | Implemented, live validation pending | Nightjar's policy: quick resume global and off by default; quit on leave per game, only on a leave the player chose; see SESSION.md |
 | Remote Monitor, input-only, co-op | Pending | Explicit roles and permissions |
 | Network profiles, launch shortcuts/CLI | Implemented, live validation pending | Nightjar's command line and `mystic://stream` links (LAUNCHING.md); settings profiles by hand or by network, told by the route rather than the Wi-Fi name (no Location permission); see PROFILES.md |
+| Resolution, frame rate and bitrate choices | Implemented | Native, Display, Recommended, custom sizes and rates, up to 2000 Mbps; 0.5 Mbps not offered; see SETTINGS.md |
+| Video size, play audio on the PC, automatic quality minimums | Implemented, partial live validation | Fit and Native Pixels seen live; see SETTINGS.md |
+| Mouse speed and buttons; controller on/off, Nintendo layout, motion, vibration, dead zone | Implemented, physical validation pending | Nightjar's Controls settings the Mac can apply; automated checks only |
 | Host details/web UI, PIN lock, languages | Partial / pending | Host sidebar exists; full controls and localization pending |
 | Window position memory | Implemented by macOS | AppKit saves each window's frame by scene (`NSWindow Frame stream`, `… library`) and reopens it on the same display, position and size, constrained to the screens present; Nightjar's `window_place.rs` does this by hand |
 | Controller menu navigation | Pending | Nightjar (`console.rs`, `nav_repeat.rs`) drives every screen from a controller |

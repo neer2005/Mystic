@@ -29,6 +29,14 @@ public final class StreamInputCapture {
     @ObservationIgnored private var cursorHidden = false
     @ObservationIgnored private var restorePoint: CGPoint?
     @ObservationIgnored private var skipWarpMotion = false
+    /// Applies at once, during a stream too.
+    @ObservationIgnored var input=InputPreferences() {
+        didSet {
+            guard input != oldValue else { return }
+            controllers?.settings=input
+            if input.controllers != oldValue.controllers { controllers?.setActive(input.controllers && mode != .released) }
+        }
+    }
     /// The host's cursor as the pointer over the video while it sends shapes.
     @ObservationIgnored let hostCursor = HostCursor()
     @ObservationIgnored private(set) var hostCursorOn = false
@@ -92,8 +100,9 @@ public final class StreamInputCapture {
             controllers=StreamControllers(feedbackFailure:failure,send:send,failure: { [weak self] in
                 self?.release();self?.failure("Controller input backlog was full. Control released; click video to resume.")
             })
+            controllers?.settings=input
         }
-        controllers?.setEnabled(true)
+        controllers?.setEnabled(input.controllers)
         guard mode != .released else { return }
         installMonitor(window:window)
     }
@@ -188,6 +197,7 @@ public final class StreamInputCapture {
             if down, view.isVideoPoint(event.locationInWindow) { controlDesktop() }
             return
         }
+        if event.buttonNumber >= 3,!input.mouseNavigationButtons { return }
         if mode == .desktop { position(event,clamp:!down) }
         emit(state.button(event.buttonNumber,down:down))
     }
@@ -196,7 +206,7 @@ public final class StreamInputCapture {
         if mode == .desktop { position(event,clamp:dragged) }
         else {
             if skipWarpMotion { skipWarpMotion = false;return }
-            let (dx,dy) = movement.consume(x:event.deltaX,y:event.deltaY)
+            let (dx,dy) = movement.consume(x:event.deltaX,y:event.deltaY,scale:input.mouseScale)
             if dx != 0 || dy != 0 { emit([.motion(dx:dx,dy:dy)]) }
         }
     }

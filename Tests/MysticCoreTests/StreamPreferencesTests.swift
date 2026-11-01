@@ -5,15 +5,68 @@ import Foundation
 struct StreamPreferencesTests {
     @Test func clampsInvalidStoredValues() {
         var preferences=StreamPreferences()
-        preferences.resolution="999999x1";preferences.fps=0;preferences.bitrateMbps = .max
+        preferences.resolution="999999x1";preferences.fps=501;preferences.bitrateMbps = .max
         preferences.codec="software";preferences.audioLayout="unknown";preferences.volume = .nan
         preferences.libraryLayout="custom";preferences.librarySort="random";preferences.settingsPane="unsupported"
         let validated=preferences.validated()
-        #expect(validated.resolution == "1920x1080" && validated.fps == 60 && validated.bitrateMbps == 150)
+        #expect(validated.resolution == "native" && validated.fps == 0 && validated.bitrateMbps == 2000)
         #expect(validated.codec == "auto" && validated.audioLayout == "stereo" && validated.volume == 0.8)
         #expect(validated.libraryLayout == "grid" && validated.librarySort == "name" && validated.settingsPane == "general")
         preferences.volume = -1;preferences.bitrateMbps = -1
-        #expect(preferences.validated().volume == 0 && preferences.validated().bitrateMbps == 5)
+        #expect(preferences.validated().volume == 0 && preferences.validated().bitrateMbps == 0)
+    }
+    @Test func customSizesAndRatesAreKeptWithinNightjarsBounds() {
+        var preferences=StreamPreferences()
+        preferences.resolution="1234x567";preferences.fps=75;preferences.bitrateMbps=1500
+        var validated=preferences.validated()
+        #expect(validated.resolution == "1234x567" && validated.fps == 75 && validated.bitrateMbps == 1500)
+        for size in ["319x240","320x239","7681x1080","1920x4321","1920","x","1920x","-1x-1"] {
+            preferences.resolution=size
+            #expect(preferences.validated().resolution == "native",Comment(rawValue:size))
+        }
+        preferences.resolution="320x240";preferences.fps=9;preferences.qualityMinShortEdge=1;preferences.qualityMinFps=999
+        validated=preferences.validated()
+        #expect(validated.resolution == "320x240" && validated.fps == 0)
+        #expect(validated.qualityMinShortEdge == 256 && validated.qualityMinFps == 240)
+    }
+    @Test func nativeDisplayAndRecommendedSettleFromTheScreen() {
+        let video=StreamVideoSettings()
+        #expect(video.resolution == "native" && video.fps == 0 && video.bitrateMbps == 0)
+        let laptop=video.mode(displayPixels:(3024,1964),displayHertz:119.88)
+        #expect(laptop.width == 3024 && laptop.height == 1964 && laptop.fps == 120)
+        #expect(laptop.bitrateKbps == StreamMode.recommendedKbps(width:3024,height:1964,fps:120))
+        let unknown=video.mode(displayPixels:nil,displayHertz:nil)
+        #expect(unknown.width == 1920 && unknown.height == 1080 && unknown.fps == 60 && unknown.bitrateKbps == 20_000)
+        let huge=video.mode(displayPixels:(10240,4320),displayHertz:1000)
+        #expect(huge.width == 7680 && huge.height == 3240 && huge.fps == 500)
+        var fixed=video;fixed.resolution="1280x720";fixed.fps=90;fixed.bitrateMbps=33
+        let chosen=fixed.mode(displayPixels:(3024,1964),displayHertz:120)
+        #expect(chosen.width == 1280 && chosen.height == 720 && chosen.fps == 90 && chosen.bitrateKbps == 33_000)
+    }
+    @Test func recommendedBitrateFollowsNightjarsCurve() {
+        #expect(StreamMode.recommendedKbps(width:1920,height:1080,fps:60) == 20_000)
+        #expect(StreamMode.recommendedKbps(width:1920,height:1080,fps:30) == 10_000)
+        #expect(StreamMode.recommendedKbps(width:1920,height:1080,fps:240) == 40_000)
+        #expect(StreamMode.recommendedKbps(width:640,height:360,fps:30) == 2_000)
+        #expect(StreamMode.recommendedKbps(width:7680,height:4320,fps:240) == 150_000)
+    }
+    @Test func videoSizingPlacesThePicture() {
+        let view=CGRect(x:0,y:0,width:1000,height:1000),video=CGSize(width:2000,height:1000)
+        #expect(VideoSizing.fit.rect(video:video,in:view) == CGRect(x:0,y:250,width:1000,height:500))
+        #expect(VideoSizing.fit.rect(video:video,in:view,alignTop:true) == CGRect(x:0,y:500,width:1000,height:500))
+        #expect(VideoSizing.fill.rect(video:video,in:view,alignTop:true) == CGRect(x:-500,y:0,width:2000,height:1000))
+        #expect(VideoSizing.stretch.rect(video:video,in:view) == view)
+        #expect(VideoSizing.native.rect(video:video,in:view,pixelsPerPoint:2) == CGRect(x:0,y:250,width:1000,height:500))
+        #expect(VideoSizing.native.rect(video:video,in:view,pixelsPerPoint:1,alignTop:true) == CGRect(x:-500,y:0,width:2000,height:1000))
+        #expect(VideoSizing.fit.rect(video:.zero,in:view).isEmpty)
+    }
+    @Test func inputPreferencesDefaultAndClamp() throws {
+        var input=try JSONDecoder().decode(InputPreferences.self,from:Data("{}".utf8))
+        #expect(input == InputPreferences() && input.mouseScale == 1 && input.stickDeadZone == 0.12)
+        input.mouseSpeedPercent=1;input.stickDeadZonePercent=99
+        #expect(input.validated().mouseSpeedPercent == 25 && input.validated().stickDeadZonePercent == 50)
+        var preferences=StreamPreferences();preferences.input=input
+        #expect(preferences.validated().input?.mouseSpeedPercent == 25)
     }
     @Test func networkSettingsDefaultAndRejectUnknownValues() throws {
         let old=try JSONDecoder().decode(StreamPreferences.self,from:Data(#"{"resolution":"1920x1080","fps":60,"bitrateMbps":20,"codec":"auto","hdr":false,"audioLayout":"stereo","volume":0.8,"muted":false,"showLatencyHUD":false,"libraryLayout":"grid","librarySort":"name","discoveryEnabled":true,"settingsPane":"general"}"#.utf8))

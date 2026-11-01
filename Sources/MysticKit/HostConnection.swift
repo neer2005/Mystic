@@ -41,6 +41,8 @@ public struct LaunchOptions: Codable, Sendable {
     public var gamepadMask: UInt16 = 0
     public var resumeOnly = false
     public var clipboardSync = false
+    /// The PC's speakers keep playing too.
+    public var playLocalAudio = false
     /// -1 the host's error correction, -2 automatic, otherwise a percentage; only hosts that
     /// offer client error correction receive it.
     public var fec: Int16 = -1

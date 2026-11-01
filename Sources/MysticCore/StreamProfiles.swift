@@ -11,6 +11,9 @@ public struct StreamVideoSettings: Codable, Equatable, Sendable {
     public var adaptiveBitrate: Bool
     /// Missing in older documents; off.
     public var automaticQuality: AutomaticQuality
+    /// Missing in older documents; Nightjar's 720 lines and 30 fps.
+    public var qualityMinShortEdge: UInt32
+    public var qualityMinFps: UInt32
     public init(preferences: StreamPreferences = StreamPreferences()) {
         let value=preferences.validated()
         resolution=value.resolution;fps=value.fps;bitrateMbps=value.bitrateMbps
@@ -18,8 +21,10 @@ public struct StreamVideoSettings: Codable, Equatable, Sendable {
         framePacing=FramePacingMode(rawValue:value.framePacing ?? "") ?? .lowLatency
         adaptiveBitrate=value.adaptiveBitrate ?? false
         automaticQuality=AutomaticQuality(rawValue:value.automaticQuality ?? "") ?? .off
+        qualityMinShortEdge=value.qualityMinShortEdge ?? 720
+        qualityMinFps=value.qualityMinFps ?? 30
     }
-    private enum CodingKeys: String, CodingKey { case resolution,fps,bitrateMbps,codec,hdr,framePacing,adaptiveBitrate,automaticQuality }
+    private enum CodingKeys: String, CodingKey { case resolution,fps,bitrateMbps,codec,hdr,framePacing,adaptiveBitrate,automaticQuality,qualityMinShortEdge,qualityMinFps }
     public init(from decoder: any Decoder) throws {
         let c=try decoder.container(keyedBy:CodingKeys.self)
         resolution=try c.decode(String.self,forKey:.resolution);fps=try c.decode(UInt32.self,forKey:.fps)
@@ -27,10 +32,45 @@ public struct StreamVideoSettings: Codable, Equatable, Sendable {
         hdr=try c.decode(Bool.self,forKey:.hdr);framePacing=try c.decode(FramePacingMode.self,forKey:.framePacing)
         adaptiveBitrate=try c.decode(Bool.self,forKey:.adaptiveBitrate)
         automaticQuality=try c.decodeIfPresent(AutomaticQuality.self,forKey:.automaticQuality) ?? .off
+        qualityMinShortEdge=try c.decodeIfPresent(UInt32.self,forKey:.qualityMinShortEdge) ?? 720
+        qualityMinFps=try c.decodeIfPresent(UInt32.self,forKey:.qualityMinFps) ?? 30
+    }
+    /// What a stream asks the host for: Native and Display from this Mac's screen, read once at
+    /// launch, and the recommended bitrate from the size and rate.
+    public func mode(displayPixels: (width: UInt32,height: UInt32)?,displayHertz: Double?) -> StreamMode {
+        let size=StreamPreferences.size(resolution) ?? StreamMode.fitted(displayPixels)
+        let hertz=displayHertz.flatMap { $0.isFinite && $0 > 0 ? $0.rounded() : nil } ?? 60
+        let range=StreamPreferences.customFrameRates
+        let rate=fps == StreamPreferences.displayFrameRate ? UInt32(min(Double(range.upperBound),max(Double(range.lowerBound),hertz))) : fps
+        let kbps=bitrateMbps == StreamPreferences.recommendedBitrate ? StreamMode.recommendedKbps(width:size.width,height:size.height,fps:rate) : bitrateMbps*1000
+        return StreamMode(width:size.width,height:size.height,fps:rate,bitrateKbps:kbps)
     }
     public func validated() -> Self {
         var preferences=StreamPreferences();preferences.videoSettings=self
         return Self(preferences:preferences)
+    }
+}
+
+/// A stream's settled size, rate and bitrate.
+public struct StreamMode: Equatable, Sendable {
+    public let width: UInt32
+    public let height: UInt32
+    public let fps: UInt32
+    public let bitrateKbps: Int32
+    /// Nightjar's `default_bitrate_kbps`, from moonlight-qt: 20 Mbps at 1080p60, linear in
+    /// pixels, with rates above 60 counting for less.
+    public static func recommendedKbps(width: UInt32,height: UInt32,fps: UInt32) -> Int32 {
+        let rate=Double(max(fps,1))/60,pixels=Double(max(width,1))*Double(max(height,1))
+        let kbps=20_000*pixels/(1920*1080)*(rate <= 1 ? rate : rate.squareRoot())
+        return Int32(min(150_000,max(2_000,kbps.rounded())))
+    }
+    /// A display's size within what a stream takes, keeping its shape; 1080p when unknown.
+    static func fitted(_ pixels: (width: UInt32,height: UInt32)?) -> (width: UInt32,height: UInt32) {
+        guard let pixels,pixels.width > 0,pixels.height > 0 else { return (1920,1080) }
+        let scale=min(1,Double(StreamPreferences.customWidths.upperBound)/Double(pixels.width),
+                      Double(StreamPreferences.customHeights.upperBound)/Double(pixels.height))
+        func even(_ value: UInt32) -> UInt32 { UInt32((Double(value)*scale/2).rounded(.down))*2 }
+        return (max(StreamPreferences.customWidths.lowerBound,even(pixels.width)),max(StreamPreferences.customHeights.lowerBound,even(pixels.height)))
     }
 }
 
@@ -42,6 +82,8 @@ extension StreamPreferences {
             codec=newValue.codec;hdr=newValue.hdr;framePacing=newValue.framePacing.rawValue
             adaptiveBitrate=newValue.adaptiveBitrate
             automaticQuality=newValue.automaticQuality == .off ? nil : newValue.automaticQuality.rawValue
+            qualityMinShortEdge=newValue.qualityMinShortEdge == 720 ? nil : newValue.qualityMinShortEdge
+            qualityMinFps=newValue.qualityMinFps == 30 ? nil : newValue.qualityMinFps
         }
     }
 }

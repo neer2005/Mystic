@@ -39,7 +39,7 @@ struct StreamProfilesTests {
     }
     @Test func roundTripValidatesValuesAndKeepsScopesSeparate() throws {
         var catalog=StreamProfileCatalog(),video=StreamVideoSettings()
-        video.resolution="unsupported";video.fps=500;video.bitrateMbps=1000;video.codec="invalid"
+        video.resolution="unsupported";video.fps=999;video.bitrateMbps=9000;video.codec="invalid"
         video.hdr=true;video.framePacing = .balanced;video.adaptiveBitrate=true
         try catalog.setHost(video,host:"PC")
         try catalog.setGame(source:.custom,video:video,host:"PC",game:"Game")
@@ -47,8 +47,8 @@ struct StreamProfilesTests {
         let restored=try StreamProfileCatalog(data:catalog.encoded())
         #expect(restored == catalog)
         let result=restored.video(defaults:StreamVideoSettings(),host:"PC",game:"Game")
-        #expect(result.resolution == "1920x1080");#expect(result.fps == 60)
-        #expect(result.bitrateMbps == 150);#expect(result.codec == "auto")
+        #expect(result.resolution == "native");#expect(result.fps == 0)
+        #expect(result.bitrateMbps == 2000);#expect(result.codec == "auto")
         #expect(result.hdr);#expect(result.framePacing == .balanced);#expect(result.adaptiveBitrate)
         #expect(restored.source(host:"PC",game:"Global game") == .global)
     }

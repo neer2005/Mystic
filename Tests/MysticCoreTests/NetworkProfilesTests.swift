@@ -27,7 +27,7 @@ struct NetworkProfilesTests {
         let travel=VideoOverrides(resolution:"1920x1080",bitrateMbps:15)
         let applied=travel.apply(to:video)
         #expect(applied.resolution == "1920x1080" && applied.bitrateMbps == 15 && applied.fps == 120 && applied.hdr)
-        #expect(VideoOverrides(bitrateMbps:900).apply(to:video).bitrateMbps == 150,"clamped as any setting")
+        #expect(VideoOverrides(bitrateMbps:9000).apply(to:video).bitrateMbps == 2000,"clamped as any setting")
         #expect(travel.summary == "1920 × 1080 · 15 Mbps" && VideoOverrides().summary == "no changes")
     }
     @Test func theRouteDecidesTheKind() {

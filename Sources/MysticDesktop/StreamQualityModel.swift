@@ -13,6 +13,8 @@ public final class StreamQualityModel {
     /// The size and rate automatic quality last saw on screen; nil at the stream's own.
     public private(set) var current: (width: UInt32,height: UInt32,fpsMilliHz: UInt32)?
     @ObservationIgnored private var mode: AutomaticQuality = .off
+    @ObservationIgnored private var minShortEdge: UInt32=720
+    @ObservationIgnored private var minFps: UInt32=30
     @ObservationIgnored private var started=false
     @ObservationIgnored private var finished=false
     @ObservationIgnored private unowned let model: ConnectionModel
@@ -20,8 +22,8 @@ public final class StreamQualityModel {
     init(model: ConnectionModel) { self.model=model }
 
     /// Before each launch attempt: the ladder starts again at the stream's own size.
-    func prepare(_ mode: AutomaticQuality) {
-        self.mode=mode;started=false;finished=mode == .off;current=nil
+    func prepare(_ mode: AutomaticQuality,minShortEdge: UInt32 = 720,minFps: UInt32 = 30) {
+        self.mode=mode;self.minShortEdge=minShortEdge;self.minFps=minFps;started=false;finished=mode == .off;current=nil
         status=mode == .off ? "Automatic quality off" : "Automatic quality (\(mode.label.lowercased())): waiting for video…"
     }
     func reset() { prepare(.off) }
@@ -31,7 +33,7 @@ public final class StreamQualityModel {
         let token=model.generation
         if !started {
             started=true
-            switch await session.qualityBegin(mode) {
+            switch await session.qualityBegin(mode,minShortEdge:minShortEdge,minFps:minFps) {
             case true?: status="Automatic quality (\(mode.label.lowercased())): at the stream's own size"
             case false?: finish("Automatic quality unavailable: this host does not accept size changes during a stream.")
             case nil: finish("Automatic quality could not start for this stream.")

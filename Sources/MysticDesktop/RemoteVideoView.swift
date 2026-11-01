@@ -12,7 +12,7 @@ final class RemoteVideoView: NSView {
     init(presenter: DisplayLayerPresenter,capture: StreamInputCapture?) {
         self.presenter = presenter;self.capture = capture
         super.init(frame:.zero)
-        wantsLayer = true;layer?.backgroundColor = NSColor.black.cgColor
+        wantsLayer = true;layer?.backgroundColor = NSColor.black.cgColor;layer?.masksToBounds = true
         layer?.addSublayer(presenter.layer)
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
@@ -50,6 +50,7 @@ final class RemoteVideoView: NSView {
     }
     private func updateDisplay() {
         let screen=window?.screen
+        needsLayout = true
         presenter.updateDisplay(name:screen?.localizedName,
             currentHeadroom:screen.map { Double($0.maximumExtendedDynamicRangeColorComponentValue) },
             potentialHeadroom:screen.map { Double($0.maximumPotentialExtendedDynamicRangeColorComponentValue) })
@@ -71,7 +72,7 @@ final class RemoteVideoView: NSView {
         }
     }
     func disconnectInput() { capture?.detach(self);stopObservingDisplay();presenter.updateDisplay(name:nil,currentHeadroom:nil,potentialHeadroom:nil) }
-    override func layout() { super.layout();presenter.layer.frame = bounds }
+    override func layout() { super.layout();presenter.layout(in:bounds,pixelsPerPoint:window?.backingScaleFactor ?? 1) }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }

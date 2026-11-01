@@ -20,9 +20,9 @@ struct GameVideoPreferencesView: View {
             LabeledContent("Stream",value:Self.summary(video))
             DisclosureGroup("Details") {
                 LabeledContent("Resolution",value:StreamPreferences.resolutionLabel(video.resolution))
-                LabeledContent("Frame Rate",value:"\(video.fps) fps")
+                LabeledContent("Frame Rate",value:StreamPreferences.frameRateLabel(video.fps))
                 LabeledContent("Codec",value:Self.codec(video))
-                LabeledContent("Bitrate",value:"\(video.bitrateMbps) Mbps\(video.adaptiveBitrate ? " maximum · automatic" : "")")
+                LabeledContent("Bitrate",value:"\(StreamPreferences.bitrateLabel(video.bitrateMbps))\(video.adaptiveBitrate ? " maximum · automatic" : "")")
                 LabeledContent("HDR",value:video.hdr ? "On" : "Off")
                 LabeledContent("Frame Pacing",value:video.framePacing.label)
                 Text(model.gameVideoSource == .global ? "Follows Settings → Video, including future changes." :
@@ -40,7 +40,7 @@ struct GameVideoPreferencesView: View {
     static func codec(_ video: StreamVideoSettings) -> String { video.codec == "auto" ? "Automatic" : video.codec == "h264" ? "H.264" : video.codec.uppercased() }
     /// For example "3024 × 1890 · 120 fps · HEVC · HDR".
     static func summary(_ video: StreamVideoSettings) -> String {
-        [StreamPreferences.resolutionLabel(video.resolution),"\(video.fps) fps",video.codec == "auto" ? "Auto codec" : codec(video),video.hdr ? "HDR" : "SDR"]
+        [StreamPreferences.resolutionLabel(video.resolution),StreamPreferences.frameRateLabel(video.fps),video.codec == "auto" ? "Auto codec" : codec(video),video.hdr ? "HDR" : "SDR"]
             .joined(separator:" · ")
     }
 }

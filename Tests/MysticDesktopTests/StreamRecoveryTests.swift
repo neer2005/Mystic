@@ -112,6 +112,7 @@ final class StreamRecoveryTests: XCTestCase {
         let host=RecoveryHost(),sessions=RecoverySessions()
         nonisolated(unsafe) var vpn=false
         let model=try await connected(host,sessions) { model in
+            model.settings.update { $0.resolution="1920x1080" }
             model.lookUpRoute={ _,_ in NetworkRoute.Report(route:NetworkRoute(wireless:false,linkMbps:1000,source:"route"),vpn:vpn,interface:vpn ? "utun4" : "en0") }
             model.networkProfiles.update { profiles in
                 let cable=try profiles.create(name:"Cable",overrides:VideoOverrides(bitrateMbps:40))
@@ -572,6 +573,38 @@ final class StreamRecoveryTests: XCTestCase {
         XCTAssertEqual(DisplayRefresh.x100(.nan),0)
         XCTAssertEqual(DisplayRefresh.x100(119.88),11988)
     }
+    func testNativeDisplayAndRecommendedSettleAtLaunch() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        let model=try await running(host,sessions,RecoveryClock(),configure:{
+            $0.settings.update { $0.resolution="native";$0.fps=0;$0.bitrateMbps=0;$0.playAudioOnHost=true }
+            $0.launchDisplayPixels={ (2560,1440) };$0.launchRefreshRate={ 119.88 }
+        })
+        let launch=try XCTUnwrap(host.launches.last),configuration=try XCTUnwrap(sessions.all[0].configuration)
+        XCTAssertEqual(launch.width,2560);XCTAssertEqual(launch.height,1440);XCTAssertEqual(launch.fps,120)
+        XCTAssertTrue(launch.playLocalAudio)
+        XCTAssertEqual(configuration.width,2560);XCTAssertEqual(configuration.fps,120)
+        XCTAssertEqual(configuration.bitrateKbps,StreamMode.recommendedKbps(width:2560,height:1440,fps:120))
+        model.disconnect()
+    }
+    func testAutomaticQualityStartsAtTheChosenMinimums() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        let model=try await running(host,sessions,RecoveryClock(),configure:{
+            var video=$0.settings.value.videoSettings
+            video.automaticQuality = .motion;video.qualityMinShortEdge=480;video.qualityMinFps=45
+            $0.settings.update { $0.videoSettings=video }
+        })
+        XCTAssertEqual(model.plan?.qualityMinShortEdge,480);XCTAssertEqual(model.plan?.qualityMinFps,45)
+        model.disconnect()
+    }
+    func testControllersOffLeavesTheLaunchWithoutPadsAndSettingsReachTheCapture() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        let model=try await running(host,sessions,RecoveryClock(),configure:{ $0.inputPreferences.controllers=false })
+        XCTAssertEqual(host.launches.last?.gamepadMask,0)
+        XCTAssertEqual(model.inputCapture?.input.controllers,false)
+        model.inputPreferences.mouseSpeedPercent=200;model.videoSizing = .fill;model.applyLiveSettings()
+        XCTAssertEqual(model.inputCapture?.input.mouseSpeedPercent,200)
+        model.disconnect()
+    }
     private func running(_ host: RecoveryHost,_ sessions: RecoverySessions,_ clock: RecoveryClock,
                          reconnect: Bool = true,adaptive: Bool = false,pacing: FramePacingMode = .lowLatency,
                          configure: (ConnectionModel) -> Void = { _ in }) async throws -> ConnectionModel {
@@ -580,6 +613,7 @@ final class StreamRecoveryTests: XCTestCase {
         model.nowMillis={ clock.now }
         model.sleepForRecovery={ delay in clock.advance(delay);await Task.yield() }
         model.automaticReconnect=reconnect;model.adaptiveBitrate=adaptive;model.framePacing=pacing
+        model.settings.update { $0.resolution="1920x1080";$0.fps=60;$0.bitrateMbps=20 }
         await model.prepare()
         guard model.capabilities?.supportedFormats ?? 0 != 0 else { throw XCTSkip("No hardware video decoder") }
         model.address="127.0.0.1";model.connect()
@@ -638,7 +672,7 @@ private final class RecoverySession: StreamSessionService, @unchecked Sendable {
     var qualityModes:[AutomaticQuality] { lock.withLock { modes } }
     var qualityTicks:Int { lock.withLock { tickCount } }
     func queueQualityTick(_ tick:QualityTick) { lock.withLock { queuedTicks.append(tick) } }
-    func qualityBegin(_ mode:AutomaticQuality) async -> Bool? { lock.withLock { modes.append(mode) };return !qualityUnsupported }
+    func qualityBegin(_ mode:AutomaticQuality,minShortEdge:UInt32,minFps:UInt32) async -> Bool? { lock.withLock { modes.append(mode) };return !qualityUnsupported }
     func qualityTick(decodedWidth:UInt32,decodedHeight:UInt32,suspended:Bool) async -> QualityTick? {
         lock.withLock { tickCount+=1;return queuedTicks.isEmpty ? QualityTick(state:.hold) : queuedTicks.removeFirst() }
     }

@@ -137,7 +137,7 @@ DualSense or Xbox controller in macOS first. Up to 16 extended-profile controlle
 are forwarded, as Nightjar; the engine folds them to four for hosts that take no more
 (GameStream). Each has positional A/B/X/Y face buttons (Cross/Circle/Square/Triangle on
 PlayStation), d-pad, shoulders, stick clicks, Menu/Options, analog triggers, and both
-sticks. Sticks use a radial 12% dead zone rescaled to full travel; triggers use 0–255.
+sticks. Sticks use a radial dead zone (12% unless changed in Settings → Controls) rescaled to full travel; triggers use 0–255.
 Where the controller has them, Guide/Home, the touchpad click (DualSense, DualShock 4),
 Share and paddles 1–4 (Xbox) are forwarded too; Guide and Share stop opening the Mac's
 own overlays while the stream has input. Touchpad contacts and DualSense adaptive
