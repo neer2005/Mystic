@@ -168,7 +168,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
         let format=VideoLayerFormat(image:image)
         if format != lastFormat { configure(format,image:image);lastFormat=format }
         if slot.offer(RenderFrame(image:image,time:CMSampleBufferGetPresentationTimeStamp(sample),
-                                  readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 })) {
+                                  readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime())) {
             let target=UnsafeLayer(layer:layer),drawer=drawer,clock=clock,slot=slot
             renderQueue.async { Self.drain(target,drawer,clock,slot) }
         }
@@ -180,10 +180,20 @@ final class MetalPresentationReceiver: PresentationReceiver {
             // A timeout is a frame missed, not a failed stream.
             guard let drawable=target.layer.nextDrawable() else { slot.discardWaiting();continue }
             guard let frame=slot.take() else { continue }
+            let picked=CACurrentMediaTime()
             guard let commands=drawer.queue.makeCommandBuffer() else { slot.countMissed();continue }
             do {
                 try drawer.encode(frame.image,to:drawable.texture,commands:commands)
-                drawable.addPresentedHandler { if $0.presentedTime == 0 { slot.countMissed() } else { slot.recordShown(seconds:$0.presentedTime,ready:frame.readySeconds) } }
+                let times=FrameTimes()
+                commands.addCompletedHandler { _ in times.set(CACurrentMediaTime()) }
+                drawable.addPresentedHandler { [committed=CACurrentMediaTime()] in
+                    if $0.presentedTime == 0 { slot.countMissed();return }
+                    slot.recordShown(seconds:$0.presentedTime,ready:frame.readySeconds)
+                    guard let ready=frame.readySeconds,let completed=times.get() else { return }
+                    func micros(_ from: CFTimeInterval,_ to: CFTimeInterval) -> Int64 { Int64((to-from)*1_000_000) }
+                    slot.recordStages(PresentationStages(toEnqueue:micros(ready,frame.enqueuedSeconds),forDrawable:micros(frame.enqueuedSeconds,picked),
+                        encode:micros(picked,committed),gpu:micros(committed,completed),toScreen:micros(completed,$0.presentedTime)))
+                }
                 let wait=CMTimeGetSeconds(CMTimeSubtract(frame.time,clock()))
                 if wait.isFinite,wait > 0.001 { commands.present(drawable,atTime:CACurrentMediaTime()+wait) }
                 else { commands.present(drawable) }
@@ -241,7 +251,13 @@ final class MetalTimeline: @unchecked Sendable {
     func now() -> CMTime { lock.lock();defer { lock.unlock() };return CMTimeSubtract(clock(),origin) }
 }
 
-private struct RenderFrame: @unchecked Sendable { let image: CVPixelBuffer;let time: CMTime;let readySeconds: CFTimeInterval? }
+private struct RenderFrame: @unchecked Sendable { let image: CVPixelBuffer;let time: CMTime;let readySeconds: CFTimeInterval?;let enqueuedSeconds: CFTimeInterval }
+/// When the GPU finished, from one Metal callback to the next.
+private final class FrameTimes: @unchecked Sendable {
+    private let lock=NSLock();private var completed: CFTimeInterval?
+    func set(_ value: CFTimeInterval) { lock.lock();defer { lock.unlock() };completed=value }
+    func get() -> CFTimeInterval? { lock.lock();defer { lock.unlock() };return completed }
+}
 /// CAMetalLayer's nextDrawable is meant to be called off the main thread.
 private struct UnsafeLayer: @unchecked Sendable { let layer: CAMetalLayer }
 
@@ -278,6 +294,7 @@ final class MetalFrameSlot<Frame>: @unchecked Sendable {
         lock.lock();defer { lock.unlock() }
         shown.record(presentedMicros:Int64(seconds*1_000_000),readyToShownMicros:ready.map { Int64((seconds-$0)*1_000_000) })
     }
+    func recordStages(_ stages: PresentationStages) { lock.lock();defer { lock.unlock() };shown.record(stages:stages) }
     var cadence: ShownCadence { lock.lock();defer { lock.unlock() };return shown }
     var missed: UInt64 { lock.lock();defer { lock.unlock() };return missedCount }
     func fail(_ error: any Error) { lock.lock();defer { lock.unlock() };failure=error }

@@ -123,6 +123,14 @@ public struct PresentClock: Sendable {
     private static func ceilingDivide(_ a: Int64,_ b: Int64) -> Int64 { floorDivide(a+b-1,b) }
 }
 
+/// Where a frame's time went between the decoder finishing it and the system reporting it shown.
+public struct PresentationStages: Sendable, Equatable {
+    public var toEnqueue: Int64,forDrawable: Int64,encode: Int64,gpu: Int64,toScreen: Int64
+    public init(toEnqueue: Int64,forDrawable: Int64,encode: Int64,gpu: Int64,toScreen: Int64) {
+        self.toEnqueue=toEnqueue;self.forDrawable=forDrawable;self.encode=encode;self.gpu=gpu;self.toScreen=toScreen
+    }
+}
+
 /// How far apart frames really reached the screen, from the renderer's own present times.
 public struct ShownCadence: Sendable, Equatable {
     private var intervals: [Int64]=[]
@@ -130,6 +138,8 @@ public struct ShownCadence: Sendable, Equatable {
     private var last: Int64?
     private var delays: [Int64]=[]
     private var nextDelay=0
+    private var stages: [PresentationStages]=[]
+    private var nextStages=0
     public private(set) var shown: UInt64=0
     public init() {}
     /// `readyToShownMicros`: from the decoder finishing the frame to the screen, when known.
@@ -152,6 +162,19 @@ public struct ShownCadence: Sendable, Equatable {
         let sorted=intervals.sorted()
         func at(_ percent: Int) -> Int64 { sorted[(sorted.count-1)*percent/100] }
         return (at(50),at(95),at(99))
+    }
+    public mutating func record(stages value: PresentationStages) {
+        if stages.count < 512 { stages.append(value) } else { stages[nextStages]=value }
+        nextStages=(nextStages+1)%512
+    }
+    /// Each stage's median and 95th percentile, by name, in order.
+    public var stageSummary: [(name: String,p50: Int64,p95: Int64)] {
+        guard !stages.isEmpty else { return [] }
+        let columns: [(String,KeyPath<PresentationStages,Int64>)]=[("to enqueue",\.toEnqueue),("for drawable",\.forDrawable),("encode",\.encode),("GPU",\.gpu),("to screen",\.toScreen)]
+        return columns.map { name,path in
+            let sorted=stages.map { $0[keyPath:path] }.sorted()
+            return (name,sorted[(sorted.count-1)/2],sorted[(sorted.count-1)*95/100])
+        }
     }
     /// Median and 95th percentile of recent decoded-to-screen times: what a pacing costs in delay.
     public var readyToShown: (p50: Int64,p95: Int64)? {

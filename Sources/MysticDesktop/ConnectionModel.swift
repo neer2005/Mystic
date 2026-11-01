@@ -884,6 +884,7 @@ public final class ConnectionModel {
         if let shown=presentation.cadence.summary {
             line+=", shown \(presentation.cadence.shown) every \(shown.p50)/\(shown.p95)/\(shown.p99) us, uneven \(Int((presentation.cadence.unevenShare ?? 0)*100))%"
             if let delay=presentation.cadence.readyToShown { line+=", decoded to screen \(delay.p50)/\(delay.p95) us" }
+            for stage in presentation.cadence.stageSummary { line+=", \(stage.name) \(stage.p50)/\(stage.p95)" }
         }
         sessionLog?.write(line)
     }
