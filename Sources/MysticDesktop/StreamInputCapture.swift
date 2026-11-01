@@ -33,6 +33,14 @@ public final class StreamInputCapture {
     @ObservationIgnored let hostCursor = HostCursor()
     @ObservationIgnored private(set) var hostCursorOn = false
     @ObservationIgnored private var hostCursorWarned = false
+    /// Text that came without a key (the emoji picker, dictation) while the stream runs.
+    @ObservationIgnored var insertText: ((String) -> Void)?
+    /// Takes inserted text: only printable text, and only while a stream accepts input. Keys
+    /// never reach the text system, so nothing here echoes a key already sent.
+    func insert(_ text: String) {
+        guard available,!text.isEmpty,!text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else { return }
+        insertText?(text)
+    }
     /// Desktop control draws the host's cursor; the host has left it out of the video.
     var drawsHostCursor: Bool { hostCursorOn && mode == .desktop }
 

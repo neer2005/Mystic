@@ -44,6 +44,11 @@ public struct StreamingView: View {
             .help(model.clipboardStatus)
             .disabled(!streaming)
         }.defaultCustomization(.hidden)
+        ToolbarItem(id:"shortcuts") {
+            Menu { ShortcutMenuItems(model:model) } label: { Label("Send Shortcut",systemImage:"command") }
+                .help("Send a saved key shortcut to the host")
+                .disabled(!streaming)
+        }.defaultCustomization(.hidden)
         ToolbarItem(id:"health") {
             Button("Stream Health",systemImage:"stethoscope",action:showHealth)
                 .disabled(!streaming)

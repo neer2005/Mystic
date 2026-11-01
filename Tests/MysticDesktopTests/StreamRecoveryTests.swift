@@ -53,6 +53,46 @@ final class StreamRecoveryTests: XCTestCase {
         try await Task.sleep(for:.milliseconds(20))
         XCTAssertEqual(plain.hostBitrateCalls,["on 20000"],"nothing to turn off")
     }
+    func testTheLayoutGoesAtStartAndOnChangeAndInsertedTextReachesTheHost() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        host.keyboardExtras=true
+        let german=KeyboardLayoutReport(source:.windows,klid:0x407,tag:"00000407")
+        nonisolated(unsafe) var layout:KeyboardLayoutReport?=german
+        let model=try await running(host,sessions,RecoveryClock(),configure:{ $0.currentKeyboardLayout={ layout } })
+        let session=sessions.all[0]
+        try await wait { session.layouts == [german] && session.textFieldRequests == 1 }
+        // The user switches layouts: the new one goes, and the same one never goes twice.
+        layout=KeyboardLayoutReport(source:.bcp47,klid:0,tag:"fr")
+        DistributedNotificationCenter.default().post(name:Notification.Name("com.apple.Carbon.TISNotifySelectedKeyboardInputSourceChanged"),object:nil)
+        try await wait { session.layouts.count == 2 }
+        XCTAssertEqual(session.layouts.last?.tag,"fr")
+        let capture=try XCTUnwrap(model.inputCapture)
+        capture.insert("😀");capture.insert("\n");capture.insert("")
+        try await wait { session.sentTexts == ["😀"] }
+        session.textResult = .noField
+        capture.insert("é");capture.insert("ü")
+        try await wait { model.diagnostics.contains { $0.contains("only to a text field focused on the host") } }
+        XCTAssertEqual(model.diagnostics.filter { $0.contains("text field focused") }.count,1,"said once")
+        model.disconnect()
+        // A host that takes neither is never asked.
+        let plain=RecoveryHost(),plainSessions=RecoverySessions()
+        let other=try await running(plain,plainSessions,RecoveryClock(),configure:{ $0.currentKeyboardLayout={ german } })
+        try await Task.sleep(for:.milliseconds(30))
+        XCTAssertEqual(plainSessions.all[0].layouts,[]);XCTAssertEqual(plainSessions.all[0].textFieldRequests,0)
+        other.disconnect()
+    }
+    func testASavedShortcutIsPressedAndReleasedOnTheHost() async throws {
+        let sessions=RecoverySessions()
+        let model=try await running(RecoveryHost(),sessions,RecoveryClock())
+        model.shortcuts.save(name:"Task View",chord:"WIN + TAB")
+        let shortcut=try XCTUnwrap(model.shortcuts.shortcuts.data.first)
+        model.sendShortcut(shortcut)
+        XCTAssertEqual(sessions.all[0].sentInput.suffix(4),KeyShortcuts.events(["WIN","TAB"])[...])
+        model.disconnect()
+        let count=sessions.all[0].sentInput.count
+        model.sendShortcut(shortcut)
+        XCTAssertEqual(sessions.all[0].sentInput.count,count,"nothing without a stream")
+    }
     func testHealthTrialStartsFromTheLiveBitrateAndReportsRefusals() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
         let model=try await running(host,sessions,clock)
@@ -541,6 +581,16 @@ private final class RecoverySession: StreamSessionService, @unchecked Sendable {
         return try recoveryDecode(#"{"available":true,"pending":false,"result":{"kbps":30000,"fpsMilliHz":59940,"bitrateStatus":2,"bitrateReason":4,"fpsStatus":2,"fpsReason":5},"error":null}"#)
     }
     func takeControllerFeedback() async -> [ControllerFeedback] { [] }
+    private var sentLayouts:[KeyboardLayoutReport]=[],texts:[String]=[],fieldAsks=0
+    var textResult:TextDelivery = .sent
+    var layouts:[KeyboardLayoutReport] { lock.withLock { sentLayouts } }
+    var sentTexts:[String] { lock.withLock { texts } }
+    var textFieldRequests:Int { lock.withLock { fieldAsks } }
+    func reportKeyboardLayout(_ layout:KeyboardLayoutReport) async -> Bool { lock.withLock { sentLayouts.append(layout) };return true }
+    func requestTextFields() async -> Bool { lock.withLock { fieldAsks+=1 };return true }
+    func sendText(_ text:String) async -> TextDelivery {
+        lock.withLock { if textResult == .sent { texts.append(text) };return textResult }
+    }
     private var networkResults:[Bool]=[]
     private var nextChange:NetworkChange = .carriesOn
     var networkChanges:[Bool] { lock.withLock { networkResults } }
@@ -551,7 +601,9 @@ private final class RecoverySession: StreamSessionService, @unchecked Sendable {
     func reportDisplay(headroom:Float) async -> DisplayReport { lock.withLock { reports.append(headroom) };return .sent }
     func requestVideoRecovery() {}
     func setMicrophoneMuted(_ muted:Bool) {}
-    func send(_ event:RemoteInputEvent)->Bool { true }
+    private var inputs:[RemoteInputEvent]=[]
+    var sentInput:[RemoteInputEvent] { lock.withLock { inputs } }
+    func send(_ event:RemoteInputEvent)->Bool { lock.withLock { inputs.append(event) };return true }
     func beginAdaptiveBitrate(ceiling:UInt32,current:UInt32) async -> Bool { lock.withLock { beginCount+=1 };return true }
     func suggestedBitrate(decodeMillis:Float) async -> UInt32? { lock.withLock { let r=rate;rate=nil;return r } }
     func appliedBitrate(requested:UInt32,applied:UInt32) async {}
@@ -576,6 +628,8 @@ private final class RecoveryHost: HostService,@unchecked Sendable {
     // Tests set these before a request starts; access from the main actor's async calls only.
     var supportsBitrate=true,rejectRate=false
     var liveKbps:UInt32=0,liveRuntime=true
+    /// The launch reply says the host takes layout reports and sends text field notices.
+    var keyboardExtras=false
     /// A Foundation Sunshine host's own bitrate controller, when set.
     var hostController:HostBitrateStart?
     private var controllerCalls:[String]=[]
@@ -599,7 +653,7 @@ private final class RecoveryHost: HostService,@unchecked Sendable {
     func pair(pin:String) async throws -> PairedHost { throw HostConnectionError("not used") }
     func launch(_ value:LaunchOptions) async throws -> LaunchedStream {
         lock.withLock { options.append(value) }
-        return try recoveryDecode("{\"rtspURL\":null,\"appVersion\":\"7.1.431.-1\",\"codecSupport\":1,\"key\":[],\"iv\":[],\"runtimeBitrate\":\(supportsBitrate)}")
+        return try recoveryDecode("{\"rtspURL\":null,\"appVersion\":\"7.1.431.-1\",\"codecSupport\":1,\"key\":[],\"iv\":[],\"runtimeBitrate\":\(supportsBitrate),\"keyboardLayout\":\(keyboardExtras),\"textFields\":\(keyboardExtras)}")
     }
     func setBitrate(kbps:UInt32) async throws -> UInt32 {
         lock.withLock { requests.append(kbps) }

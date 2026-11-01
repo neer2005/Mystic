@@ -55,6 +55,39 @@ trackpad deltas are converted to high-resolution wheel units. Cocoa horizontal
 scroll has its sign reversed to match wheel-right. The horizontal wheel C function
 is an additive ABI 2 entry point; existing structure layouts are unchanged.
 
+## Keyboard layout and host text fields
+
+Keys go as positions, so what they type depends on the PC's layout. Hosts that take a layout
+report (serverinfo `KeyboardLayoutVersion`, and 0x553E offered on DESCRIBE) are told this Mac's
+layout when the stream starts and whenever the user switches input sources
+(`kTISNotifySelectedKeyboardInputSourceChanged`), as Nightjar's desktop client reports its
+Windows or XKB layout. Mac layouts with a Windows counterpart that types the same by position
+go as that Windows layout (German as `00000407`, Swiss French as `0000100C`, Dvorak as
+`00010409`); others go as their first BCP-47 language, which the PC maps to its default
+layout. A layout is sent only when it changed; a refusal is logged and retried on the next
+change. Where Mac and Windows layouts of one language place a symbol differently (`@` on a
+German Mac is Option–L, on Windows AltGr–Q), the PC's layout wins.
+
+Hosts that send text field notices (`TextInputVersion`, 0x553B) are asked for raises and
+lowers only, never the surrounding text. Nightjar uses them to open an on-screen keyboard,
+which a Mac does not have; Mystic uses them for text that arrives without a key. The video
+view is a text input client, so the emoji picker, the Character Viewer and dictation insert
+into it, and that text goes to the host as UTF-8 (in order with keys, through the input
+mailbox) while the host reports a focused field. A host that sends no notices takes the text
+at any time. Keys never pass through the Mac's text system, so typed keys are never echoed as
+text, and IME composition stays separate work. Not yet tried against a live host.
+
+## Saved key shortcuts
+
+Settings → Keyboard keeps up to 32 named chords of up to eight keys, such as `WIN + TAB` or
+`CTRL + ALT + DELETE`, and Stream → Send Shortcut (also a hidden stream toolbar item) presses
+one on the host: modifiers first, then the rest, released in reverse, with the extended flag
+Mystic's own keys carry. This reaches shortcuts macOS keeps for itself. The file is Nightjar's
+and Android's (`{"version":1,"data":[{"id","name","keys"}]}` with Android key names, aliases
+such as `KEYCODE_META_LEFT` and `VK_LCONTROL` accepted), so Export and Import move shortcuts
+between Mystic, Nightjar and Moonlight on Android; an import replaces every shortcut and an
+invalid file changes nothing. Files are bounded to 64 KiB; saved in `keyShortcuts.v1`.
+
 ## Ownership and bounded delivery
 
 AppKit state stays on the main actor. An immutable event is offered to a mailbox

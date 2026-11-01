@@ -98,3 +98,25 @@ final class RemoteVideoView: NSView {
     override func keyUp(with event: NSEvent) { if capture?.handleKey(event) != true { super.keyUp(with:event) } }
     override func flagsChanged(with event: NSEvent) { _ = capture?.handleKey(event) }
 }
+
+/// Text from the emoji picker, the Character Viewer and dictation arrives as inserted text; it
+/// goes to the host's focused text field. Keys never go through the text system (they go to
+/// the host as keys), so nothing is ever composed or marked here.
+extension RemoteVideoView: @MainActor NSTextInputClient {
+    func insertText(_ string: Any,replacementRange: NSRange) {
+        let text=(string as? NSAttributedString)?.string ?? string as? String ?? ""
+        capture?.insert(text)
+    }
+    override func doCommand(by selector: Selector) {}
+    func setMarkedText(_ string: Any,selectedRange: NSRange,replacementRange: NSRange) {}
+    func unmarkText() {}
+    func selectedRange() -> NSRange { NSRange(location:NSNotFound,length:0) }
+    func markedRange() -> NSRange { NSRange(location:NSNotFound,length:0) }
+    func hasMarkedText() -> Bool { false }
+    func attributedSubstring(forProposedRange range: NSRange,actualRange: NSRangePointer?) -> NSAttributedString? { nil }
+    func validAttributesForMarkedText() -> [NSAttributedString.Key] { [] }
+    func firstRect(forCharacterRange range: NSRange,actualRange: NSRangePointer?) -> NSRect {
+        window?.convertToScreen(convert(bounds,to:nil)) ?? .zero
+    }
+    func characterIndex(for point: NSPoint) -> Int { NSNotFound }
+}

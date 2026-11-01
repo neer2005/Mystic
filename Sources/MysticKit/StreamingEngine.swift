@@ -418,6 +418,19 @@ public final class StreamingEngine {
         return values.prefix(Int(count)).compactMap { ControllerFeedback($0) }
     }
 
+    /// Throws `unsupportedByHost` when the host takes no layout reports.
+    public func reportKeyboardLayout(_ layout: KeyboardLayoutReport) throws {
+        try check(mystic_session_keyboard_layout(requireHandle(),layout.source.rawValue,layout.klid,layout.tag))
+    }
+    /// Asks for text field notices; throws `unsupportedByHost` when the host sends none.
+    public func requestTextFields() throws { try check(mystic_session_text_fields(requireHandle())) }
+    public func textField() -> HostTextField {
+        var field=MysticTextField()
+        guard mystic_session_text_field(requireHandle(),&field) == MYSTIC_OK else { return HostTextField(kind:nil,sensitive:false,notices:false) }
+        return HostTextField(field)
+    }
+    public func sendText(_ text: String) throws { try check(mystic_session_text(requireHandle(),text)) }
+
     /// Starts or stops host cursor shapes; throws `unsupportedByHost` when the host takes none.
     public func cursorShapes(enabled: Bool) throws {
         try check(mystic_session_cursor_shapes(requireHandle(),enabled))

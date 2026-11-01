@@ -98,6 +98,7 @@ public final class ConnectionModel {
     }
     @ObservationIgnored public var startupLaunchHandled=false
     public let updates=UpdateChecker()
+    public let shortcuts: KeyShortcutsStore
     @ObservationIgnored private var quitWhenStreamEnds=false
     @ObservationIgnored private var shortcutFromCommandLine=false
     @ObservationIgnored private var shortcutStreamed=false
@@ -294,6 +295,14 @@ public final class ConnectionModel {
     @ObservationIgnored private var controllerFeedbackMonitor: Task<Void, Never>?
     /// This attempt's host can send its cursor shapes.
     @ObservationIgnored private var hostCursorOffered=false
+    /// This attempt's host takes layout reports and sends text field notices.
+    @ObservationIgnored private var hostKeyboardLayout=false
+    @ObservationIgnored private var hostTextFields=false
+    @ObservationIgnored private var layoutWatch: KeyboardLayoutWatch?
+    @ObservationIgnored private var reportedLayout: KeyboardLayoutReport?
+    @ObservationIgnored private var textNoticeLogged=false
+    /// The layout to report; replaced by tests.
+    @ObservationIgnored var currentKeyboardLayout: () -> KeyboardLayoutReport? = { KeyboardLayoutWatch.current() }
     @ObservationIgnored private var statisticsMonitor: Task<Void, Never>?
     @ObservationIgnored private var operation: Task<Void, Never>?
     /// Changes on connect, disconnect and recovery; async work checks it before applying results.
@@ -360,6 +369,7 @@ public final class ConnectionModel {
         self.home=home ?? HomeLibrary(defaults:rememberHost ? .standard : nil,artRoot:rememberHost ? FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask).first?.appendingPathComponent("com.mystic.streaming/HomeArt",isDirectory:true) : nil)
         self.microphonePermission=microphonePermission
         self.settings=settings ?? AppSettings(storage:rememberHost ? SettingsPreferences() : nil)
+        self.shortcuts=KeyShortcutsStore(defaults:rememberHost ? .standard : nil)
         self.profiles=profiles ?? StreamProfilesStore(storage:rememberHost ? StreamProfilePreferences() : nil)
         self.savedHosts=SavedHosts(storage:rememberHost ? preferences : nil);self.discovery=discovery
         self.vault = vault; self.makeHost = makeHost; self.rememberHost = rememberHost
@@ -605,6 +615,7 @@ public final class ConnectionModel {
                         self.clipboardStatus=message;self.clipboardBusy=busy
                     })
                 self.hostCursorOffered=launch.cursorShapes == true
+                self.hostKeyboardLayout=launch.keyboardLayout == true;self.hostTextFields=launch.textFields == true
                 self.rates.streamStarted(launch:launch,adaptive:adaptive,configuration:config)
                 self.monitorMedia(audio, telemetry:telemetry,token: token)
             } catch {
@@ -626,6 +637,7 @@ public final class ConnectionModel {
         homeSync.cancel()
         clipboard?.stop();clipboard=nil;clipboardBusy=false;clipboardStatus="Clipboard sharing idle"
         networkWatch?.stop();networkWatch=nil;networkLost=false
+        layoutWatch?.stop();layoutWatch=nil;reportedLayout=nil
         plan=nil;streamingAppName=nil;recovering=false;hadVideo=false;connectedAt=nil;recovery=StreamRecovery()
         rates.stopAutomatic(status:"Fixed bitrate")
         health.reset();quality.reset()
@@ -721,13 +733,54 @@ public final class ConnectionModel {
             }
         }
     }
+    /// Nightjar's keyboard handling at stream start: the layout now and on every change, and
+    /// notices for the host's text fields, so emoji picker and dictation text can reach them.
+    private func startKeyboard(_ session: any StreamSessionService,token: UUID) {
+        layoutWatch?.stop();layoutWatch=nil;reportedLayout=nil;textNoticeLogged=false
+        inputCapture?.insertText={ [weak self,weak session] text in
+            guard let self,let session else { return }
+            Task { await self.sendText(text,session:session,token:token) }
+        }
+        if hostTextFields {
+            Task { [weak self] in
+                let asked=await session.requestTextFields()
+                guard let self,self.generation == token else { return }
+                self.record(asked ? "Asked the host for text field notices." : "The host sends no text field notices for this stream.",token:token)
+            }
+        }
+        guard hostKeyboardLayout else { return }
+        layoutWatch=KeyboardLayoutWatch { [weak self] in self?.reportKeyboardLayout(session,token:token) }
+        reportKeyboardLayout(session,token:token)
+    }
+    private func reportKeyboardLayout(_ session: any StreamSessionService,token: UUID) {
+        guard generation == token else { return }
+        guard let layout=currentKeyboardLayout() else {
+            if reportedLayout == nil { record("This Mac's keyboard layout has no name the host takes; not reported.",token:token) }
+            return
+        }
+        guard layout != reportedLayout else { return }
+        reportedLayout=layout
+        Task { [weak self] in
+            let sent=await session.reportKeyboardLayout(layout)
+            guard let self,self.generation == token else { return }
+            if sent { self.record("Told host the keyboard layout: \(layout.tag).",token:token) }
+            else { self.reportedLayout=nil;self.record("The host did not take the keyboard layout \(layout.tag).",token:token) }
+        }
+    }
+    private func sendText(_ text: String,session: any StreamSessionService,token: UUID) async {
+        let result=await session.sendText(text)
+        guard generation == token,result != .sent,!textNoticeLogged else { return }
+        textNoticeLogged=true
+        record(result == .noField ? "Text from the emoji picker or dictation goes only to a text field focused on the host." :
+            "Text from the emoji picker or dictation could not be sent.",token:token)
+    }
     private func handle(_ event: EngineEvent, token: UUID) {
         guard generation == token else { return }
         switch event {
         case .connected:
             connectedAt=nowMillis();inputCapture?.setAvailable(true);phase = .streaming
             if let plan,let target=HostEndpoint(address:connectedAddress,port:connectedPort) { home.played(hostID:HomePC.key(uniqueID:plan.hostID,endpoint:target),app:plan.app) }
-            if let session { monitorControllerFeedback(session,token:token) }
+            if let session { monitorControllerFeedback(session,token:token);startKeyboard(session,token:token) }
             clipboard?.start()
             if let presenter { monitorRendererMetrics(presenter,token:token) }
             reportDisplay(token:token)
@@ -771,6 +824,7 @@ public final class ConnectionModel {
         }
         clipboard?.stop();clipboard=nil;clipboardBusy=false;clipboardStatus="Clipboard sharing paused during recovery"
         networkWatch?.stop();networkWatch=nil;networkLost=false
+        layoutWatch?.stop();layoutWatch=nil;reportedLayout=nil
         cancelGameAction()
         rates.resetManual()
         graphics.reset()
@@ -875,6 +929,17 @@ public final class ConnectionModel {
             let result=await session.reportDisplay(headroom:headroom)
             guard let self,self.generation == token,result == .sent else { return }
             self.record("Told host the display: \(screen), EDR headroom \(String(format:"%.1f",headroom))×.",token:token)
+        }
+    }
+    public var canSendShortcut: Bool { phase == .streaming && inputCapture?.available == true }
+    /// Presses a saved chord on the host and releases it, modifiers first.
+    public func sendShortcut(_ shortcut: KeyShortcuts.Shortcut) {
+        guard canSendShortcut,let session else { return }
+        for event in KeyShortcuts.events(shortcut.keys) {
+            guard session.send(event) else {
+                _ = session.send(.releaseAll)
+                record("The shortcut \(shortcut.name) could not be sent; held keys were released.",token:generation);return
+            }
         }
     }
     /// A line in the current stream's session log.
