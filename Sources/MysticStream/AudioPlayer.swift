@@ -41,8 +41,11 @@ protocol AudioOutputPipeline: AnyObject, Sendable {
     var routing: AudioChannelRouting { get }
     var device: AudioOutputDevice? { get }
     var sampleRate: Double { get }
+    /// How much the output reads at once, in 48 kHz frames; 0 when unknown.
+    var outputFrames: Int { get }
     func stop()
 }
+extension AudioOutputPipeline { var outputFrames: Int { 0 } }
 
 /// Serialized decode/control feeds a real-time SPSC reader. Device recovery never runs on the render thread.
 public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
@@ -129,7 +132,9 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
     public func play(_ packet: UnsafeRawBufferPointer?) {
         queue.sync {
             guard running,let decoder else { return }
-            guard playout?.packet(lost:packet == nil,nowNanos:clock()) != false else { return }
+            let queued=pipeline.map { Int(mystic_pcm_ring_stats($0.render.ring).queued_frames) } ?? 0
+            guard case let .play(lead)=playout?.packet(lost:packet == nil,queued:queued,nowNanos:clock()) else { return }
+            if lead > 0,let pipeline { writeSilence(lead,pipeline.render) }
             do {
                 try decode(decoder,packet:packet)
                 if packet == nil { concealed += 1 } else { decoded += 1 }
@@ -142,6 +147,11 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
                 }
             }
         }
+    }
+    /// Nightjar's lead on an empty queue: the cushion that keeps ordinary jitter from starving the output.
+    private func writeSilence(_ frames: Int,_ render: AudioRenderState) {
+        let silence=[Float](repeating:0,count:frames*render.channels)
+        silence.withUnsafeBufferPointer { _=mystic_pcm_ring_write(render.ring,$0.baseAddress,UInt32(frames)) }
     }
     private func decode(_ decoder: OpusAudioDecoder,packet: UnsafeRawBufferPointer?) throws {
         try decoder.decode(packet,routing:pipeline?.routing) { samples,frames in
@@ -202,6 +212,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
                 }
             }
             pipeline=output;starts += 1;status = .playing
+            playout?.outputFrames=output.outputFrames
             log("Audio output ready: \(output.device?.name ?? "system output"), \(output.sampleRate) Hz · \(output.routing.label).")
         } catch {
             if decoder.info.channelCount > 2,!forceStereo {
@@ -277,6 +288,12 @@ final class AudioPipeline: AudioOutputPipeline, @unchecked Sendable {
     var observer: NSObjectProtocol?
     private(set) var device: AudioOutputDevice?
     var sampleRate: Double { engine.isInManualRenderingMode ? engine.manualRenderingFormat.sampleRate : engine.outputNode.inputFormat(forBus:0).sampleRate }
+    /// The device's I/O buffer, in the stream's 48 kHz frames.
+    var outputFrames: Int {
+        guard !engine.isInManualRenderingMode,let frames=AudioOutputMonitor.bufferFrames(engine.outputNode.withAUAudioUnit { $0.deviceID }),
+              sampleRate > 0 else { return 0 }
+        return Int((Double(frames)*48000/sampleRate).rounded(.up))
+    }
     init(volume: Float,info: AudioSetupInfo = AudioSetupInfo(channelCount:2,channelMask:3,packetDurationMs:5,samplesPerFrame:240),
          manualRendering: Bool = false,manualSampleRate: Double = 48000,manualSpeakers: [AudioSpeaker]? = nil,
          forceStereoReason: String? = nil,

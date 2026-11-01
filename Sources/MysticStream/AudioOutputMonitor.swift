@@ -90,6 +90,14 @@ final class AudioOutputMonitor: AudioOutputMonitoring, @unchecked Sendable {
             throw AudioPlaybackError("The default audio output is unavailable.")
         }
     }
+    /// The device's I/O buffer size in its own frames, as it reads from Mystic at once.
+    static func bufferFrames(_ id: AudioDeviceID) -> Int? {
+        guard id != kAudioObjectUnknown else { return nil }
+        var address=address(kAudioDevicePropertyBufferFrameSize,scope:kAudioObjectPropertyScopeOutput)
+        var frames: UInt32=0,size=UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(id,&address,0,nil,&size,&frames) == noErr,(1...16384).contains(frames) else { return nil }
+        return Int(frames)
+    }
     static func describe(_ id: AudioDeviceID) -> AudioOutputDevice? {
         guard id != kAudioObjectUnknown else { return nil }
         var address=address(kAudioObjectPropertyName)
