@@ -23,7 +23,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | Offline library/cache | Implemented | Versioned metadata and bounded artwork cache; persistence/invalidation tests; real offline-host validation pending |
 | Launch/resume and per-game video profiles | Implemented | Desktop live verification; extend profiles beyond video |
 | Native session status, resume, disconnect/end/close | Implemented | Live status checks and action validation described in SESSION.md |
-| Classic quit and quit-and-start-another | Implemented | Real quit verified on Big Dawg (2026-11-01, after fixing the dialog's dismissal cancelling it); real switch validation pending; see GAME-SWITCHING.md |
+| Classic quit and quit-and-start-another | Implemented | Real quit verified on Big Dawg (2026-11-01, after fixing the dialog's dismissal cancelling it); real switch from Desktop to a game verified the same day; see GAME-SWITCHING.md |
 | Quick resume / quit on leave | Implemented, live validation pending | Nightjar's policy: quick resume global and off by default; quit on leave per game, only on a leave the player chose; see SESSION.md |
 | Remote Monitor, input-only, co-op | Pending | Explicit roles and permissions |
 | Network profiles, launch shortcuts/CLI | Implemented, live validation pending | Nightjar's command line and `mystic://stream` links (LAUNCHING.md); settings profiles by hand or by network, told by the route rather than the Wi-Fi name (no Location permission); see PROFILES.md |

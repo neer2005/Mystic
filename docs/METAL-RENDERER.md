@@ -119,8 +119,11 @@ which leaves out the transition into the game.
 
 - At a game's own 60 fps the renderers are close; the large gap at 120 fps does not carry over.
 - Same caveat on the drop counts. A title screen is also not a battle: motion is gentle.
-- Round-trip spikes of 18-29 ms, and one sample of 14.5% loss just after the System resume, happened
-  regardless of renderer. Quit and Start, and resuming a running game, also worked here.
+- **AWDL lined up with every spike here.** With `awdl0`'s status logged every 5 seconds, readings taken
+  while it was active showed 11-29 ms round trips on both renderers, including the only loss seen
+  (14.5%, on System); the two taken while it was down showed 3 ms. Reading times are approximate, to
+  within several seconds, and this is eight readings in one sitting.
+- Quit and Start, and resuming a running game, also worked here.
 
 ## Open problems before Metal can be the default
 
