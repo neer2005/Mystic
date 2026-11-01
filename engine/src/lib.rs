@@ -29,6 +29,7 @@ mod clipboard;
 mod rates;
 mod health;
 mod display;
+mod quality;
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::{Arc, Mutex};
@@ -482,6 +483,7 @@ struct ListenerAdapter {
     clipboard: Arc<Mutex<clipboard::ClipboardState>>,
     rates: Arc<Mutex<rates::Rates>>,
     display: Arc<Mutex<display::DisplayReports>>,
+    reconfigure: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl ListenerAdapter {
@@ -505,6 +507,7 @@ impl Listener for ListenerAdapter {
         self.clipboard.lock().unwrap_or_else(|e| e.into_inner()).announce(messages);
         self.rates.lock().unwrap_or_else(|e|e.into_inner()).announce(messages);
         self.display.lock().unwrap_or_else(|e| e.into_inner()).announce(messages);
+        self.reconfigure.store(messages.contains(&rubylight_protocol::control::RECONFIGURE_MESSAGE_TYPE), std::sync::atomic::Ordering::Release);
     }
     fn control_event(&self, event: nightjar_core::control::ControlEvent) {
         if matches!(event,nightjar_core::control::ControlEvent::RateChange(_)) {
@@ -568,6 +571,11 @@ pub struct MysticSession {
     rates: Arc<Mutex<rates::Rates>>,
     display: Arc<Mutex<display::DisplayReports>>,
     doctor: health::Doctor,
+    /// The host takes Reconfigure (0x5532), for automatic quality.
+    reconfigure: Arc<std::sync::atomic::AtomicBool>,
+    quality: Option<quality::Quality>,
+    /// The doctor's latest sample, for the quality tick of the same second.
+    last_tick: Option<nightjar_policy::stats::Stats>,
 }
 
 fn write_error(buffer: *mut c_char, capacity: usize, message: &str) {
@@ -626,6 +634,9 @@ pub extern "C" fn mystic_session_new() -> *mut MysticSession {
         clipboard: Arc::new(Mutex::new(clipboard::ClipboardState::default())),
         rates: Arc::new(Mutex::new(rates::Rates::default())),
         display: Arc::new(Mutex::new(display::DisplayReports::default())),
+        reconfigure: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        quality: None,
+        last_tick: None,
         doctor: health::Doctor::default(),
     }))
 }
@@ -694,6 +705,9 @@ pub unsafe extern "C" fn mystic_session_start(
     *handle.clipboard.lock().unwrap_or_else(|e| e.into_inner()) = clipboard::ClipboardState::default();
     *handle.rates.lock().unwrap_or_else(|e|e.into_inner()) = rates::Rates::default();
     *handle.feedback.lock().unwrap_or_else(|e| e.into_inner()) = controller_feedback::FeedbackMailbox::default();
+    handle.quality = None;
+    handle.last_tick = None;
+    handle.reconfigure.store(false, std::sync::atomic::Ordering::Release);
     *handle.network.lock().unwrap_or_else(|e| e.into_inner()) = policy::NetworkTiming::default();
 
     let host_info = HostInfo {
@@ -725,7 +739,7 @@ pub unsafe extern "C" fn mystic_session_start(
         network: handle.network.clone(),
     });
     let audio: Box<dyn AudioRenderer> = Box::new(AudioAdapter { callbacks });
-    let listener = Arc::new(ListenerAdapter { callbacks, feedback: handle.feedback.clone(), clipboard: handle.clipboard.clone(), rates:handle.rates.clone(), display: handle.display.clone() });
+    let listener = Arc::new(ListenerAdapter { callbacks, feedback: handle.feedback.clone(), clipboard: handle.clipboard.clone(), rates:handle.rates.clone(), display: handle.display.clone(), reconfigure: handle.reconfigure.clone() });
 
     match Session::start(
         &host_info,
@@ -762,6 +776,9 @@ pub unsafe extern "C" fn mystic_session_stop(handle: *mut MysticSession) -> i32 
     *handle.clipboard.lock().unwrap_or_else(|e| e.into_inner()) = clipboard::ClipboardState::default();
     *handle.rates.lock().unwrap_or_else(|e|e.into_inner()) = rates::Rates::default();
     *handle.feedback.lock().unwrap_or_else(|e| e.into_inner()) = controller_feedback::FeedbackMailbox::default();
+    handle.quality = None;
+    handle.last_tick = None;
+    handle.reconfigure.store(false, std::sync::atomic::Ordering::Release);
     match handle.session.take() {
         Some(session) => {
             session.stop();

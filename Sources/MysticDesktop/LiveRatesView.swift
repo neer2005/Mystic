@@ -35,6 +35,7 @@ struct LiveRatesView: View {
                 if model.rates.busy { ProgressView("Waiting for host…") }
             }
             Text(model.rates.message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            if model.phase == .streaming { Text(model.quality.status).font(.caption).foregroundStyle(.secondary) }
             Text("Changes apply to this stream. Saved game settings stay the same; reconnect restores them and automatic bitrate.").font(.caption).foregroundStyle(.secondary)
         }
         .onAppear { bitrate=String(Double(model.rates.appliedKbps ?? model.rates.launchKbps)/1000);fps=String(Double(model.rates.appliedFPS ?? model.rates.launchFPS*1000)/1000) }

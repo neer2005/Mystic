@@ -51,6 +51,10 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>NSHighResolutionCapable</key><true/>
 <key>NSMicrophoneUsageDescription</key><string>Mystic sends your microphone to the streaming host when you enable Use Mac Microphone.</string>
 <key>NSBonjourServices</key><array><string>_nvstream._tcp</string></array>
+<key>CFBundleURLTypes</key><array><dict>
+<key>CFBundleURLName</key><string>com.mystic.streaming.launch</string>
+<key>CFBundleURLSchemes</key><array><string>mystic</string></array>
+</dict></array>
 <key>NSLocalNetworkUsageDescription</key><string>Mystic connects to your game-streaming host on your local network.</string>
 </dict></plist>
 PLIST

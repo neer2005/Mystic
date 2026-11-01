@@ -87,6 +87,12 @@ int main(void) {
           "display caps before start");
     CHECK(mystic_session_network_changed(handle, false) == MYSTIC_ERR_NOT_STARTED,
           "network change before start");
+    CHECK(mystic_session_quality_begin(handle, 1, 720, 30, 0) == MYSTIC_ERR_NOT_STARTED,
+          "automatic quality before start");
+    char *quality = mystic_session_quality_tick(handle, 1920, 1080, false, 0);
+    CHECK(quality != NULL && strstr(quality, "\"ok\":false") != NULL, "quality tick before start is an owned error");
+    mystic_string_free(quality);
+    mystic_session_quality_end(handle);
     CHECK(mystic_reconnects_at_once(true, false, false, true, 0) && !mystic_reconnects_at_once(false, false, false, true, 0),
           "a returning network reconnects only when the stream cannot continue");
     MysticControllerFeedback feedback[80];

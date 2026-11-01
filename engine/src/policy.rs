@@ -146,6 +146,17 @@ impl Bitrate {
         self.pending.unwrap_or(0)
     }
 }
+impl Bitrate {
+    /// Automatic bitrate can still answer network pressure, so automatic quality waits.
+    pub(crate) fn has_room(&self) -> bool {
+        self.pending.is_some() || self.controller.has_room_before_quality_reduction()
+    }
+    /// Automatic quality changed the stream's size or rate.
+    pub(crate) fn set_mode(&mut self, width: u32, height: u32, fps: u32) {
+        self.controller.set_frame_rate(fps);
+        self.controller.set_stream_size(width, height);
+    }
+}
 #[no_mangle]
 pub unsafe extern "C" fn mystic_session_bitrate_begin(
     p: *mut MysticSession,

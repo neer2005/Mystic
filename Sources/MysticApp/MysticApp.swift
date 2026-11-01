@@ -6,9 +6,22 @@ import MysticDesktop
 struct MysticApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = ConnectionModel()
-    init() { FullScreenCommands.suppressAppKitItem() }
+    /// Nightjar's command line for game frontends; see `ShortcutLaunch`.
+    private let startup: ShortcutLaunch?
+    init() {
+        switch ShortcutLaunch.parse(arguments: Array(CommandLine.arguments.dropFirst())) {
+        case .none: startup = nil
+        case .launch(let launch): startup = launch
+        case .version:
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development build"
+            print("Mystic \(version) (Nightjar 4.0.1 engine)");exit(0)
+        case .help: print(ShortcutLaunch.usage);exit(0)
+        case .invalid(let message): FileHandle.standardError.write(Data((message + "\n").utf8));exit(64)
+        }
+        FullScreenCommands.suppressAppKitItem()
+    }
     var body: some Scene {
-        Window("Mystic", id: "library") { HostLibraryView(model: model).onAppear { appDelegate.model = model } }
+        Window("Mystic", id: "library") { HostLibraryView(model: model, startup: startup).onAppear { appDelegate.model = model } }
             .defaultSize(width: 1200, height: 720)
             .commands {
                 SidebarCommands()

@@ -98,6 +98,16 @@ are not part of these checks.
 4. Put the PC to sleep and press Wake in Home. The status should say "Waking…", then
    that the PC is awake once it answers, within 90 seconds.
 
+## Automatic quality and launching
+
+1. Set Automatic Quality to Favor Smooth Motion and stream to a Rubylight PC at a resolution
+   this Mac decodes slowly, or over a link that loses packets with automatic bitrate already
+   at its floor. Within about 15 seconds the stream panel should ask for a smaller size and the
+   picture should follow it; it should climb back after things settle.
+2. From Terminal, run the command a game's Copy Command Line gives, with `--quit-on-exit`.
+   The game should start; disconnecting should quit Mystic, and `echo $?` should print 0.
+3. Open a Copy Launch Link link in Safari. Mystic should ask before starting.
+
 ## Display luminance
 
 On an HDR stream to a Rubylight host, check the session log says "Told host the

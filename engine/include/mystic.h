@@ -138,6 +138,17 @@ typedef struct {
  * 1 the connection carries on, 2 it cannot continue there (another address, not roamed). */
 int32_t mystic_session_network_changed(const MysticSession *session, bool metered);
 
+/* Automatic quality (additive to ABI 5): Nightjar's bounded resolution/frame-rate ladder over
+ * the Reconfigure message. mode 1 smooth motion, 2 sharp detail, 3 battery life. Begin returns
+ * MYSTIC_ERR_UNIMPLEMENTED when the host takes no Reconfigure. Tick once a second after the
+ * health tick, with the latest decoded picture's size; its envelope names the state ("off",
+ * "hold", "requested", "confirmed", "stopped") with width, height, fpsMilliHz or a reason. */
+int32_t mystic_session_quality_begin(MysticSession *session, uint8_t mode, uint32_t min_short_edge,
+    uint32_t min_fps, uint64_t now_ms);
+char *mystic_session_quality_tick(MysticSession *session, uint32_t decoded_width, uint32_t decoded_height,
+    bool suspended, uint64_t now_ms);
+void mystic_session_quality_end(MysticSession *session);
+
 #define MYSTIC_FEC_HOST (-1)
 #define MYSTIC_FEC_AUTO (-2)
 

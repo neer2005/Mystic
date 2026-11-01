@@ -103,9 +103,28 @@ in flight; host responses update policy state. Unknown/stale measurements are no
 reported as healthy. A failed or invalid bitrate response stops adaptation and
 leaves playback running, with a visible explanation.
 
-This changes bitrate only. Automatic resolution/FPS changes, Foundation Sunshine's
-host-side ABR controller, thermal inputs and network queue-delay measurements
-remain separate work. Requests use the existing pinned HTTPS host connection.
+This changes bitrate only; resolution and frame rate are automatic quality's, below.
+Foundation Sunshine's host-side ABR controller, thermal inputs and network queue-delay
+measurements remain separate work. Requests use the existing pinned HTTPS host connection.
+
+## Automatic quality
+
+Settings → Video → Automatic Quality (per host or game, like the other video settings) runs
+Nightjar's bounded resolution/frame-rate ladder: Favor Smooth Motion gives up resolution
+first, Favor Sharp Detail frame rate first, and Favor Battery Life caps the stream lower. It
+never goes below 720 lines or 30 fps (Nightjar's defaults), steps at most every 15 seconds,
+and climbs back after 30 healthy seconds.
+
+- It needs a host that takes the Reconfigure message (Rubylight). Otherwise the stream panel
+  says so and nothing changes.
+- It starts once video decodes, ticks with the stream doctor once a second, and holds while
+  Mystic is not the active app.
+- Automatic bitrate answers network trouble first: the ladder moves for network pressure
+  only once bitrate has no room left. A slow decoder moves it directly.
+- Each request must show up as a decoded picture of that size within 5 seconds, or
+  automatic quality stops. A frame-rate-only step is confirmed at once.
+- A manual frame-rate change in the stream panel stops it until the next reconnect.
+- The stream panel shows its state, and the session log records each request.
 
 ## Validation
 

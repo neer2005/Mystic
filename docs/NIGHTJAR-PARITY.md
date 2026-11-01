@@ -26,7 +26,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | Classic quit and quit-and-start-another | Implemented | Big Dawg confirmations/cancellation verified; real quit/switch validation pending; see GAME-SWITCHING.md |
 | Quick resume / quit on leave | Pending | Per-game opt-in policy |
 | Remote Monitor, input-only, co-op | Pending | Explicit roles and permissions |
-| Network profiles, launch shortcuts/CLI | Pending | Native Mac entry points |
+| Network profiles, launch shortcuts/CLI | Partial | Nightjar's command line and `mystic://stream` links, with Copy Launch Link/Command Line (LAUNCHING.md). Profiles by network pending |
 | Host details/web UI, PIN lock, languages | Partial / pending | Host sidebar exists; full controls and localization pending |
 | Window position memory | Pending | Nightjar (`window_place.rs`) reopens on the same display, position and size |
 | Controller menu navigation | Pending | Nightjar (`console.rs`, `nav_repeat.rs`) drives every screen from a controller |
@@ -41,7 +41,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | Fractional refresh / virtual display controls | Pending | Native settings and host capability negotiation. Launch sends neither `launch_refresh_rate_x100` nor `client_refresh_rate_x100`, so 59.94 Hz launches as 60 |
 | Recovery, automatic bitrate | Implemented | Big Dawg reconnect passed; congestion testing pending. Startup stage allowlist matches Nightjar. A network back on an address the stream cannot continue over reconnects at once (NETWORK.md); a real network drop not yet tested |
 | Automatic bitrate on Foundation Sunshine hosts | Pending | Nightjar (`host_abr.rs`) turns on the host's own controller and reports the network every three seconds; Mystic's automatic bitrate needs Rubylight |
-| Automatic quality (resolution/FPS) | Pending | Nightjar (`quality.rs`) uses `nightjar_policy::quality`'s bounded ladder; Mystic changes bitrate only |
+| Automatic quality (resolution/FPS) | Implemented, live validation pending | Nightjar's ladder over Reconfigure, per profile; see NETWORK.md |
 | Link test before the first bitrate | Pending | Off by default in Nightjar (`http::probe_start_kbps`, `launch::estimated_kbps`) |
 | Live manual bitrate/FPS | Implemented | Big Dawg negotiation/UI verified; live Apply pending; see LIVE-RATES.md |
 | FEC controls | Implemented | Settings → Network; launch and ANNOUNCE requests; engine loss reports. Effect on a lossy link not yet measured; see NETWORK.md |
@@ -54,7 +54,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | 5.1/7.1 discrete PCM | Implemented, physical validation pending | Speaker identity and downmix checks |
 | 7.1.4/passthrough | Pending | Mac output capability investigation |
 | Microphone | Implemented | Live host input-meter response verified previously |
-| Microphone echo cancellation | Pending | Mac voice-processing integration |
+| Microphone echo cancellation | Pending, design decision | macOS voice processing removes only what plays through the same audio engine as the microphone; Mystic plays and records on separate engines, and voice processing also alters playback while on |
 | Keyboard/mouse and fullscreen | Implemented | User verified on Big Dawg |
 | Keyboard follows text fields, layout report | Pending | Nightjar (`text_field.rs`) handles host text-field notices (0x553B) and reports the keyboard layout (0x553E); Mystic sends US key positions only |
 | Saved key chords, import/export | Pending | Nightjar (`shortcuts.rs`) shares Android's file format; Mystic has only its release chord |

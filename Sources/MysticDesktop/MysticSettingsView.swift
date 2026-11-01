@@ -119,6 +119,12 @@ struct VideoSettingsFields: View {
             if value.adaptiveBitrate {
                 Text("Adjusts bitrate up to the selected limit when the host supports live changes.").font(.caption).foregroundStyle(.secondary)
             }
+            Picker("Automatic Quality",selection:$value.automaticQuality) {
+                ForEach(AutomaticQuality.allCases,id:\.self) { Text($0.label).tag($0) }
+            }
+            if value.automaticQuality != .off {
+                Text("Lowers resolution or frame rate during a stream when this Mac or the network cannot keep up, and restores them when it can, never below 720p or 30 fps. Automatic bitrate answers network trouble first. Needs a host that accepts size changes, such as Rubylight.").font(.caption).foregroundStyle(.secondary)
+            }
             Toggle("HDR",isOn:$value.hdr)
             Text("Requests 10-bit HDR from supported host apps. HDR video uses the stream window’s display; macOS maps it to SDR on displays without HDR headroom.")
                 .font(.caption).foregroundStyle(.secondary)
