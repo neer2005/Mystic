@@ -30,20 +30,20 @@ final class StreamControllerTests: XCTestCase {
         XCTAssertEqual(StreamControllers.snapshot(pad),ControllerState(leftTrigger:128,rightTrigger:255,leftX:-32768,rightY:32767))
     }
     func testDiscoverySlotsReleaseReconnectAndCapacity() {
-        let all=(0..<5).map { _ in GCController.withExtendedGamepad() }
+        let all=(0..<17).map { _ in GCController.withExtendedGamepad() }
         var connected=all,events:[RemoteInputEvent]=[]
         let manager=StreamControllers(connectedDevices:{ connected },send:{ events.append($0);return true },failure:{ XCTFail("Unexpected overflow") })
         manager.refresh();XCTAssertTrue(events.isEmpty)
         manager.setEnabled(true)
-        XCTAssertEqual(events.filter { if case .controllerArrival = $0 { return true };return false }.count,4)
-        XCTAssertTrue(events.contains(.controllerArrival(slot:3,activeMask:15,feedbackEpoch:manager.feedbackEpoch)))
+        XCTAssertEqual(events.filter { if case .controllerArrival = $0 { return true };return false }.count,16)
+        XCTAssertTrue(events.contains(.arrival(all[15],slot:15,mask:0xFFFF,epoch:manager.feedbackEpoch)))
         events.removeAll()
-        connected=[all[1],all[2],all[3]]
+        connected=Array(all[1..<16])
         manager.refresh()
-        XCTAssertEqual(events.first,.controller(slot:0,activeMask:14,state:ControllerState()))
-        XCTAssertTrue(events.contains(.controllerArrival(slot:1,activeMask:14,feedbackEpoch:manager.feedbackEpoch)))
-        connected.append(all[4]);events.removeAll();manager.refresh()
-        XCTAssertTrue(events.contains(.controllerArrival(slot:0,activeMask:15,feedbackEpoch:manager.feedbackEpoch)))
+        XCTAssertEqual(events.first,.controller(slot:0,activeMask:0xFFFE,state:ControllerState()))
+        XCTAssertTrue(events.contains(.arrival(all[1],slot:1,mask:0xFFFE,epoch:manager.feedbackEpoch)))
+        connected.append(all[16]);events.removeAll();manager.refresh()
+        XCTAssertTrue(events.contains(.arrival(all[16],slot:0,mask:0xFFFF,epoch:manager.feedbackEpoch)))
         let count=events.count
         manager.setEnabled(false);manager.refresh()
         XCTAssertEqual(events.count,count)
@@ -81,5 +81,16 @@ final class StreamControllerTests: XCTestCase {
         manager.refresh()
         XCTAssertEqual(attempts,1)
         XCTAssertNil(controller.extendedGamepad?.valueChangedHandler)
+    }
+}
+
+extension RemoteInputEvent {
+    /// The arrival a test controller gets: its own type, buttons and sensors, as the manager
+    /// reads them (Apple's virtual pad has an accelerometer). `extras: false` for fake extras.
+    @MainActor static func arrival(_ controller: GCController,slot: UInt8,mask: UInt16,
+                                   capabilities: ControllerCapabilities = .analogTriggers,epoch: UInt64,extras: Bool = true) -> RemoteInputEvent {
+        let native=extras ? NativeControllerExtras.capabilities(of:controller) : []
+        return .controllerArrival(slot:slot,activeMask:mask,capabilities:capabilities.union(native),feedbackEpoch:epoch,
+                           kind:StreamControllers.kind(controller),buttons:StreamControllers.buttons(controller.extendedGamepad!))
     }
 }

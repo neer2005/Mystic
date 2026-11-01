@@ -69,21 +69,35 @@ int main(void) {
           "controller arrival before start");
     CHECK(mystic_session_controller_arrival_with_feedback(handle, 0, 1, 7, 42) == MYSTIC_ERR_NOT_STARTED,
           "feedback-capable arrival before start");
-    CHECK(mystic_session_controller_arrival_with_feedback(handle, 0, 1, 0x80, 42) == MYSTIC_ERR_INVALID_ARGUMENT,
+    CHECK(mystic_session_controller_arrival_with_feedback(handle, 0, 1, 0x08, 42) == MYSTIC_ERR_INVALID_ARGUMENT,
           "unsupported controller capabilities are refused");
-    MysticControllerFeedback feedback[8];
+    CHECK(mystic_session_controller(handle, 15, 0x8000, 0x200400, 0, 0, 0, 0, 0, 0) == MYSTIC_ERR_NOT_STARTED,
+          "sixteenth controller with Guide and Share before start");
+    CHECK(mystic_session_controller(handle, 16, 1, 0, 0, 0, 0, 0, 0, 0) == MYSTIC_ERR_INVALID_ARGUMENT,
+          "controller slots stop at fifteen");
+    CHECK(mystic_session_controller_announce(handle, 15, 0xFFFF, 2, 0x3FF7FF, 0xF7, 42) == MYSTIC_ERR_NOT_STARTED,
+          "typed arrival with motion, battery and light before start");
+    CHECK(mystic_session_controller_announce(handle, 0, 1, 4, 0, 0, 42) == MYSTIC_ERR_INVALID_ARGUMENT,
+          "unknown controller types are refused");
+    CHECK(mystic_session_controller_motion(handle, 0, 2, 1.0f, 2.0f, 3.0f) == MYSTIC_ERR_NOT_STARTED,
+          "motion before start");
+    CHECK(mystic_session_controller_battery(handle, 0, 3, 80) == MYSTIC_ERR_NOT_STARTED,
+          "battery before start");
+    CHECK(mystic_session_display_caps(handle, 4.0f) == MYSTIC_ERR_NOT_STARTED,
+          "display caps before start");
+    MysticControllerFeedback feedback[80];
     CHECK(sizeof(MysticControllerFeedback) == 16 && offsetof(MysticControllerFeedback, epoch) == 8,
           "controller feedback has the expected fixed layout");
-    CHECK(mystic_session_take_controller_feedback(handle, feedback, 8) == 0,
+    CHECK(mystic_session_take_controller_feedback(handle, feedback, 80) == 0,
           "controller feedback starts empty");
-    CHECK(mystic_session_take_controller_feedback(handle, feedback, 9) == MYSTIC_ERR_INVALID_ARGUMENT,
+    CHECK(mystic_session_take_controller_feedback(handle, feedback, 81) == MYSTIC_ERR_INVALID_ARGUMENT,
           "controller feedback capacity is bounded");
     CHECK(mystic_session_take_controller_feedback(handle, NULL, 8) == MYSTIC_ERR_INVALID_ARGUMENT,
           "controller feedback rejects null storage");
-    CHECK(mystic_session_controller_arrival(handle, 4, 1) == MYSTIC_ERR_INVALID_ARGUMENT,
+    CHECK(mystic_session_controller_arrival(handle, 16, 1) == MYSTIC_ERR_INVALID_ARGUMENT,
           "invalid controller slot");
-    CHECK(mystic_session_controller(handle, 0, 16, 0, 0, 0, 0, 0, 0, 0) == MYSTIC_ERR_INVALID_ARGUMENT,
-          "invalid controller mask");
+    CHECK(mystic_session_controller(handle, 0, 1, 0x400000, 0, 0, 0, 0, 0, 0) == MYSTIC_ERR_INVALID_ARGUMENT,
+          "invalid controller buttons");
     const uint8_t mic_packet[] = {1};
     CHECK(!mystic_session_microphone_available(handle), "mic unavailable before start");
     CHECK(mystic_session_send_microphone(handle, mic_packet, 1) == MYSTIC_ERR_NOT_STARTED, "mic send before start");

@@ -45,6 +45,8 @@ public struct LaunchOptions: Codable, Sendable {
     public var fec: Int16 = -1
     /// The route to the host is Wi-Fi; the reply's `clientWireless` says whether to tell it.
     public var clientWireless = false
+    /// The display's EDR headroom; hosts other than Rubylight get a luminance estimated from it.
+    public var displayHeadroom: Double? = nil
     public init(app: HostApp) { appID = app.id; appUUID = app.uuid }
 }
 public struct LaunchedStream: Codable, Sendable {

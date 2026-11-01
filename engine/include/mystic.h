@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 /* Bump-matched with MYSTIC_ABI_VERSION in lib.rs. The Swift side must refuse a mismatch. */
-#define MYSTIC_ABI_VERSION 3
+#define MYSTIC_ABI_VERSION 4
 
 /* Result codes. */
 #define MYSTIC_OK 0
@@ -249,20 +249,36 @@ MysticPCMStats mystic_pcm_ring_stats(const MysticPCMRing *ring);
 /* Free only after both producer and audio render callback have stopped. */
 void mystic_pcm_ring_free(MysticPCMRing *ring);
 
-/* Additive controller APIs. Slots 0..3; full state, triggers 0..255, sticks signed. */
+/* Additive controller APIs. ABI 4: slots 0..15; full state, triggers 0..255, sticks signed.
+ * Buttons are Moonlight's flags up to MISC (0x200000); other bits are rejected. */
 int32_t mystic_session_controller(MysticSession *session, uint8_t slot, uint16_t active_mask,
     uint32_t buttons, uint8_t left_trigger, uint8_t right_trigger,
     int16_t left_x, int16_t left_y, int16_t right_x, int16_t right_y);
 int32_t mystic_session_controller_arrival(MysticSession *session, uint8_t slot, uint16_t active_mask);
-/* Additive ABI 2: analog triggers=1, rumble=2, trigger rumble=4. Other bits rejected. */
+/* Additive ABI 2: an unknown controller type with the classic buttons. */
 int32_t mystic_session_controller_arrival_with_feedback(MysticSession *session, uint8_t slot,
     uint16_t active_mask, uint16_t capabilities, uint64_t epoch);
+/* ABI 4. kind: 0 unknown, 1 Xbox, 2 PlayStation, 3 Nintendo. capabilities: analog triggers=1,
+ * rumble=2, trigger rumble=4, accelerometer=0x10, gyroscope=0x20, battery=0x40, light=0x80.
+ * Touchpad bits are rejected: Mystic sends no touchpad contacts. */
+int32_t mystic_session_controller_announce(MysticSession *session, uint8_t slot, uint16_t active_mask,
+    uint8_t kind, uint32_t supported_buttons, uint16_t capabilities, uint64_t epoch);
+/* kind 1: accelerometer in m/s^2 with gravity; kind 2: gyroscope in degrees per second.
+ * MYSTIC_ERR_UNIMPLEMENTED when the host takes no motion; input carries on. */
+int32_t mystic_session_controller_motion(MysticSession *session, uint8_t slot, uint8_t kind,
+    float x, float y, float z);
+/* state: 0 unknown, 1 none, 2 discharging, 3 charging, 5 full; percent 0..100 or 255 unknown.
+ * MYSTIC_ERR_UNIMPLEMENTED when the host takes no battery reports. */
+int32_t mystic_session_controller_battery(MysticSession *session, uint8_t slot, uint8_t state, uint8_t percent);
 typedef struct {
-    uint8_t slot, kind; /* kind 1: low/high handle motors; kind 2: left/right triggers */
-    uint16_t first, second; /* amplitudes 0..65535; zero stops that motor */
+    uint8_t slot, kind; /* 1: low/high handle motors; 2: left/right triggers; 3: light bar;
+                         * 4: accelerometer rate; 5: gyroscope rate */
+    uint16_t first, second; /* motors: amplitudes 0..65535, zero stops that motor;
+                             * light: first = red << 8 | green, second = blue;
+                             * rates: first = Hz, zero stops that sensor */
     uint64_t epoch; /* echoes the slot arrival, fencing reuse/release */
 } MysticControllerFeedback;
-/* Takes latest states, at most eight. Serialized with start/stop; capacity 1..8.
+/* Takes latest states. Serialized with start/stop; capacity 1..80 (16 slots, 5 kinds).
  * Returns count or a negative error. No borrowed pointers escape the call. */
 int32_t mystic_session_take_controller_feedback(const MysticSession *session,
     MysticControllerFeedback *out, size_t capacity);
@@ -307,6 +323,11 @@ int32_t mystic_frame_buffers(const MysticFrame *frame, MysticFrameBuffer *out, s
 /* Saved host Wake-on-LAN JSON; owned response freed with mystic_string_free. */
 char *mystic_wake(const char *request_json);
 char *mystic_session_rates(const MysticSession *session, uint32_t kbps, uint32_t fps_millihz);
+
+/* ABI 4: the stream display's EDR headroom (peak over SDR white; 1 or less is SDR). The host
+ * gets a luminance estimated from it. Returns 1 when sent, 0 when the host already has these
+ * values, MYSTIC_ERR_UNIMPLEMENTED when the host does not take display reports. */
+int32_t mystic_session_display_caps(const MysticSession *session, float headroom);
 
 /* Stream doctor (additive to ABI 3): Nightjar's StreamHealth and BitrateTrial. One tick a second
  * with the app's recent timings (NaN when unknown); returns an envelope with the network figures.

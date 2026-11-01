@@ -88,13 +88,33 @@ trust/pinning checks are bypassed.
 ## Controllers
 
 Control Desktop or Capture Mouse also enables GameController forwarding. Pair a
-DualSense or Xbox controller in macOS first. Up to four extended-profile controllers
-are forwarded with positional A/B/X/Y face buttons (Cross/Circle/Square/Triangle on
+DualSense or Xbox controller in macOS first. Up to 16 extended-profile controllers
+are forwarded, as Nightjar; the engine folds them to four for hosts that take no more
+(GameStream). Each has positional A/B/X/Y face buttons (Cross/Circle/Square/Triangle on
 PlayStation), d-pad, shoulders, stick clicks, Menu/Options, analog triggers, and both
 sticks. Sticks use a radial 12% dead zone rescaled to full travel; triggers use 0–255.
-Guide/Home, touchpad, paddles, motion and DualSense adaptive resistance effects are
-not forwarded. Controller arrivals use the generic extended-gamepad type and
-advertise analog triggers plus only the feedback motors macOS exposes.
+Where the controller has them, Guide/Home, the touchpad click (DualSense, DualShock 4),
+Share and paddles 1–4 (Xbox) are forwarded too; Guide and Share stop opening the Mac's
+own overlays while the stream has input. Touchpad contacts and DualSense adaptive
+resistance effects are not forwarded.
+
+Arrivals name the controller type (Xbox, PlayStation, Nintendo or unknown), so the
+host can emulate a matching pad, and list exactly the buttons the controller has.
+They advertise analog triggers, the feedback motors macOS exposes, and the motion
+sensors, battery and light the controller reports. The touchpad is not advertised:
+GameController gives no reliable finger-down state, so no contacts could be sent.
+
+- **Motion.** The host asks for each sensor and its rate; GCMotion runs only while
+  asked and reports at most at that rate. The accelerometer is sent in m/s² with
+  gravity as an upward reaction (CoreMotion's sign flipped, as Android reports it),
+  the gyroscope in degrees per second. Axes are GameController's; whether they match
+  the host's pad axes is unverified until a physical playtest.
+- **Battery.** Sent after the arrival and whenever the level or charging state
+  changes (checked every 5 seconds).
+- **Light.** The host's colour sets the controller's light.
+
+Hosts that take no motion or battery reports refuse them; that is not an input
+failure, and the stream carries on.
 
 Host-driven handle rumble now uses GameController-created Core Haptics engines.
 Low/high amplitudes target the left/right handles separately when available;
@@ -103,28 +123,30 @@ rumble is advertised only when both trigger motor engines can be created. Trigge
 rumble is vibration, not DualSense adaptive trigger resistance. System-disabled
 or unavailable haptics leave controller input working without a feedback claim.
 
-Feedback uses a fixed eight-state Rust mailbox (four slots, two motor kinds),
-coalescing to the latest amplitude, including zero stops. A serialized worker poll
+Feedback uses a fixed Rust mailbox of 80 states (16 slots; handle and trigger
+motors, light, and the two sensor rates), coalescing to the latest value, including
+zero stops. A serialized worker poll
 and an awaited main-actor loop bound delivery. Capture epochs are echoed through
 controller arrivals and polled feedback; old polls and old slot bindings are
-rejected after release/reactivation or unplug/replacement. The existing ABI 2
-callback and configuration layouts remain unchanged.
+rejected after release/reactivation or unplug/replacement. ABI 4 adds typed arrivals,
+motion and battery entry points; the callback and configuration layouts are unchanged.
 
 Release, focus loss, unplug, disconnect, reconnect recovery and teardown stop the
 controller's players and engines. A motor error disables feedback for that
 controller, updates its advertised capabilities and records a diagnostic while
 leaving input active. Engine resets invalidate cached players without replaying
-old effects. PCM haptics, controller audio, LEDs and adaptive triggers remain
-separate work.
+old effects. PCM haptics, controller audio and adaptive triggers remain separate work.
 
-Connected devices contribute a four-bit gamepad mask to host launch/resume. During
+Connected devices contribute a 16-bit gamepad mask to host launch/resume. During
 capture, connect/disconnect notifications update the active mask and reuse free
 slots without moving surviving controllers. Unplug sends a neutral state. Focus
 loss, the release shortcut, disconnect, and quit disable handlers and neutralize
 controller slots accepted by the engine. Reactivation takes fresh snapshots, so
 held controls reflect the current physical state. Unsent events share the same
 256-event mailbox and epoch invalidation as keyboard/mouse. Stick-only changes can
-coalesce; button and trigger transitions remain ordered.
+coalesce; button and trigger transitions remain ordered. Each sensor and battery keeps
+one queued reading, replaced by newer ones but never moved ahead of an arrival that
+reassigned its slot.
 
 Snapshot-controller tests exercise the actual GameController profile mapping,
 including d-pad directions/diagonals, signed stick extremes, trigger conversion,
@@ -133,6 +155,12 @@ and overflow shutdown. Core tests cover invalid analog values, coalescing bounda
 and neutral-state release retries. The C smoke test covers controller entry points
 and slot/mask rejection. Xcode validation: 98 tests, 94 passed, four AV1 hardware
 skips. Rust: 11 passed; C ABI smoke: PASS.
+
+Since 2026-10-31, tests also cover 16-slot capacity, typed arrivals with Apple's
+virtual pad (which reports an accelerometer), battery after arrival, light and sensor
+rates routed only to controllers that have them, readings from a released or replaced
+controller dropped, sensor/battery coalescing, and the engine's slot, button,
+capability, type, motion and battery checks.
 
 **Live controller acceptance is pending:** no physical controller was available on
 2026-10-27. With one connected, stream Desktop, activate Control Desktop, open the

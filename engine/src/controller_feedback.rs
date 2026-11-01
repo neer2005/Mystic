@@ -1,12 +1,20 @@
-//! Latest motor state per controller/kind: host floods never grow a queue.
+//! Latest host request per controller/kind: host floods never grow a queue.
 use crate::{MysticSession, MYSTIC_ERR_INVALID_ARGUMENT};
 use nightjar_core::control::ControlEvent;
+use nightjar_core::input::packets::{motion_type, MAX_CONTROLLERS};
+
+const SLOTS: usize = MAX_CONTROLLERS as usize;
+const KINDS: usize = 5;
+/// Every pending value at once: one per slot and kind.
+pub(crate) const MAX_TAKE: usize = SLOTS * KINDS;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MysticControllerFeedback {
     pub slot: u8,
-    /// 1: handle rumble (low/high frequency), 2: trigger rumble (left/right).
+    /// 1: handle rumble (low/high frequency), 2: trigger rumble (left/right),
+    /// 3: light bar (first = red << 8 | green, second = blue),
+    /// 4: accelerometer and 5: gyroscope report rate (first = Hz, 0 stops).
     pub kind: u8,
     pub first: u16,
     pub second: u16,
@@ -15,8 +23,8 @@ pub struct MysticControllerFeedback {
 
 #[derive(Default)]
 pub(crate) struct FeedbackMailbox {
-    pending: [[Option<MysticControllerFeedback>; 2]; 4],
-    epochs: [u64; 4],
+    pending: [[Option<MysticControllerFeedback>; KINDS]; SLOTS],
+    epochs: [u64; SLOTS],
 }
 impl FeedbackMailbox {
     pub fn receive(&mut self, event: ControlEvent) {
@@ -31,9 +39,22 @@ impl FeedbackMailbox {
                 left,
                 right,
             } => (controller, 2, left, right),
+            ControlEvent::SetControllerLed { controller, r, g, b } => {
+                (controller, 3, u16::from(r) << 8 | u16::from(g), u16::from(b))
+            }
+            ControlEvent::SetMotionEventState {
+                controller,
+                motion_type: motion_type::ACCEL,
+                report_rate_hz,
+            } => (controller, 4, report_rate_hz, 0),
+            ControlEvent::SetMotionEventState {
+                controller,
+                motion_type: motion_type::GYRO,
+                report_rate_hz,
+            } => (controller, 5, report_rate_hz, 0),
             _ => return,
         };
-        if slot < 4 {
+        if usize::from(slot) < SLOTS {
             self.pending[slot as usize][kind as usize - 1] = Some(MysticControllerFeedback {
                 slot: slot as u8,
                 kind,
@@ -45,7 +66,7 @@ impl FeedbackMailbox {
     }
     pub fn clear_slot(&mut self, slot: u8, epoch: u64) {
         self.epochs[slot as usize] = epoch;
-        self.pending[slot as usize] = [None; 2];
+        self.pending[slot as usize] = [None; KINDS];
     }
     fn take(&mut self, out: &mut [MysticControllerFeedback]) -> usize {
         let mut count = 0;
@@ -71,7 +92,7 @@ pub unsafe extern "C" fn mystic_session_take_controller_feedback(
     out: *mut MysticControllerFeedback,
     capacity: usize,
 ) -> i32 {
-    if out.is_null() || capacity == 0 || capacity > 8 {
+    if out.is_null() || capacity == 0 || capacity > MAX_TAKE {
         return MYSTIC_ERR_INVALID_ARGUMENT;
     }
     let Some(handle) = handle.as_ref() else {
@@ -165,6 +186,7 @@ mod tests {
                 feedback: (*handle).feedback.clone(),
                 clipboard: (*handle).clipboard.clone(),
                 rates: (*handle).rates.clone(),
+                display: (*handle).display.clone(),
             };
             listener.control_event(ControlEvent::Rumble {
                 controller: 3,
@@ -192,6 +214,27 @@ mod tests {
                 0
             );
             mystic_session_free(handle);
+        }
+    }
+    #[test]
+    fn lights_and_motion_rates_reach_every_slot_and_stay_latest() {
+        let mut mailbox = FeedbackMailbox::default();
+        mailbox.receive(ControlEvent::SetControllerLed { controller: 15, r: 0x12, g: 0x34, b: 0x56 });
+        mailbox.receive(ControlEvent::SetMotionEventState { controller: 9, motion_type: motion_type::GYRO, report_rate_hz: 250 });
+        mailbox.receive(ControlEvent::SetMotionEventState { controller: 9, motion_type: motion_type::ACCEL, report_rate_hz: 100 });
+        mailbox.receive(ControlEvent::SetMotionEventState { controller: 9, motion_type: motion_type::ACCEL, report_rate_hz: 0 });
+        mailbox.receive(ControlEvent::SetMotionEventState { controller: 9, motion_type: 7, report_rate_hz: 60 });
+        mailbox.receive(ControlEvent::SetControllerLed { controller: 16, r: 1, g: 2, b: 3 });
+        let mut out = [MysticControllerFeedback::default(); MAX_TAKE];
+        assert_eq!(mailbox.take(&mut out), 3);
+        assert_eq!(out[0], MysticControllerFeedback { slot: 9, kind: 4, first: 0, second: 0, epoch: 0 });
+        assert_eq!(out[1], MysticControllerFeedback { slot: 9, kind: 5, first: 250, second: 0, epoch: 0 });
+        assert_eq!(out[2], MysticControllerFeedback { slot: 15, kind: 3, first: 0x1234, second: 0x56, epoch: 0 });
+        unsafe {
+            let handle = crate::mystic_session_new();
+            assert_eq!(mystic_session_take_controller_feedback(handle, out.as_mut_ptr(), MAX_TAKE + 1), MYSTIC_ERR_INVALID_ARGUMENT);
+            assert_eq!(mystic_session_take_controller_feedback(handle, out.as_mut_ptr(), MAX_TAKE), 0);
+            crate::mystic_session_free(handle);
         }
     }
 }

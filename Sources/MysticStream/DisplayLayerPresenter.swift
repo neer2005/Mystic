@@ -63,10 +63,13 @@ public final class DisplayLayerPresenter {
         layer.toneMapMode = .automatic
     }
 
+    /// Told after every display update, so the stream can report the screen to the host.
+    public var displayChanged: (() -> Void)?
     /// Called by the owning view when its actual destination or screen headroom changes.
     public func updateDisplay(name: String?,currentHeadroom: Double?,potentialHeadroom: Double?) {
         videoOutput.updateDisplay(name:name,currentHeadroom:currentHeadroom,potentialHeadroom:potentialHeadroom)
         configureDynamicRange()
+        displayChanged?()
     }
     private func configureDynamicRange() {
         // Preserve the tagged YCbCr surface. Core Animation owns the sole output tone map.

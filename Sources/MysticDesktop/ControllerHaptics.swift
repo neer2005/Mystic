@@ -47,6 +47,8 @@ final class NativeControllerHaptics: ControllerHaptics {
             else { try low?.set(first);try high?.set(second) }
         case .triggerRumble:
             try leftTrigger?.set(first);try rightTrigger?.set(second)
+        case .light,.accelerometerRate,.gyroscopeRate:
+            break
         }
     }
     static func pattern(intensity: Float,sharpness: Float) throws -> CHHapticPattern {

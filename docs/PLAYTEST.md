@@ -75,6 +75,22 @@ are not part of these checks.
 5. Unplug/reconnect or turn the controller off/on. The game should regain input
    after activation, and no replacement controller should inherit an old effect.
 6. Disconnect the stream while rumble is active. The controller must stop.
+7. Check Guide/Home, the touchpad click and (on Xbox) Share and paddles reach the
+   host, and that Guide does not open the Mac's game overlay while input is captured.
+8. On a Sunshine-based host, check the host lists the controller as the right type
+   (DualSense as a PlayStation pad), with motion and battery. In a game or tester
+   with gyro aiming, check each axis turns the right way: Mystic sends GameController's
+   axes unchanged, so a wrong axis needs a mapping fix. Check a light-bar colour the
+   game sets.
+9. With five or more controllers on a Sunshine-based host, check each gets its own
+   player.
+
+## Display luminance
+
+On an HDR stream to a Rubylight host, check the session log says "Told host the
+display". Move the window to another screen and check it is told again, once. On
+another host, check the launch carries the luminance (the host's log shows the
+client's brightness values).
 
 ## Interrupted-stream recovery
 

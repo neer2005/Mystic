@@ -140,7 +140,7 @@ public protocol AudioConsumer: AnyObject {
 
 extension ControllerFeedback {
     init?(_ cValue: MysticControllerFeedback) {
-        guard cValue.slot < 4,let kind=Kind(rawValue:cValue.kind) else { return nil }
+        guard cValue.slot < 16,let kind=Kind(rawValue:cValue.kind) else { return nil }
         self.init(slot:cValue.slot,kind:kind,first:cValue.first,second:cValue.second,epoch:cValue.epoch)
     }
 }

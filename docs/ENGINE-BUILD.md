@@ -3,6 +3,23 @@
 Tracking whether Nightjar's `nightjar-core` builds and behaves on the Mac, which is the
 gate for Mystic Phase 1.
 
+## ABI 4: controllers and display luminance (2026-10-31)
+
+Same Nightjar revision. ABI 4 adds `mystic_session_controller_announce` (type, buttons
+and capabilities), `mystic_session_controller_motion`, `mystic_session_controller_battery`
+and `mystic_session_display_caps`; controller slots go to 16 and the feedback mailbox
+to 80 entries. Existing entry points keep their behaviour apart from the wider slot
+range. See `INPUT.md` and `HDR.md`.
+
+Verified on macOS arm64 with Xcode 27:
+
+- `bash engine/scripts/test-c-abi.sh`: 43 Rust tests passed, release archive built,
+  C smoke test passed.
+- `swift test --disable-sandbox`: 250 tests passed; four AV1 hardware tests skipped.
+- `bash scripts/build-macos-app.sh`: `.build/Mystic.app` rebuilt and signed.
+
+No live host or physical controller was available for this change.
+
 ## Nightjar 4.0.1 sync (2026-10-30)
 
 Mystic now pins Nightjar `461e403b0a1fde4a1e447f73c65c505ab61e84ea`, matching

@@ -327,7 +327,7 @@ impl MysticHost {
                     _ => return Err("unsupported launch audio layout".into()),
                 };
                 let gamepad_mask = v["gamepadMask"].as_u64().unwrap_or(0);
-                if gamepad_mask > 15 { return Err("invalid controller mask (maximum four controllers)".into()); }
+                if gamepad_mask > 0xFFFF { return Err("invalid controller mask (maximum sixteen controllers)".into()); }
                 let request = LaunchRequest {
                     gamepad_mask: gamepad_mask as u32,
                     app_id,
@@ -343,6 +343,8 @@ impl MysticHost {
                     ri_key_id: key_id,
                     // The query carries it only for hosts that offer client FEC.
                     fec: v.get("fec").and_then(Value::as_i64).map(|n| crate::fec_choice(n.clamp(-2,255) as i16)),
+                    // The engine sends it only to hosts other than Rubylight, which get DisplayCaps.
+                    display_luminance: v["displayHeadroom"].as_f64().and_then(|h| crate::display::luminance(h as f32)),
                     ..Default::default()
                 };
                 let result = if i.current_game == app_id {
