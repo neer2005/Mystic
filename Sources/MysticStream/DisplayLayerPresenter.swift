@@ -82,7 +82,7 @@ public final class DisplayLayerPresenter {
         let native=synchronizer.sampleBufferReceiver(adding:layer.sampleBufferRenderer)
         let timeline=metalClock
         let metal=renderer == .metal && receiverOverride == nil
-            ? try? MetalPresentationReceiver(clock:{ timeline.now() },capacity:mode.retainedFrames) : nil
+            ? try? MetalPresentationReceiver(clock:{ timeline.now() },capacity:mode.retainedFrames,waitsForRefresh:mode.waitsForRefresh) : nil
         self.metal=metal
         receiver=receiverOverride ?? metal ?? NativePresentationReceiver(native)
         synchronizer.delaysRateChangeUntilHasSufficientMediaData=false

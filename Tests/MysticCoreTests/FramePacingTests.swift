@@ -288,6 +288,9 @@ struct FramePacingTests {
         #expect(pacer.holdMicros == 11000)
         pacer.reset();#expect(pacer.refreshGrid != nil,"a new generation keeps the display")
     }
+    @Test func onlyLowLatencySkipsTheRefreshWait() {
+        for mode in FramePacingMode.allCases { #expect(mode.waitsForRefresh == (mode != .lowLatency)) }
+    }
     @Test func theShownCadenceSummarisesEachStage() {
         var cadence=ShownCadence()
         #expect(cadence.stageSummary.isEmpty)

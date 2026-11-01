@@ -16,13 +16,15 @@ public enum FramePacingMode: String, CaseIterable, Codable, Hashable, Sendable {
     }
     public var detail: String {
         switch self {
-        case .lowLatency: "Presents decoded frames without intentional buffering."
+        case .lowLatency: "Presents decoded frames without intentional buffering. With the Metal renderer it does not wait for the display's refresh, so the picture may tear."
         case .balanced: "Uses about one frame of buffering to absorb arrival jitter."
         case .fpsLimit: "Shows no more frames a second than the stream's rate: an early frame waits up to one frame for its turn."
         case .smoothest: "Shows every frame in turn at the PC's timing, with about two frames of buffering. Adds the most delay."
         case .pcFrameTimes: "Shows each frame at its time on the PC, behind a delay that follows recent network and decoder jitter."
         }
     }
+    /// Nightjar's rule: every pacing but the lowest latency waits for the display's refresh.
+    public var waitsForRefresh: Bool { self != .lowLatency }
     /// The in-order pacings: a newer frame does not replace an older one that is still fresh.
     public var keepsOrder: Bool { self != .lowLatency && self != .balanced }
     /// Decoded frames the presenter may hold, besides the one it is working on.
