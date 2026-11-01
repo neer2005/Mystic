@@ -39,13 +39,17 @@ disk covers are disposable and age out through the bounded cache.
 ## Wake-on-LAN
 
 While reachable, a PC's serverinfo MAC and, when supported, native wake adapter/broadcast
-addresses are remembered. Wake sends bounded standard magic packets on UDP port 9 to
-local broadcast, reported IPv4 subnet broadcasts and the saved host's resolved IPv4
-address. Zero, malformed and multicast MACs are rejected. No host permissions or power
-settings are changed. The result says packets were sent, not that the PC woke; Refresh
-Home performs the paired reachability check. Firmware/adapter wake configuration and
-network routing must support it. A remote VPN may not carry broadcasts. Automatic wake
-retry/polling, manual MAC editing and additional directed-wake strategies remain polish.
+addresses are remembered. Wake sends Nightjar's plan: one magic packet per saved MAC to
+255.255.255.255, the subnet broadcast of each of this Mac's running interfaces, the PC's
+reported subnet broadcasts and the PC's resolved addresses (IPv4 and IPv6), on ports 7, 9,
+47009 and the Moonlight ports after the PC's HTTP port, three times over; and to `ff02::1`
+on each of this Mac's IPv6 links, best effort. Zero, malformed and multicast MACs are
+rejected. No host permissions or power settings are changed.
+
+Mystic then waits as Nightjar does: it asks the PC whether it answers every 2 seconds,
+sends the packets again every 8 seconds, and gives up after 90 seconds. An answering PC's
+Home is refreshed. Firmware/adapter wake configuration and network routing must support
+it; a remote VPN may not carry broadcasts. Manual MAC editing remains polish.
 
 ## Validation
 

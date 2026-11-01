@@ -61,9 +61,18 @@ it performs no allocation, lock, dispatch, decode, or logging.
 
 The ring holds at most 8192 frames of 1–8 channels. When consuming a backlog above 2880
 frames (60 ms), it skips older queued frames; producer overflow drops newly decoded
-output without skipping Opus state advancement. Underruns are zero-filled. Volume
+output without skipping Opus state advancement. Volume
 and mute use an atomic ring gain with a 128-frame render-side ramp, independent of
 Core Audio parameter timing and without changing the Mac's system volume.
+
+Late packets are filled rather than played as silence, by Nightjar's playout rule. The
+render thread only reads the ring, so the rule runs on the decode queue: a timer at the
+packet rate sees a packet that is late while the ring holds less than 10 ms (two packets,
+or the output's own read size when larger) and fills its time with Opus concealment. The
+packet whose time concealment played is skipped when it arrives, so a late burst never adds
+latency; the HUD's audio line counts them as "late skipped". Concealment stops after 100 ms
+of outage, and what arrives after that is new, not late. Silence remains only before the
+first packet, after a longer outage, and if the output drains faster than the timer runs.
 
 Playback follows the Mac's default audio output. Core Audio listeners observe
 default-output/device-list changes and the current device's alive, nominal-rate,

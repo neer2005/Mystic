@@ -78,3 +78,17 @@ final class HomeLibraryTests: XCTestCase {
         XCTAssertTrue(home.games.first { $0.id == "game:steam:570" }!.favourite)
     }
 }
+
+final class WakeWaitTests: XCTestCase {
+    func testSendsAtOnceResendsEveryEightSecondsAndGivesUpAfterNinety() {
+        let start=ContinuousClock.now
+        var wait=WakeWait(start:start)
+        XCTAssertEqual(wait.next(online:false,now:start),.send)
+        XCTAssertEqual(wait.next(online:false,now:start + .seconds(2)),.wait)
+        XCTAssertEqual(wait.next(online:false,now:start + .seconds(8)),.send)
+        XCTAssertEqual(wait.next(online:false,now:start + .seconds(15)),.wait)
+        XCTAssertEqual(wait.next(online:false,now:start + .seconds(16)),.send)
+        XCTAssertEqual(wait.next(online:false,now:start + .seconds(90)),.timedOut)
+        XCTAssertEqual(wait.next(online:true,now:start + .seconds(90)),.online,"an answering PC wins in the same tick")
+    }
+}

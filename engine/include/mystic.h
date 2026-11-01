@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 /* Bump-matched with MYSTIC_ABI_VERSION in lib.rs. The Swift side must refuse a mismatch. */
-#define MYSTIC_ABI_VERSION 4
+#define MYSTIC_ABI_VERSION 5
 
 /* Result codes. */
 #define MYSTIC_OK 0
@@ -121,7 +121,22 @@ typedef struct {
     int16_t video_fec;
     /* Wired link speed toward the host in Mbit/s; 0 on Wi-Fi or when unknown. */
     int32_t link_mbps;
+    /* ABI 5. MYSTIC_LOCATION_*: auto decides from the address; a VPN route streams as remote. */
+    uint8_t location;
+    /* Client roaming, with hosts that advertise it; roaming_metered also onto metered networks. */
+    bool client_roaming;
+    bool roaming_metered;
+    /* The app reports every network change with mystic_session_network_changed. */
+    bool network_hints;
 } MysticStreamConfig;
+
+#define MYSTIC_LOCATION_AUTO 0
+#define MYSTIC_LOCATION_LOCAL 1
+#define MYSTIC_LOCATION_REMOTE 2
+
+/* ABI 5: the network toward the host changed; metered when it bills by data. Returns 0 roamed,
+ * 1 the connection carries on, 2 it cannot continue there (another address, not roamed). */
+int32_t mystic_session_network_changed(const MysticSession *session, bool metered);
 
 #define MYSTIC_FEC_HOST (-1)
 #define MYSTIC_FEC_AUTO (-2)
@@ -307,6 +322,11 @@ bool mystic_recovers_termination(int32_t code, bool video_started);
 bool mystic_recovers_startup(int32_t stage, int32_t code);
 int64_t mystic_recovery_next(MysticRecovery *policy, uint64_t now_ms, uint64_t connected_ms);
 uint64_t mystic_recovery_remaining(const MysticRecovery *policy, uint64_t now_ms);
+/* ABI 5: the next attempt starts without its delay (the network came back); it still spends one. */
+void mystic_recovery_retry_now(MysticRecovery *policy);
+/* ABI 5: Nightjar's rule for a network back after the stream's was lost: reconnect now. */
+bool mystic_reconnects_at_once(bool cannot_continue, bool metered, bool mobile_allowed,
+    bool auto_reconnect, uint32_t network_grace_ms);
 #define MYSTIC_CLIPBOARD_MANUAL_MAX_BYTES (1024 * 1024)
 #define MYSTIC_CLIPBOARD_SYNC_MAX_BYTES (65500 - 10)
 /* Text-only clipboard sync: bounded JSON request {active,baseline,text?}, owned JSON
@@ -320,7 +340,8 @@ void mystic_session_bitrate_applied(MysticSession *session, uint32_t requested, 
 int32_t mystic_frame_buffers(const MysticFrame *frame, MysticFrameBuffer *out, size_t capacity);
 
 /* Serialized worker: zero/zero polls; otherwise one bounded live rate request. */
-/* Saved host Wake-on-LAN JSON; owned response freed with mystic_string_free. */
+/* Wake-on-LAN JSON: host, port, macs, broadcasts (the PC's), localBroadcasts and ipv6Scopes
+ * (this Mac's). Sends Nightjar's plan; owned response freed with mystic_string_free. */
 char *mystic_wake(const char *request_json);
 char *mystic_session_rates(const MysticSession *session, uint32_t kbps, uint32_t fps_millihz);
 

@@ -85,6 +85,19 @@ are not part of these checks.
 9. With five or more controllers on a Sunshine-based host, check each gets its own
    player.
 
+## Network changes, VPN and wake
+
+1. Over Tailscale or another VPN, check the session log says "over a VPN … streaming as
+   remote with 1024-byte packets", and that the picture holds at a high bitrate.
+2. During a stream on Wi-Fi, plug in Ethernet (or switch Wi-Fi networks). With a
+   roaming-capable host the stream should carry on; otherwise check the log names the
+   change. Turn Wi-Fi off for a few seconds and on again: the stream should reconnect at
+   once rather than after a timeout.
+3. With a lossy or jittery link, listen for clicks: late audio should be filled, and the
+   HUD's audio line should count "late skipped" packets.
+4. Put the PC to sleep and press Wake in Home. The status should say "Waking…", then
+   that the PC is awake once it answers, within 90 seconds.
+
 ## Display luminance
 
 On an HDR stream to a Rubylight host, check the session log says "Told host the

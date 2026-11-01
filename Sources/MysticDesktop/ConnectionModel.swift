@@ -222,6 +222,8 @@ public final class ConnectionModel {
         let framePacing: FramePacingMode
         let tellWireless: Bool
         let tellLinkSpeed: Bool
+        var roaming=true
+        var roamingMetered=false
     }
     @ObservationIgnored private(set) var plan: StreamPlan?
     /// The headroom of the screen the stream will open on, read when a plan is made.
@@ -229,6 +231,16 @@ public final class ConnectionModel {
     /// The first headroom seen per screen this plan: macOS raises it as brightness falls, and
     /// a host that rewrote its HDR metadata for every change would restart its decoder.
     @ObservationIgnored private var reportedHeadroom: [String:Float] = [:]
+    /// Watches the route toward the host while a stream runs; replaced on every attempt.
+    @ObservationIgnored private var networkWatch: NetworkWatch?
+    @ObservationIgnored private var networkLost=false
+    /// Starts the watcher for one attempt; nil without a route toward the host now.
+    @ObservationIgnored var startNetworkWatch: @Sendable (String,UInt16,@escaping @Sendable (LinkEvent) -> Void) async -> NetworkWatch? = { host,port,onEvent in
+        await Task.detached { NetworkWatch.start(host:host,port:port,onEvent:onEvent) }.value
+    }
+    @ObservationIgnored var lookUpRoute: @Sendable (String,UInt16) async -> NetworkRoute.Report = { host,port in
+        await NetworkRoute.toward(host:host,port:port)
+    }
     @ObservationIgnored private var recovery = StreamRecovery()
     @ObservationIgnored private var recovering = false
     @ObservationIgnored private var hadVideo = false
@@ -395,7 +407,8 @@ public final class ConnectionModel {
             return StreamPlan(app:app,options:options,configuration:config,
                 adaptive:video.adaptiveBitrate,reconnect:settings.value.automaticReconnect ?? true,
                 hostID:host?.uniqueID ?? "",framePacing:video.framePacing,
-                tellWireless:tellHostWireless,tellLinkSpeed:tellHostLinkSpeed)
+                tellWireless:tellHostWireless,tellLinkSpeed:tellHostLinkSpeed,
+                roaming:clientRoaming,roamingMetered:roamingOnMeteredNetworks)
     }
     private func startPreparedPlan(_ plan: StreamPlan,connection: any HostService,capabilities: VideoCapabilities) {
         recovery=StreamRecovery();recovering=false;hadVideo=false;connectedAt=nil
@@ -428,7 +441,8 @@ public final class ConnectionModel {
                 }
                 guard let self,self.generation == token else { return }
                 // Looked up for every attempt: a reconnect can come over another network.
-                let route=await NetworkRoute.toward(host:address,port:self.connectedPort)
+                let report=await self.lookUpRoute(address,self.connectedPort)
+                let route=report.route
                 guard self.generation == token else { return }
                 let hints=NetworkRoute.hints(route,tellWireless:plan.tellWireless,tellLinkSpeed:plan.tellLinkSpeed)
                 var options=options
@@ -439,7 +453,15 @@ public final class ConnectionModel {
                 config.remoteInputAESKey = launch.key; config.remoteInputAESIV = launch.iv
                 config.clientWireless = launch.clientWireless == true
                 config.linkMbps = hints.linkMbps
-                self.record("Route to host: \(route?.summary ?? "unknown"). Told host: \(config.clientWireless ? "wireless" : "nothing about Wi-Fi")\(config.linkMbps > 0 ? ", link \(config.linkMbps) Mbit/s" : ""). Drop tolerance \(config.networkGraceMs/1000) s.",token:token)
+                if report.vpn { config.location = .remote;config.packetSize = 1024 }
+                let watch=await self.startNetworkWatch(address,self.connectedPort) { [weak self] event in
+                    Task { @MainActor in self?.networkEvent(event,token:token) }
+                }
+                guard self.generation == token else { watch?.stop();return }
+                self.networkWatch?.stop();self.networkWatch=watch;self.networkLost=false
+                config.clientRoaming = plan.roaming;config.roamingMetered = plan.roamingMetered
+                config.networkHints = watch != nil
+                self.record("Route to host: \(route?.summary ?? "unknown")\(report.vpn ? ", over a VPN (\(report.interface ?? "tunnel")): streaming as remote with 1024-byte packets" : ""). Told host: \(config.clientWireless ? "wireless" : "nothing about Wi-Fi")\(config.linkMbps > 0 ? ", link \(config.linkMbps) Mbit/s" : ""). Drop tolerance \(config.networkGraceMs/1000) s. Network changes \(watch == nil ? "unwatched" : "watched")\(config.clientRoaming && config.networkHints ? ", roaming on" : "").",token:token)
                 let session = try self.makeSession( { [weak self] in
                     Task { @MainActor in self?.streamFailed("Remote input delivery failed. The stream was stopped to release held keys.",token:token) }
                 },{ [weak self] message in
@@ -498,6 +520,7 @@ public final class ConnectionModel {
     public func disconnect() {
         homeSync.cancel()
         clipboard?.stop();clipboard=nil;clipboardBusy=false;clipboardStatus="Clipboard sharing idle"
+        networkWatch?.stop();networkWatch=nil;networkLost=false
         plan=nil;streamingAppName=nil;recovering=false;hadVideo=false;connectedAt=nil;recovery=StreamRecovery()
         rates.stopAutomatic(status:"Fixed bitrate")
         health.reset()
@@ -545,7 +568,7 @@ public final class ConnectionModel {
                 let rate=stats.outputSampleRate.map { String(format:" · %.1f kHz",$0/1000) } ?? ""
                 let layout=stats.outputLayout.map { " · "+$0 } ?? ""
                 let fallback=stats.stereoFallbackReason.map { " ("+$0+")" } ?? ""
-                self.audioStatus = "\(stats.outputStatus.label)\(route)\(rate)\(layout)\(fallback): \(stats.decodedPackets) packets, \(stats.concealedPackets) concealed, \(stats.renderedFrames) frames rendered, \(stats.queuedFrames/48) ms queued · \(stats.outputRestarts) output restarts · \(stats.discardedOutputFrames) frames discarded during output changes"
+                self.audioStatus = "\(stats.outputStatus.label)\(route)\(rate)\(layout)\(fallback): \(stats.decodedPackets) packets, \(stats.concealedPackets) concealed, \(stats.skippedLatePackets) late skipped, \(stats.renderedFrames) frames rendered, \(stats.queuedFrames/48) ms queued · \(stats.outputRestarts) output restarts · \(stats.discardedOutputFrames) frames discarded during output changes"
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
         }
@@ -623,6 +646,7 @@ public final class ConnectionModel {
             endRecovery("Could not restore the stream within the retry limit. \(message)");return
         }
         clipboard?.stop();clipboard=nil;clipboardBusy=false;clipboardStatus="Clipboard sharing paused during recovery"
+        networkWatch?.stop();networkWatch=nil;networkLost=false
         cancelGameAction()
         rates.resetManual()
         graphics.reset()
@@ -686,6 +710,36 @@ public final class ConnectionModel {
         if let token, generation != token { return }
         errorMessage = message; phase = host?.paired == true && !library.apps.isEmpty ? .ready : .failed
         status = "Connection needs attention."; pairingPIN = nil
+    }
+    /// Nightjar's desktop handling of the watcher's events: every change goes to the session,
+    /// which roams when both sides can, and a network back on an address the stream cannot
+    /// continue over reconnects at once instead of waiting for the connection to time out.
+    func networkEvent(_ event: LinkEvent,token: UUID) {
+        guard generation == token,let session else { return }
+        switch event {
+        case .lost:
+            networkLost=true
+            record("The network toward the host was lost.",token:token)
+            if phase == .streaming { status="Network lost. Waiting for it to come back…" }
+        case let .changed(metered,afterLoss):
+            Task { [weak self] in
+                guard let change=await session.networkChanged(metered:metered),let self,self.generation == token else { return }
+                let what: String = switch change {
+                case .roamed: "the stream moved onto it"
+                case .carriesOn: "the stream carries on"
+                case .cannotContinue: "the stream cannot continue on its new address"
+                }
+                self.record("The network changed\(metered ? " to a metered one" : "")\(afterLoss ? " after it was lost" : ""): \(what).",token:token)
+                guard afterLoss,self.networkLost else { return }
+                self.networkLost=false
+                if self.phase == .streaming { self.status="Streaming \(self.plan?.app.name ?? "video")." }
+                guard change == .cannotContinue,self.phase == .streaming,self.hadVideo,let plan=self.plan,
+                      StreamRecovery.reconnectsAtOnce(cannotContinue:true,metered:metered,meteredAllowed:plan.roamingMetered,
+                          automaticReconnect:plan.reconnect,networkGraceMs:plan.configuration.networkGraceMs) else { return }
+                self.recovery.retryNow()
+                self.scheduleRecovery("The network came back on a new address.")
+            }
+        }
     }
     /// Tells a host that takes display reports which screen the stream is on.
     private func reportDisplay(token: UUID) {

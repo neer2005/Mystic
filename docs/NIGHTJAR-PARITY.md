@@ -15,9 +15,9 @@ must be investigated and documented before a feature is marked inapplicable.
 | Area | Mystic status | Remaining work / evidence |
 | --- | --- | --- |
 | Discovery, manual host, PIN pairing, saved hosts | Implemented | Desktop pairing/restart verified on Big Dawg; broader host coverage pending |
-| Wake-on-LAN | Implemented, basic | Remembered physical MAC/subnet addresses; packet tests passed; real wake and automatic retry/polling pending. Nightjar (`wol.rs`) sends on every network interface, including IPv6; Mystic sends only to remembered broadcast addresses |
+| Wake-on-LAN | Implemented | Nightjar's plan (every interface's broadcast, IPv6 `ff02::1`, its port set, three bursts) and wait (resend every 8 s, 90 s limit); see HOME.md. Real wake of a sleeping PC pending |
 | QR/one-time pairing | Pending | Mac pairing-link flow |
-| Client identification | Pending | Nightjar calls `http::set_app_version` so requests carry `Nightjar/<version>`; Mystic never sets it, so hosts see plain `Nightjar` with no version |
+| Client identification | Implemented | Requests carry `Nightjar/4.0.1+mystic.<version>`: the engine release, marked as Mystic |
 | Native library, artwork, store/title search | Implemented for connected host | Big Dawg browsing/search/refresh verified |
 | Combined Home, favourites, recent games | Implemented | Multi-PC merge/routing tests and Big Dawg live Home verified; store filter present, separate store shelves pending |
 | Offline library/cache | Implemented | Versioned metadata and bounded artwork cache; persistence/invalidation tests; real offline-host validation pending |
@@ -39,18 +39,18 @@ must be investigated and documented before a feature is marked inapplicable.
 | Native pacing, HUD | Implemented, partial parity | Low Latency/Balanced; Balanced with FPS limit, Smoothest video, PTS Metal renderer, VRR/phase-lock remain |
 | Performance overlay modes and host telemetry | Pending | Nightjar (`overlay.rs`) has Compact, Statistics and Debug, with the host's CPU/GPU load, temperatures, power and clocks |
 | Fractional refresh / virtual display controls | Pending | Native settings and host capability negotiation. Launch sends neither `launch_refresh_rate_x100` nor `client_refresh_rate_x100`, so 59.94 Hz launches as 60 |
-| Recovery, automatic bitrate | Implemented, partial parity | Big Dawg reconnect passed; congestion testing pending. Startup stage allowlist matches Nightjar. No route watcher: Nightjar (`stream/mod.rs` `roam_watch`) reconnects as soon as a lost route returns and waits while none exists |
+| Recovery, automatic bitrate | Implemented | Big Dawg reconnect passed; congestion testing pending. Startup stage allowlist matches Nightjar. A network back on an address the stream cannot continue over reconnects at once (NETWORK.md); a real network drop not yet tested |
 | Automatic bitrate on Foundation Sunshine hosts | Pending | Nightjar (`host_abr.rs`) turns on the host's own controller and reports the network every three seconds; Mystic's automatic bitrate needs Rubylight |
 | Automatic quality (resolution/FPS) | Pending | Nightjar (`quality.rs`) uses `nightjar_policy::quality`'s bounded ladder; Mystic changes bitrate only |
 | Link test before the first bitrate | Pending | Off by default in Nightjar (`http::probe_start_kbps`, `launch::estimated_kbps`) |
 | Live manual bitrate/FPS | Implemented | Big Dawg negotiation/UI verified; live Apply pending; see LIVE-RATES.md |
 | FEC controls | Implemented | Settings → Network; launch and ANNOUNCE requests; engine loss reports. Effect on a lossy link not yet measured; see NETWORK.md |
 | Ride out drops and link reports | Implemented | Drop tolerance and Wi-Fi/link-speed hints; Big Dawg launch told "wireless" over Wi-Fi. A real network drop not yet tested; see NETWORK.md |
-| VPN route packet size | Pending | Nightjar (`location_for_route`) streams a VPN route as remote with 1024-byte packets; Mystic always sends 1392 and leaves location to the engine, so a VPN to a private address fragments |
-| Client roaming | Pending | Engine support exists; needs route-change monitoring and settings |
+| VPN route packet size | Implemented | Tunnel/PPP interfaces or an MTU under 1500 stream as remote with 1024-byte packets, as Nightjar; see NETWORK.md. Not yet tried over a real VPN |
+| Client roaming | Implemented, live validation pending | Network watcher, roaming and metered-network settings (on and off by default, as Nightjar); see NETWORK.md |
 | Stream health report and bitrate trial | Implemented | Nightjar's StreamHealth/BitrateTrial via the engine; HUD network figures. Big Dawg report verified; the trial is tested with fakes only (no lossy link yet); see STREAM-HEALTH.md |
 | Connection test, benchmark, CSV timings, input latency test | Pending | Native diagnostics and export; Nightjar desktop has the timing CSV (`timing_csv.rs`) and Remote access check (`network_test.rs`) |
-| Stereo playback, mute, output changes | Implemented | User verified on Big Dawg. Device underruns play silence; Nightjar (`playout.rs`) fills them with Opus concealment and skips packets whose time has passed |
+| Stereo playback, mute, output changes | Implemented | User verified on Big Dawg. Late packets are filled with Opus concealment and skipped on arrival, Nightjar's playout rule run on the decode side; see AUDIO.md |
 | 5.1/7.1 discrete PCM | Implemented, physical validation pending | Speaker identity and downmix checks |
 | 7.1.4/passthrough | Pending | Mac output capability investigation |
 | Microphone | Implemented | Live host input-meter response verified previously |

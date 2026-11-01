@@ -85,6 +85,10 @@ int main(void) {
           "battery before start");
     CHECK(mystic_session_display_caps(handle, 4.0f) == MYSTIC_ERR_NOT_STARTED,
           "display caps before start");
+    CHECK(mystic_session_network_changed(handle, false) == MYSTIC_ERR_NOT_STARTED,
+          "network change before start");
+    CHECK(mystic_reconnects_at_once(true, false, false, true, 0) && !mystic_reconnects_at_once(false, false, false, true, 0),
+          "a returning network reconnects only when the stream cannot continue");
     MysticControllerFeedback feedback[80];
     CHECK(sizeof(MysticControllerFeedback) == 16 && offsetof(MysticControllerFeedback, epoch) == 8,
           "controller feedback has the expected fixed layout");
@@ -208,6 +212,8 @@ int main(void) {
     MysticRecovery *recovery = mystic_recovery_new();
     CHECK(recovery != NULL, "shared recovery policy is allocated");
     CHECK(mystic_recovery_next(recovery, 0, 0) == 1000, "recovery starts with a one-second delay");
+    mystic_recovery_retry_now(recovery);
+    CHECK(mystic_recovery_next(recovery, 1000, 0) == 0, "a returning network retries at once");
     CHECK(mystic_recovery_remaining(recovery, 60000) == 0, "recovery expires after one minute");
     CHECK(!mystic_recovers_termination(-100, false) && mystic_recovers_termination(-100, true),
           "recovery requires prior video");

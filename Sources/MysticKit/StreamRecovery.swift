@@ -17,4 +17,11 @@ public final class StreamRecovery {
         return delay < 0 ? nil : UInt64(delay)
     }
     public func remaining(nowMillis: UInt64) -> UInt64 { mystic_recovery_remaining(handle,nowMillis) }
+    /// The next attempt starts without its delay (the network came back); it still spends one.
+    public func retryNow() { mystic_recovery_retry_now(handle) }
+    /// Nightjar's rule for a network back after the stream's was lost: reconnect now.
+    public static func reconnectsAtOnce(cannotContinue: Bool,metered: Bool,meteredAllowed: Bool,
+                                        automaticReconnect: Bool,networkGraceMs: UInt32) -> Bool {
+        mystic_reconnects_at_once(cannotContinue,metered,meteredAllowed,automaticReconnect,networkGraceMs)
+    }
 }

@@ -39,23 +39,35 @@ struct NetworkRoute: Equatable, Sendable {
         wireless ? "Wi-Fi (\(source))" : (linkMbps > 0 ? "wired, \(linkMbps) Mbit/s (\(source))" : "wired (\(source))")
     }
 
-    /// Looks up the route toward `host`, giving up after `timeout`. Sends nothing: a UDP
-    /// connection becomes ready once the system has chosen its interface.
-    static func toward(host: String,port: UInt16,timeout: Duration = .seconds(1)) async -> NetworkRoute? {
-        async let route=routeMedium(host:host,port:port,timeout:timeout)
-        async let connection=connectionMedium(timeout:timeout)
-        return resolve(route:await route,connection:await connection)
+    /// What `toward` found: the hints, and whether the route runs over a VPN.
+    struct Report: Sendable {
+        var route: NetworkRoute?
+        /// As Nightjar: a VPN route streams as remote with 1024-byte packets, since a tunnel's
+        /// smaller MTU (WireGuard's 1420, Tailscale's 1280) would fragment every 1392-byte one.
+        var vpn: Bool
+        var interface: String?
     }
 
-    private static func routeMedium(host: String,port: UInt16,timeout: Duration) async -> NetworkMedium? {
+    /// Looks up the route toward `host`, giving up after `timeout`. Sends nothing: a UDP
+    /// connection becomes ready once the system has chosen its interface.
+    static func toward(host: String,port: UInt16,timeout: Duration = .seconds(1)) async -> Report {
+        async let route=routeInterface(host:host,port:port,timeout:timeout)
+        async let connection=connectionMedium(timeout:timeout)
+        let interface=await route
+        return Report(route:resolve(route:interface.flatMap(medium),connection:await connection),
+                      vpn:interface.map { isVPN(name:$0.name,type:$0.type,mtu:linkMTU($0.name)) } ?? false,
+                      interface:interface?.name)
+    }
+
+    private static func routeInterface(host: String,port: UInt16,timeout: Duration) async -> NWInterface? {
         guard let port=NWEndpoint.Port(rawValue:port) else { return nil }
         let connection=NWConnection(host:NWEndpoint.Host(host),port:port,using:.udp)
-        let once=Once<NetworkMedium?>()
-        let medium=await withCheckedContinuation { continuation in
+        let once=Once<NWInterface?>()
+        let interface=await withCheckedContinuation { continuation in
             once.set(continuation)
             connection.stateUpdateHandler={ state in
                 switch state {
-                case .ready: once.finish(connection.currentPath.flatMap(medium))
+                case .ready: once.finish(connection.currentPath?.availableInterfaces.first)
                 case .failed,.cancelled: once.finish(nil)
                 default: break
                 }
@@ -64,7 +76,15 @@ struct NetworkRoute: Equatable, Sendable {
             Task { try? await Task.sleep(for:timeout);once.finish(nil) }
         }
         connection.cancel()
-        return medium
+        return interface
+    }
+    /// Moonlight's VPN heuristics, as Nightjar's desktop client applies them, in macOS terms:
+    /// a tunnel or PPP interface (utun carries WireGuard, Tailscale and the system VPNs; ipsec,
+    /// ppp, tun and tap; ZeroTier's feth and zt), or an MTU under 1500.
+    static func isVPN(name: String,type: NWInterface.InterfaceType,mtu: Int) -> Bool {
+        guard type != .loopback else { return false }
+        let tunnels=["utun","ipsec","ppp","tun","tap","zt","feth","wg"]
+        return tunnels.contains { name.hasPrefix($0) } || (1..<1500).contains(mtu)
     }
     private static func connectionMedium(timeout: Duration) async -> NetworkMedium? {
         let monitor=NWPathMonitor()
@@ -79,7 +99,9 @@ struct NetworkRoute: Equatable, Sendable {
         return medium
     }
     private static func medium(_ path: NWPath) -> NetworkMedium? {
-        guard let interface=path.availableInterfaces.first else { return nil }
+        path.availableInterfaces.first.flatMap(medium)
+    }
+    private static func medium(_ interface: NWInterface) -> NetworkMedium? {
         switch interface.type {
         case .wifi,.cellular: return .wireless
         case .wiredEthernet: return .wired(linkMbps:linkMbps(interface.name))
@@ -88,18 +110,24 @@ struct NetworkRoute: Equatable, Sendable {
     }
     /// The port's negotiated speed, which macOS reports in bits per second on the link entry.
     static func linkMbps(_ name: String) -> Int32 {
+        linkData(name).map { Int32(min(9999,UInt64($0.ifi_baudrate)/1_000_000)) } ?? 0
+    }
+    /// The interface's MTU, or 0 when it has no link entry.
+    static func linkMTU(_ name: String) -> Int {
+        linkData(name).map { Int($0.ifi_mtu) } ?? 0
+    }
+    private static func linkData(_ name: String) -> if_data? {
         var list: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&list) == 0 else { return 0 }
+        guard getifaddrs(&list) == 0 else { return nil }
         defer { freeifaddrs(list) }
         var entry=list
         while let current=entry?.pointee {
             if String(cString:current.ifa_name) == name,current.ifa_addr?.pointee.sa_family == UInt8(AF_LINK),let data=current.ifa_data {
-                let baud=data.assumingMemoryBound(to:if_data.self).pointee.ifi_baudrate
-                return Int32(min(9999,UInt64(baud)/1_000_000))
+                return data.assumingMemoryBound(to:if_data.self).pointee
             }
             entry=current.ifa_next
         }
-        return 0
+        return nil
     }
 }
 

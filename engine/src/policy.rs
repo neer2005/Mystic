@@ -79,6 +79,18 @@ pub unsafe extern "C" fn mystic_recovery_next(
     p.0.begin(now_ms);
     p.0.next_delay(now_ms).map_or(-1, |delay| delay as i64)
 }
+/// The next attempt starts without its delay (the network came back); it still spends one.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_recovery_retry_now(p: *mut MysticRecovery) {
+    if let Some(p) = p.as_mut() { p.0.retry_now(); }
+}
+/// Nightjar's rule for a network back after the stream's was lost: reconnect now only when the
+/// connection cannot carry on over it, and only when nothing else decides.
+#[no_mangle]
+pub extern "C" fn mystic_reconnects_at_once(cannot_continue: bool, metered: bool, mobile_allowed: bool,
+    auto_reconnect: bool, network_grace_ms: u32) -> bool {
+    recovery::reconnects_at_once(cannot_continue, metered, mobile_allowed, auto_reconnect, network_grace_ms)
+}
 #[no_mangle]
 pub unsafe extern "C" fn mystic_recovery_remaining(p: *const MysticRecovery, now_ms: u64) -> u64 {
     p.as_ref().map_or(0, |p| p.0.remaining(now_ms))
@@ -201,6 +213,24 @@ pub unsafe extern "C" fn mystic_session_bitrate_applied(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_returning_network_retries_at_once_and_still_spends_an_attempt() {
+        unsafe {
+            let p = mystic_recovery_new();
+            assert_eq!(mystic_recovery_next(p, 0, 0), 1000);
+            mystic_recovery_retry_now(p);
+            assert_eq!(mystic_recovery_next(p, 1000, 0), 0);
+            assert_eq!(mystic_recovery_next(p, 1000, 0), 4000, "the third attempt keeps its delay");
+            mystic_recovery_retry_now(std::ptr::null_mut());
+            mystic_recovery_free(p);
+        }
+        assert!(mystic_reconnects_at_once(true, false, false, true, 0));
+        assert!(!mystic_reconnects_at_once(false, false, false, true, 0), "it carries on or roamed");
+        assert!(!mystic_reconnects_at_once(true, true, false, true, 0), "metered without mobile data");
+        assert!(mystic_reconnects_at_once(true, true, true, true, 10_000));
+        assert!(!mystic_reconnects_at_once(true, false, false, false, 0), "automatic reconnect off");
+        assert!(!mystic_reconnects_at_once(true, false, false, true, 30_000), "a drop tolerance holds it");
+    }
     #[test]
     fn recovery_is_bounded_and_never_retries_before_video_or_after_clean_exit() {
         unsafe {
