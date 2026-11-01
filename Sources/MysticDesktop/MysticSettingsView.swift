@@ -134,6 +134,8 @@ struct VideoPreferencesView: View {
 struct VideoSettingsFields: View {
     @Binding var value: StreamVideoSettings
     var locked: Bool
+    /// What this settings' host reports; nil for global settings, which offer every row.
+    var host: HostDisplaySupport? = nil
     /// What Recommended comes to for these settings on this Mac's screen.
     private var recommended: StreamMode {
         var video=value;video.bitrateMbps=StreamPreferences.recommendedBitrate
@@ -167,6 +169,7 @@ struct VideoSettingsFields: View {
             Toggle("HDR",isOn:$value.hdr)
             Text("Requests 10-bit HDR from supported host apps. HDR video uses the stream window’s display; macOS maps it to SDR on displays without HDR headroom.")
                 .font(.caption).foregroundStyle(.secondary)
+            PCDisplayFields(value:$value,host:host)
         }.disabled(locked)
     }
 }

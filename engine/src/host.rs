@@ -1,5 +1,5 @@
 //! Additive host-control bridge: protocol and certificate verification remain in Nightjar.
-use nightjar_core::http::{Feature, AppControl, ClientIdentity, HostClient, LaunchRequest, PairResult};
+use nightjar_core::http::{Availability, Feature, AppControl, ClientIdentity, HostClient, HostDisplay, LaunchRequest, PairResult, Reason};
 use rand_core::{OsRng, RngCore};
 use serde_json::{json, Value};
 use std::ffi::{c_char, CStr, CString};
@@ -395,6 +395,10 @@ impl MysticHost {
                     hdr,
                     clipboard_sync: v["clipboardSync"].as_bool().unwrap_or(false),
                     play_local_audio: v["playLocalAudio"].as_bool().unwrap_or(false),
+                    virtual_display: v["virtualDisplay"].as_bool().unwrap_or(false),
+                    host_display: host_display(&v)?,
+                    virtual_display_scale: render_scale(&v),
+                    virtual_display_dpi: display_scale(&v),
                     audio,
                     ri_key: key,
                     ri_key_id: key_id,
@@ -489,12 +493,48 @@ fn clipboard_permissions(i: &nightjar_core::http::ServerInfo) -> (bool,bool) {
     let permission=i.capabilities.evidence().map_or(0,|e|e.permission.max(0) as u32);
     (permission & PERMISSION_CLIPBOARD_READ != 0,permission & PERMISSION_CLIPBOARD_SET != 0)
 }
+/// The launch's display arrangement; an unknown one is refused rather than ignored.
+fn host_display(v: &Value) -> Result<HostDisplay, String> {
+    Ok(match v["hostDisplay"].as_str().unwrap_or("default") {
+        "default" => HostDisplay::HostDefault,
+        "exclusive" => HostDisplay::Exclusive,
+        "extended_primary" => HostDisplay::ExtendedPrimary,
+        "extended" => HostDisplay::Extended,
+        "extended_isolated" => HostDisplay::ExtendedIsolated,
+        "extended_primary_isolated" => HostDisplay::ExtendedPrimaryIsolated,
+        "physical" => HostDisplay::Physical,
+        _ => return Err("invalid display arrangement".into()),
+    })
+}
+/// Nightjar's `RENDER_SCALE`.
+fn render_scale(v: &Value) -> u32 {
+    v["renderScalePercent"].as_u64().unwrap_or(100).clamp(50, 200) as u32
+}
+/// Nightjar's `DISPLAY_SCALES`: a scale Windows does not offer keeps the PC's own, since the PC
+/// would refuse the launch.
+fn display_scale(v: &Value) -> u32 {
+    const SCALES: [u64; 12] = [100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
+    v["displayScalePercent"].as_u64().filter(|n| SCALES.contains(n)).unwrap_or(0) as u32
+}
+fn availability_name(availability: Availability) -> &'static str {
+    match availability {
+        Availability::Supported => "supported",
+        Availability::Unknown => "unknown",
+        Availability::Unsupported(Some(Reason::UpdateHost)) => "update",
+        Availability::Unsupported(Some(Reason::VirtualDisplayOff)) => "off",
+        Availability::Unsupported(Some(Reason::VirtualDisplayDriver)) => "driver",
+        Availability::Unsupported(_) => "never",
+    }
+}
 fn host_info_value(i: &nightjar_core::http::ServerInfo, has_local_pin: bool) -> Value {
     // Another address can recognize our identity without having a local certificate pin.
     // Offer PIN pairing for that endpoint instead of attempting unpinned HTTPS.
     json!({"name":i.hostname,"uniqueID":i.unique_id,"paired":i.paired && has_local_pin,
         "appVersion":i.app_version,"codecSupport":i.server_codec_mode_support,"currentGame":i.current_game,"currentGameUUID":i.current_game_uuid,"quitAllowed":has_local_pin && quit_allowed(i),
-        "clipboardRead":has_local_pin && clipboard_permissions(i).0,"clipboardWrite":has_local_pin && clipboard_permissions(i).1})
+        "clipboardRead":has_local_pin && clipboard_permissions(i).0,"clipboardWrite":has_local_pin && clipboard_permissions(i).1,
+        "display":{"virtualDisplay":availability_name(i.capabilities.availability(Feature::VirtualDisplay)),
+            "modes":availability_name(i.capabilities.availability(Feature::HostDisplayModes)),
+            "scale":availability_name(i.capabilities.availability(Feature::DisplayScale))}})
 }
 fn dimension(v: &Value, name: &str, max: u32) -> Result<u32, String> {
     v[name]
@@ -600,6 +640,14 @@ mod tests {
             assert_eq!(host_info_value(&info,false)["clipboardRead"],false);
             assert_eq!(host_info_value(&info,false)["clipboardWrite"],false);
         }
+    }
+    #[test]
+    fn display_choices_are_read_within_nightjars_bounds() {
+        assert!(matches!(host_display(&json!({})), Ok(HostDisplay::HostDefault)));
+        assert!(matches!(host_display(&json!({"hostDisplay":"extended_primary_isolated"})), Ok(HostDisplay::ExtendedPrimaryIsolated)));
+        assert!(host_display(&json!({"hostDisplay":"mirror"})).is_err());
+        assert_eq!((render_scale(&json!({})), render_scale(&json!({"renderScalePercent":10})), render_scale(&json!({"renderScalePercent":300}))), (100, 50, 200));
+        assert_eq!((display_scale(&json!({})), display_scale(&json!({"displayScalePercent":175})), display_scale(&json!({"displayScalePercent":110}))), (0, 175, 0));
     }
     #[test]
     fn paired_alias_requires_its_own_local_pin() {

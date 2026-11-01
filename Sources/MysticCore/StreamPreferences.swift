@@ -22,6 +22,10 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public var automaticQuality: String? = nil // Missing in older documents; defaults off.
     public var qualityMinShortEdge: UInt32? = nil // Missing in older documents; 720, as Nightjar.
     public var qualityMinFps: UInt32? = nil // Missing in older documents; 30, as Nightjar.
+    public var virtualDisplay: Bool? = nil // Missing in older documents; defaults off.
+    public var hostDisplay: String? = nil // Missing in older documents; the PC's own setting.
+    public var renderScalePercent: Int? = nil // Missing in older documents; 100, as Nightjar.
+    public var displayScalePercent: Int? = nil // Missing in older documents; the PC's own.
     public var videoSizing: String? = nil // Missing in older documents; Fit, as Nightjar.
     public var alignVideoTop: Bool? = nil // Missing in older documents; defaults off.
     public var playAudioOnHost: Bool? = nil // Missing in older documents; defaults off.
@@ -101,6 +105,10 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
         value.bitrateMbps=value.bitrateMbps <= 0 ? Self.recommendedBitrate : min(Self.bitrates.upperBound,value.bitrateMbps)
         value.qualityMinShortEdge=value.qualityMinShortEdge.map { min(2160,max(256,$0)) }
         value.qualityMinFps=value.qualityMinFps.map { min(240,max(15,$0)) }
+        if let mode=value.hostDisplay,HostDisplayMode(rawValue:mode) == nil { value.hostDisplay=nil }
+        value.renderScalePercent=value.renderScalePercent.map { min(HostDisplayMode.renderScales.upperBound,max(HostDisplayMode.renderScales.lowerBound,$0)) }
+        // A scale Windows does not offer would make the PC refuse the launch.
+        if let scale=value.displayScalePercent,!HostDisplayMode.displayScales.contains(scale) { value.displayScalePercent=nil }
         if let mode=value.videoSizing,VideoSizing(rawValue:mode) == nil { value.videoSizing=nil }
         value.input=value.input?.validated()
         if let mode=value.framePacing,FramePacingMode(rawValue:mode) == nil { value.framePacing=nil }
@@ -115,6 +123,60 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
         if let mode=value.overlayMode,OverlayMode(rawValue:mode) == nil || mode == OverlayMode.compact.rawValue { value.overlayMode=nil }
         if let mode=value.automaticQuality,AutomaticQuality(rawValue:mode) == nil || mode == AutomaticQuality.off.rawValue { value.automaticQuality=nil }
         return value
+    }
+}
+
+/// What the PC does with its displays during a stream, as Nightjar's "Display arrangement". The
+/// raw values are the launch's `hostDisplay`, which only hosts with display modes receive.
+public enum HostDisplayMode: String, Codable, CaseIterable, Sendable {
+    case hostDefault="default",exclusive,extendedPrimary="extended_primary",extended
+    case extendedIsolated="extended_isolated",extendedPrimaryIsolated="extended_primary_isolated",physical
+    public var label: String {
+        switch self {
+        case .hostDefault: "PC's Own Setting"
+        case .exclusive: "Virtual Display Only"
+        case .extendedPrimary: "Extend as Primary"
+        case .extended: "Extend"
+        case .extendedIsolated: "Extend, Isolated"
+        case .extendedPrimaryIsolated: "Extend as Primary, Isolated"
+        case .physical: "Physical Display"
+        }
+    }
+    /// Nightjar's `requests_virtual_display`: the PC's own setting follows the switch.
+    public func requestsVirtualDisplay(setting: Bool) -> Bool {
+        switch self {
+        case .hostDefault: setting
+        case .physical: false
+        default: true
+        }
+    }
+    public static let renderScales=50...200
+    /// 0 keeps the PC's own; the others are the scales Windows offers.
+    public static let displayScales=[0,100,125,150,175,200,225,250,300,350,400,450,500]
+}
+
+/// Whether a host offers a feature, from what it reports about itself.
+public enum HostFeatureAvailability: String, Codable, Sendable {
+    case supported,unknown,never,update,off,driver
+    /// Why a setting is turned off, for a host that could offer it; nil when it is on.
+    public var note: String? {
+        switch self {
+        case .supported,.unknown,.never: nil
+        case .update: "This host doesn't offer this yet."
+        case .off: "Turn on the virtual display in the host's settings."
+        case .driver: "The host's virtual display driver isn't ready."
+        }
+    }
+    public var usable: Bool { self == .supported || self == .unknown }
+}
+
+/// What a host reports about its displays.
+public struct HostDisplaySupport: Codable, Equatable, Sendable {
+    public var virtualDisplay: HostFeatureAvailability
+    public var modes: HostFeatureAvailability
+    public var scale: HostFeatureAvailability
+    public init(virtualDisplay: HostFeatureAvailability,modes: HostFeatureAvailability,scale: HostFeatureAvailability) {
+        self.virtualDisplay=virtualDisplay;self.modes=modes;self.scale=scale
     }
 }
 

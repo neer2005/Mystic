@@ -42,7 +42,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | Native pacing, HUD | Implemented, partial parity | Low Latency/Balanced; Balanced with FPS limit, Smoothest video, PTS Metal renderer, VRR/phase-lock remain |
 | Performance overlay modes and host telemetry | Implemented, live validation pending | Nightjar's Compact, Statistics and Debug with the shared health mark and hardware poll; see LATENCY.md |
 | Fractional refresh rate | Implemented, live validation pending | The screen's exact rate goes in `client_refresh_rate_x100` at launch and in the ANNOUNCE, as Nightjar's desktop client sends it; see FRAME-PACING.md |
-| Virtual display controls | Pending | Native settings and host capability negotiation |
+| Virtual display controls, display arrangement, PC render resolution and scaling | Implemented, live validation pending | Per host and game, each row following what the host reports; a resume keeps the running session's display; see SETTINGS.md |
 | Recovery, automatic bitrate | Implemented | Big Dawg reconnect passed; congestion testing pending. Startup stage allowlist matches Nightjar. A network back on an address the stream cannot continue over reconnects at once (NETWORK.md); a real network drop not yet tested |
 | Automatic bitrate on Foundation Sunshine hosts | Implemented, live validation pending | Nightjar's `host_abr.rs`: the host's controller on at stream start, a report every three seconds, off at the end over its own connection; see NETWORK.md |
 | Automatic quality (resolution/FPS) | Implemented, live validation pending | Nightjar's ladder over Reconfigure, per profile; see NETWORK.md |

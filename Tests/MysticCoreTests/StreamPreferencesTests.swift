@@ -60,6 +60,27 @@ struct StreamPreferencesTests {
         #expect(VideoSizing.native.rect(video:video,in:view,pixelsPerPoint:1,alignTop:true) == CGRect(x:-500,y:0,width:2000,height:1000))
         #expect(VideoSizing.fit.rect(video:.zero,in:view).isEmpty)
     }
+    @Test func pcDisplayChoicesDefaultMigrateAndClamp() throws {
+        let video=StreamVideoSettings()
+        #expect(!video.virtualDisplay && video.hostDisplay == .hostDefault && video.renderScalePercent == 100 && video.displayScalePercent == 0)
+        var preferences=StreamPreferences()
+        preferences.hostDisplay="mirror";preferences.renderScalePercent=999;preferences.displayScalePercent=110
+        let validated=preferences.validated()
+        #expect(validated.hostDisplay == nil && validated.renderScalePercent == 200 && validated.displayScalePercent == nil)
+        var chosen=video;chosen.virtualDisplay=true;chosen.hostDisplay = .extendedPrimary;chosen.renderScalePercent=150;chosen.displayScalePercent=175
+        let restored=try JSONDecoder().decode(StreamVideoSettings.self,from:JSONEncoder().encode(chosen))
+        #expect(restored == chosen)
+        preferences=StreamPreferences();preferences.videoSettings=chosen
+        #expect(preferences.videoSettings == chosen)
+        preferences.videoSettings=video
+        #expect(preferences.virtualDisplay == nil && preferences.hostDisplay == nil,"defaults stay out of the document")
+    }
+    @Test func arrangementsDecideTheVirtualDisplay() {
+        #expect(HostDisplayMode.hostDefault.requestsVirtualDisplay(setting:true) && !HostDisplayMode.hostDefault.requestsVirtualDisplay(setting:false))
+        #expect(HostDisplayMode.exclusive.requestsVirtualDisplay(setting:false) && !HostDisplayMode.physical.requestsVirtualDisplay(setting:true))
+        #expect(HostFeatureAvailability.off.note != nil && !HostFeatureAvailability.off.usable)
+        #expect(HostFeatureAvailability.unknown.usable && HostFeatureAvailability.never.note == nil)
+    }
     @Test func inputPreferencesDefaultAndClamp() throws {
         var input=try JSONDecoder().decode(InputPreferences.self,from:Data("{}".utf8))
         #expect(input == InputPreferences() && input.mouseScale == 1 && input.stickDeadZone == 0.12)

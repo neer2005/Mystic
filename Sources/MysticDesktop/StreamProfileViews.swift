@@ -11,7 +11,7 @@ struct GameVideoPreferencesView: View {
             ForEach(GameVideoSource.allCases,id:\.self) { source in Text(source.label).tag(source) }
         }.disabled(locked)
         if model.gameVideoSource == .custom {
-            VideoSettingsFields(value:Binding(get:{ model.effectiveVideoSettings },set:{ model.updateGameVideo($0) }),locked:locked)
+            VideoSettingsFields(value:Binding(get:{ model.effectiveVideoSettings },set:{ model.updateGameVideo($0) }),locked:locked,host:model.host?.display)
             Text("Saved for this game on this host. Choosing inherited settings removes this game's custom video settings.")
                 .font(.caption).foregroundStyle(.secondary)
         } else {
@@ -25,6 +25,9 @@ struct GameVideoPreferencesView: View {
                 LabeledContent("Bitrate",value:"\(StreamPreferences.bitrateLabel(video.bitrateMbps))\(video.adaptiveBitrate ? " maximum · automatic" : "")")
                 LabeledContent("HDR",value:video.hdr ? "On" : "Off")
                 LabeledContent("Frame Pacing",value:video.framePacing.label)
+                if video.virtualDisplay || video.hostDisplay != .hostDefault {
+                    LabeledContent("PC Display",value:video.hostDisplay == .hostDefault ? "Virtual Display" : video.hostDisplay.label)
+                }
                 Text(model.gameVideoSource == .global ? "Follows Settings → Video, including future changes." :
                     "Follows this host's defaults, or global defaults when the host has no custom settings.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -63,7 +66,7 @@ private struct HostVideoPreferencesView: View {
                     Toggle("Use global defaults",isOn:usesGlobal).disabled(locked)
                     if !usesGlobal.wrappedValue {
                         VideoSettingsFields(value:Binding(get:{ model.profiles.value.hostVideo(for:hostKey) ?? model.settings.value.videoSettings },
-                            set:{ model.updateHostVideo($0,hostKey:hostKey) }),locked:locked)
+                            set:{ model.updateHostVideo($0,hostKey:hostKey) }),locked:locked,host:model.host?.display)
                     }
                     Text("Games set to use host defaults follow these settings. Custom game settings and explicit global choices are kept.")
                         .font(.caption).foregroundStyle(.secondary)

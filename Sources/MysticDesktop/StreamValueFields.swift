@@ -124,3 +124,45 @@ struct BitrateField: View {
         }
     }
 }
+
+/// Nightjar's "Display on the PC". A host that can never offer a row hides it; one that could,
+/// after a change on the PC, turns it off and says what is missing.
+struct PCDisplayFields: View {
+    @Binding var value: StreamVideoSettings
+    let host: HostDisplaySupport?
+    private var modes: HostFeatureAvailability { host?.modes ?? .unknown }
+    private var display: HostFeatureAvailability { host?.virtualDisplay ?? .unknown }
+    private var scale: HostFeatureAvailability { host?.scale ?? .unknown }
+    /// A mode the host takes decides by itself; otherwise the switch does.
+    private var modeDecides: Bool { host?.modes == .supported && value.hostDisplay != .hostDefault }
+    private var usesVirtualDisplay: Bool {
+        modes.usable ? value.hostDisplay.requestsVirtualDisplay(setting:value.virtualDisplay) : value.virtualDisplay
+    }
+    private func note(_ availability: HostFeatureAvailability) -> some View {
+        Text(availability.note ?? "").font(.caption).foregroundStyle(.secondary)
+    }
+    var body: some View {
+        if display != .never {
+            Toggle("Virtual Display",isOn:$value.virtualDisplay).disabled(!display.usable || modeDecides)
+            if display.note != nil { note(display) }
+        }
+        if modes != .never {
+            Picker("Display Arrangement",selection:$value.hostDisplay) {
+                ForEach(HostDisplayMode.allCases,id:\.self) { Text($0.label).tag($0) }
+            }.disabled(!modes.usable)
+            if modes.note != nil,modes != display { note(modes) }
+        }
+        if display != .never {
+            Stepper("PC Render Resolution: \(value.renderScalePercent)%",value:$value.renderScalePercent,in:HostDisplayMode.renderScales,step:5)
+                .disabled(!display.usable || !usesVirtualDisplay)
+        }
+        if scale != .never {
+            Picker("PC Display Scaling",selection:$value.displayScalePercent) {
+                ForEach(HostDisplayMode.displayScales,id:\.self) { Text($0 == 0 ? "PC's Own" : "\($0)%").tag($0) }
+            }.disabled(!scale.usable)
+            if scale.note != nil,scale != display,scale != modes { note(scale) }
+        }
+        Text("Asks hosts that support it for a separate display matching the stream, such as this Mac's exact size. The PC puts its displays back when the stream ends. Render resolution changes what the PC draws, not the video's size; scaling changes its text and interface size. Hosts without these keep their own displays.")
+            .font(.caption).foregroundStyle(.secondary)
+    }
+}
