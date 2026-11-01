@@ -140,7 +140,8 @@ final class MetalPresentationReceiver: PresentationReceiver {
     private let renderQueue=DispatchQueue(label:"mystic.video.metal",qos:.userInteractive)
     /// The presenter's timeline, to turn a frame's timestamp into a moment.
     private let clock: @Sendable () -> CMTime
-    private nonisolated let state=RenderState()
+    private nonisolated let slot=MetalFrameSlot<RenderFrame>()
+    private var lastFormat: VideoLayerFormat?
     init(clock: @escaping @Sendable () -> CMTime) throws {
         drawer=try MetalFrameDrawer();self.clock=clock
         layer.device=drawer.device
@@ -158,30 +159,37 @@ final class MetalPresentationReceiver: PresentationReceiver {
         layer.drawableSize=size
         CATransaction.commit()
     }
+    /// Hands the frame over at once; the render queue draws whichever is newest when a drawable is free.
     func enqueue(_ sample: sending CMSampleBuffer) async throws -> AVSampleBufferVideoRenderer.Receiver.EnqueueResult {
+        if let failure=slot.takeFailure() { throw failure }
         guard let image=CMSampleBufferGetImageBuffer(sample) else { throw VideoDecoderError.invalidSample("sample has no image") }
-        let frame=RenderFrame(image:image,time:CMSampleBufferGetPresentationTimeStamp(sample),epoch:state.epoch)
         let format=VideoLayerFormat(image:image)
-        if format != state.format { configure(format,image:image);state.format=format }
-        let target=UnsafeLayer(layer:layer),drawer=drawer,clock=clock,state=state
-        return try await withCheckedThrowingContinuation { continuation in
-            renderQueue.async {
-                guard frame.epoch == state.epoch else { continuation.resume(returning:.cancelledDueToFlush);return }
-                do {
-                    guard let drawable=target.layer.nextDrawable(),let commands=drawer.queue.makeCommandBuffer() else {
-                        // A timeout is a frame missed, not a failed stream.
-                        continuation.resume(returning:.enqueued);return
-                    }
-                    try drawer.encode(frame.image,to:drawable.texture,commands:commands)
-                    let wait=CMTimeGetSeconds(CMTimeSubtract(frame.time,clock()))
-                    if wait.isFinite,wait > 0.001 { commands.present(drawable,atTime:CACurrentMediaTime()+wait) }
-                    else { commands.present(drawable) }
-                    commands.commit()
-                    continuation.resume(returning:.enqueued)
-                } catch { continuation.resume(throwing:error) }
-            }
+        if format != lastFormat { configure(format,image:image);lastFormat=format }
+        if slot.offer(RenderFrame(image:image,time:CMSampleBufferGetPresentationTimeStamp(sample))) {
+            let target=UnsafeLayer(layer:layer),drawer=drawer,clock=clock,slot=slot
+            renderQueue.async { Self.drain(target,drawer,clock,slot) }
+        }
+        return .enqueued
+    }
+    /// Waits for the drawable first, so the wait never leaves an older frame to be drawn.
+    private nonisolated static func drain(_ target: UnsafeLayer,_ drawer: MetalFrameDrawer,_ clock: @Sendable () -> CMTime,_ slot: MetalFrameSlot<RenderFrame>) {
+        while slot.isWaiting {
+            // A timeout is a frame missed, not a failed stream.
+            guard let drawable=target.layer.nextDrawable() else { slot.discardWaiting();continue }
+            guard let frame=slot.take() else { continue }
+            guard let commands=drawer.queue.makeCommandBuffer() else { slot.countMissed();continue }
+            do {
+                try drawer.encode(frame.image,to:drawable.texture,commands:commands)
+                drawable.addPresentedHandler { if $0.presentedTime == 0 { slot.countMissed() } }
+                let wait=CMTimeGetSeconds(CMTimeSubtract(frame.time,clock()))
+                if wait.isFinite,wait > 0.001 { commands.present(drawable,atTime:CACurrentMediaTime()+wait) }
+                else { commands.present(drawable) }
+                commands.commit()
+            } catch { slot.fail(error) }
         }
     }
+    /// Frames replaced, timed out or never shown, like the display layer's own drop count.
+    var droppedFrames: UInt64 { slot.missed }
     /// macOS tone maps from the metadata, as it does for the display layer.
     private func configure(_ format: VideoLayerFormat,image: CVPixelBuffer) {
         CATransaction.begin();CATransaction.setDisableActions(true)
@@ -198,9 +206,9 @@ final class MetalPresentationReceiver: PresentationReceiver {
         }
         CATransaction.commit()
     }
-    func flush() { state.advance() }
+    func flush() { slot.clear() }
     func flush(removingDisplayedImage: Bool) async {
-        state.advance()
+        slot.clear()
         guard removingDisplayedImage else { return }
         let target=UnsafeLayer(layer:layer),drawer=drawer
         await withCheckedContinuation { (continuation: CheckedContinuation<Void,Never>) in
@@ -229,17 +237,37 @@ final class MetalTimeline: @unchecked Sendable {
     func now() -> CMTime { lock.lock();defer { lock.unlock() };return CMTimeSubtract(clock(),origin) }
 }
 
-private struct RenderFrame: @unchecked Sendable { let image: CVPixelBuffer;let time: CMTime;let epoch: UInt64 }
+private struct RenderFrame: @unchecked Sendable { let image: CVPixelBuffer;let time: CMTime }
 /// CAMetalLayer's nextDrawable is meant to be called off the main thread.
 private struct UnsafeLayer: @unchecked Sendable { let layer: CAMetalLayer }
-private final class RenderState: @unchecked Sendable {
+
+/// The one frame waiting for a drawable. A newer one replaces it, and that counts as missed.
+final class MetalFrameSlot<Frame>: @unchecked Sendable {
     private let lock=NSLock()
-    private var current: UInt64=0
-    private var lastFormat: VideoLayerFormat?
-    var epoch: UInt64 { lock.lock();defer { lock.unlock() };return current }
-    var format: VideoLayerFormat? {
-        get { lock.lock();defer { lock.unlock() };return lastFormat }
-        set { lock.lock();defer { lock.unlock() };lastFormat=newValue }
+    private var frame: Frame?
+    private var draining=false
+    private var failure: (any Error)?
+    private var missedCount: UInt64=0
+    /// True when the caller must start draining.
+    func offer(_ next: Frame) -> Bool {
+        lock.lock();defer { lock.unlock() }
+        if frame != nil { missedCount += 1 }
+        frame=next
+        if draining { return false };draining=true;return true
     }
-    func advance() { lock.lock();defer { lock.unlock() };current &+= 1 }
+    /// Whether to keep draining; false also ends the drain, so `offer` starts another.
+    var isWaiting: Bool {
+        lock.lock();defer { lock.unlock() }
+        if frame == nil { draining=false;return false }
+        return true
+    }
+    func take() -> Frame? { lock.lock();defer { lock.unlock() };defer { frame=nil };return frame }
+    func discardWaiting() { lock.lock();defer { lock.unlock() };if frame != nil { missedCount += 1;frame=nil } }
+    /// A flush: the waiting frame is no longer wanted, which is not a miss.
+    func clear() { lock.lock();defer { lock.unlock() };frame=nil }
+    func countMissed() { lock.lock();defer { lock.unlock() };missedCount += 1 }
+    var missed: UInt64 { lock.lock();defer { lock.unlock() };return missedCount }
+    func fail(_ error: any Error) { lock.lock();defer { lock.unlock() };failure=error }
+    /// Reported once, at the next frame, through the presenter's usual failure path.
+    func takeFailure() -> (any Error)? { lock.lock();defer { lock.unlock() };defer { failure=nil };return failure }
 }

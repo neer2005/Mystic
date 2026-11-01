@@ -20,8 +20,8 @@ are the same code on both paths. The presenter's `surface` is the layer the view
   pixel format's range. Transfer and primaries are not touched: they become the layer's color space.
 - **HDR.** PQ and HLG use `itur_2100_PQ` and `itur_2100_HLG` with `CAEDRMetadata` and the frame's
   mastering and light-level metadata. macOS still owns tone mapping, as `HDR.md` says.
-- **Timing.** A frame is presented at once, or at its timestamp when pacing holds it. `nextDrawable`
-  runs off the main actor. Metal keeps its own host-time clock, because the display layer's
+- **Timing.** A frame is presented at once, or at its timestamp when pacing holds it. The render
+  queue waits for a drawable first and then draws the newest frame, off the main actor. Metal keeps its own host-time clock, because the display layer's
   synchronizer gets no samples on this path; using it caused repeated timestamp resets.
 - **Fallback.** If Metal cannot start, the stream uses the display layer and the session log says so.
 
@@ -49,10 +49,11 @@ on Debug. One sitting of mostly idle content on a remote address; a first look, 
 Enqueue times are not like for like: the display layer's returns before the screen is involved,
 while Metal's includes waiting for a drawable. Screen latency is unmeasured on both.
 
-### With AWDL off and a fixed bitrate
+### After turning AWDL off, at a fixed bitrate
 
-The same setup a little later, with `awdl0` down and a fixed 100 Mbps, 90 seconds each, sampled
-every 30 seconds. Counts are at the end of the run.
+The same setup a little later, at a fixed 100 Mbps, 90 seconds each, sampled every 30 seconds. Counts
+are at the end of the run. `awdl0` was down at the start but active again at the end, and was not
+checked in between, so these runs do not show AWDL's effect.
 
 | | System | Metal |
 | --- | --- | --- |
@@ -65,20 +66,42 @@ every 30 seconds. Counts are at the end of the run.
 | Client submit → enqueue p50 / p95 ms | 4.23 / 7.27 | 7.46 / 16.20 |
 
 - Round-trip spikes happen on both, so they come from the network path, not the renderer.
-- No loss was seen in these runs, where one earlier AWDL-on run showed 5.1%. That suggests AWDL
-  matters but does not prove it: the conditions were not controlled, and spikes remained with it off.
+- No loss was seen in these runs, where one earlier run showed 5.1%. AWDL may be involved, but these
+  runs cannot say: its state during them is unknown.
 - System's rendered figure counts frames accepted, not shown: its renderer dropped about a quarter
   of them. Metal has no such counter, so **neither path's true shown rate is known yet**, and
   System's 117 and Metal's 117 are not the same measurement.
 
+### Newest frame on a free drawable, with shown frames counted
+
+The render queue now takes a drawable first and draws whichever frame is newest, and Metal reports
+frames replaced, timed out or never presented as renderer drops. Same setup, fixed 100 Mbps, 90
+seconds each, one after the other, with `awdl0`'s status logged every 5 seconds.
+
+| | System | Metal |
+| --- | --- | --- |
+| "Rendered" fps at 30 / 60 / 90 s | 113 / 119 / 119 | 119 / 120 / 119 |
+| Round trip at 30 / 60 / 90 s, ms | 19 / 3 / 3 | 6 / 5 / 5 |
+| Decoded / enqueued frames | 10,472 / 10,335 | 10,493 / 10,368 |
+| Superseded before the renderer | 137 | 125 |
+| Dropped by the renderer | 2,766 | 670 |
+| Accepted and not dropped | 7,569 (72%) | 9,698 (92%) |
+| Renderer enqueue p50 / p95 ms | 0.08 / 0.31 | 0.03 / 0.06 |
+| Client submit → enqueue p50 / p95 ms | 3.77 / 5.91 | 3.45 / 5.21 |
+
+- The enqueue times are now like for like: neither includes waiting for the screen.
+- The drop counts are **not known to mean the same thing**: System's comes from AVFoundation's
+  `numberOfDroppedFrames`, Metal's from `presentedTime` and frames replaced in the slot. 92% against
+  72% is promising, not proof. A camera or per-frame display timing still has to confirm it.
+- A display refreshing at or near 120 Hz cannot show every 119.6 fps frame in step, so some drops
+  are expected on both.
+- `awdl0` was not simply off after `ifconfig awdl0 down`: its status went active about every
+  30 seconds. These logs cannot yet tie that to the round-trip spikes.
+
 ## Open problems before Metal can be the default
 
-- **Metal supersedes more frames** (about 14% against 3%) and takes longer to hand one over, because
-  waiting for a drawable holds up the next frame. Dips track round-trip spikes on both paths, larger
-  on Metal.
-- **Count shown frames on Metal.** Compare with System's renderer drops before judging either.
+- **Automatic bitrate** still needs comparing, since these runs used a fixed one.
+- **Longer and busier runs:** every run so far was 90 seconds of mostly idle content.
 - **Not tried live:** SDR, HLG, Video Size other than Fit, moving between screens, a real game.
 - Screen latency needs a camera or timestamp measurement before any claim that Metal matches.
-- Renderer-reported drop counters do not apply, and drawable timeouts are not counted, so a frame
-  missed that way is invisible in the overlay.
 - 4:2:0 chroma is sampled bilinearly without accounting for chroma siting.

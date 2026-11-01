@@ -198,6 +198,10 @@ public final class DisplayLayerPresenter {
     /// Renderer-reported drops are separate from Mystic's queue/policy drops; no scanout claim.
     public func refreshRendererMetrics() async {
         guard let generation=displayedGeneration,mailbox.isCurrent(generation) else { return }
+        if let metal {
+            telemetry?.rendererMetrics(generation:generation,dropped:metal.droppedFrames,corrupted:nil)
+            return
+        }
         let metrics: AVVideoPerformanceMetrics?=await withCheckedContinuation { continuation in
             layer.sampleBufferRenderer.loadVideoPerformanceMetrics { continuation.resume(returning:$0) }
         }

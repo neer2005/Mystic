@@ -78,6 +78,28 @@ final class MetalVideoRendererTests: XCTestCase {
         host=CMTime(value:8,timescale:1)
         XCTAssertEqual(timeline.now(),CMTime(value:1,timescale:1))
     }
+    func testTheNewestFrameIsDrawnAndReplacedOnesCountAsMissed() {
+        let slot=MetalFrameSlot<Int>()
+        XCTAssertTrue(slot.offer(1),"the first frame starts a drain")
+        XCTAssertFalse(slot.offer(2),"one drain at a time")
+        XCTAssertFalse(slot.offer(3))
+        XCTAssertEqual(slot.missed,2)
+        XCTAssertTrue(slot.isWaiting)
+        XCTAssertEqual(slot.take(),3,"a drawable goes to the newest")
+        XCTAssertFalse(slot.isWaiting,"nothing left ends the drain")
+        XCTAssertTrue(slot.offer(4),"so the next frame starts another")
+        slot.discardWaiting();XCTAssertEqual(slot.missed,3,"a drawable timeout misses the frame")
+        XCTAssertFalse(slot.isWaiting)
+        XCTAssertTrue(slot.offer(5));slot.clear()
+        XCTAssertEqual(slot.missed,3,"a flush is not a miss");XCTAssertNil(slot.take())
+        slot.countMissed();XCTAssertEqual(slot.missed,4)
+    }
+    func testADrawFailureIsReportedOnce() {
+        let slot=MetalFrameSlot<Int>()
+        XCTAssertNil(slot.takeFailure())
+        slot.fail(VideoDecoderError.invalidSample("x"))
+        XCTAssertNotNil(slot.takeFailure());XCTAssertNil(slot.takeFailure())
+    }
     func testTagsChooseTheLayerFormat() throws {
         let image=try frame(kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange,y:64,u:512,v:512,matrix:kCVImageBufferYCbCrMatrix_ITU_R_2020)
         XCTAssertEqual(VideoLayerFormat(image:image).transfer,.sdr);XCTAssertEqual(VideoLayerFormat(image:image).pixelFormat,.bgra8Unorm)
