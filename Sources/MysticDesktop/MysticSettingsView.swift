@@ -16,6 +16,12 @@ public struct MysticSettingsView: View {
                         Toggle("Show Latency HUD",isOn:$model.showLatencyHUD)
                         Toggle("Sync Clipboard Text",isOn:$model.clipboardSync).disabled(model.hasSession || model.isBusy)
                         Text("Off by default. Shares new plain-text copies only while the stream window is active. Files and images stay on the Mac.").font(.caption).foregroundStyle(.secondary)
+                        Toggle("Local Cursor",isOn:$model.localCursor)
+                        Text("In desktop control, the host's cursor becomes the Mac pointer, so it moves without video delay. Needs a host that sends its cursor; Sunshine-based hosts and Rubylight with cursor shapes do.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Section("Updates") {
+                        Toggle("Check for Updates",isOn:$model.checkForUpdates)
+                        Text("Once per launch, Mystic asks GitHub whether a newer release is out and links to its page. Nothing is downloaded or installed. \(model.updates.status).").font(.caption).foregroundStyle(.secondary)
                     }
                     Section { Text("Choose a host from the library sidebar to start. Interrupted streams can reconnect automatically when enabled in Network.").foregroundStyle(.secondary) }
                 }.tabItem { Label("General",systemImage:"gearshape") }.tag("general")

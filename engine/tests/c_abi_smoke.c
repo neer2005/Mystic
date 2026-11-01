@@ -104,6 +104,16 @@ int main(void) {
           "controller feedback capacity is bounded");
     CHECK(mystic_session_take_controller_feedback(handle, NULL, 8) == MYSTIC_ERR_INVALID_ARGUMENT,
           "controller feedback rejects null storage");
+    MysticCursorShape cursor;
+    static uint8_t cursor_pixels[MYSTIC_CURSOR_MAX_PIXEL_BYTES];
+    CHECK(sizeof(MysticCursorShape) == 20 && offsetof(MysticCursorShape, id) == 12,
+          "MysticCursorShape layout matches Rust");
+    CHECK(mystic_session_take_cursor(handle, &cursor, cursor_pixels, sizeof cursor_pixels) == 0,
+          "no cursor shape waits before start");
+    CHECK(mystic_session_take_cursor(handle, &cursor, cursor_pixels, 4) == MYSTIC_ERR_BUFFER_TOO_SMALL,
+          "a cursor pixel buffer below the largest image is refused");
+    CHECK(mystic_session_cursor_shapes(handle, true) == MYSTIC_ERR_NOT_STARTED,
+          "cursor shapes before start are refused");
     CHECK(mystic_session_controller_arrival(handle, 16, 1) == MYSTIC_ERR_INVALID_ARGUMENT,
           "invalid controller slot");
     CHECK(mystic_session_controller(handle, 0, 1, 0x400000, 0, 0, 0, 0, 0, 0) == MYSTIC_ERR_INVALID_ARGUMENT,

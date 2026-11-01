@@ -54,6 +54,18 @@ public struct HostLibraryView: View {
             guard let shortcut=ShortcutLaunch.parse(url:url) else { return }
             Task { await finish(model.offer(shortcut),commandLine:false) }
         }
+        .overlay(alignment:.bottomTrailing) {
+            if let release=model.updates.found {
+                VStack(alignment:.leading,spacing:8) {
+                    Text("Mystic \(release.version) is available.")
+                    HStack {
+                        Button("Open Download Page") { model.updates.openPage() }.buttonStyle(.borderedProminent)
+                        Button("Not Now") { model.updates.dismiss() }
+                    }
+                }
+                .padding(14).background(.regularMaterial,in:.rect(cornerRadius:12)).padding(24)
+            }
+        }
         .task {
             model.libraryAppeared();await model.prepare()
             // Once per process: reopening the library window must not start it again.
@@ -61,6 +73,7 @@ public struct HostLibraryView: View {
                 model.startupLaunchHandled=true
                 await finish(model.offer(startup),commandLine:true)
             }
+            await model.updates.startOnce(enabled:model.checkForUpdates)
         }
         .onChange(of:model.showingHome) { if model.showingHome { Task { await model.homeSync.refresh() } } }
         .onDisappear { model.libraryDisappeared() }

@@ -187,6 +187,7 @@ mod tests {
                 clipboard: (*handle).clipboard.clone(),
                 rates: (*handle).rates.clone(),
                 display: (*handle).display.clone(),
+                cursor: (*handle).cursor.clone(),
                 reconfigure: (*handle).reconfigure.clone(),
             };
             listener.control_event(ControlEvent::Rumble {

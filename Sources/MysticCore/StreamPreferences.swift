@@ -22,6 +22,8 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public var tellHostLinkSpeed: Bool? = nil // Missing in older documents; defaults on.
     public var clientRoaming: Bool? = nil // Missing in older documents; defaults on, as Nightjar.
     public var roamingOnMeteredNetworks: Bool? = nil // Missing in older documents; defaults off.
+    public var localCursor: Bool? = nil // Missing in older documents; defaults on, as Nightjar.
+    public var checkForUpdates: Bool? = nil // Missing in older documents; defaults on, as Nightjar.
     public var showLatencyHUD = false
     public var libraryLayout = "grid"
     public var librarySort = "name"

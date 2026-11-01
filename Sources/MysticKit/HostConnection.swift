@@ -1,5 +1,6 @@
 import Foundation
 import CMystic
+import MysticCore
 
 public struct ClientIdentity: Codable, Sendable, Equatable {
     public let uniqueID: String
@@ -47,6 +48,9 @@ public struct LaunchOptions: Codable, Sendable {
     public var clientWireless = false
     /// The display's EDR headroom; hosts other than Rubylight get a luminance estimated from it.
     public var displayHeadroom: Double? = nil
+    /// The display's refresh rate x100 (5994 for 59.94 Hz); 0 when unknown. Hosts that read
+    /// fractional rates launch at it when it rounds to `fps`.
+    public var clientRefreshRateX100: UInt32 = 0
     public init(app: HostApp) { appID = app.id; appUUID = app.uuid }
 }
 public struct LaunchedStream: Codable, Sendable {
@@ -60,6 +64,21 @@ public struct LaunchedStream: Codable, Sendable {
     public var clipboardWrite: Bool? = nil
     /// The host is told the route is wireless (Rubylight hosts only).
     public var clientWireless: Bool? = nil
+    /// The host can send its cursor shapes, if the stream also offers them.
+    public var cursorShapes: Bool? = nil
+}
+/// The host's bitrate controller is on.
+public struct HostBitrateStart: Codable, Sendable, Equatable {
+    /// Where the controller starts, in kbps; 0 for the stream's bitrate.
+    public let initialKbps: UInt32
+    public let maxKbps: UInt32
+    public init(initialKbps: UInt32,maxKbps: UInt32) { self.initialKbps=initialKbps;self.maxKbps=maxKbps }
+}
+public struct HostBitrateAction: Codable, Sendable, Equatable {
+    /// The bitrate the host moved the stream to, when it moved it.
+    public let newKbps: UInt32?
+    public let reason: String
+    public init(newKbps: UInt32?,reason: String) { self.newKbps=newKbps;self.reason=reason }
 }
 public struct HostConnectionError: Error, LocalizedError, Sendable {
     public let message: String
@@ -85,6 +104,12 @@ public protocol HostService: AnyObject, Sendable {
     func setBitrate(kbps: UInt32) async throws -> UInt32
     /// The encoder's live bitrate and whether the host changes it mid-stream.
     func liveBitrate() async throws -> LiveBitrate
+    /// Turns a Foundation Sunshine host's own bitrate controller on, up to `maxKbps`; nil when
+    /// the host has none.
+    func startHostBitrate(maxKbps: UInt32) async throws -> HostBitrateStart?
+    func stopHostBitrate() async throws
+    /// Reports the network to the host's controller; the answer carries any bitrate it moved to.
+    func hostBitrateFeedback(_ feedback: HostBitrateFeedback) async throws -> HostBitrateAction
     func clipboardText() async throws -> String
     func sendClipboardText(_ text: String) async throws
     /// Permanently cancels this connection, including in-flight pairing and launch requests.
@@ -103,6 +128,9 @@ public extension HostService {
     func artwork(appID: Int32) async throws -> Data { throw HostConnectionError("No artwork available.") }
     func setBitrate(kbps: UInt32) async throws -> UInt32 { throw HostConnectionError("This host does not support live bitrate changes.") }
     func liveBitrate() async throws -> LiveBitrate { LiveBitrate(runtime:false,kbps:0) }
+    func startHostBitrate(maxKbps: UInt32) async throws -> HostBitrateStart? { nil }
+    func stopHostBitrate() async throws {}
+    func hostBitrateFeedback(_ feedback: HostBitrateFeedback) async throws -> HostBitrateAction { throw HostConnectionError("This host runs no bitrate controller.") }
     func clipboardText() async throws -> String { throw HostConnectionError("This host does not support clipboard text transfer.") }
     func sendClipboardText(_ text: String) async throws { throw HostConnectionError("This host does not support clipboard text transfer.") }
 }
@@ -191,6 +219,18 @@ public final class HostConnection: HostService, @unchecked Sendable {
     }
     public func launch(_ options: LaunchOptions) async throws -> LaunchedStream {
         try await request("launch", json: String(decoding: JSONEncoder().encode(options), as: UTF8.self))
+    }
+    public func startHostBitrate(maxKbps: UInt32) async throws -> HostBitrateStart? {
+        struct Started: Decodable, Sendable { let on: Bool;let initialKbps: UInt32?;let maxKbps: UInt32? }
+        let started: Started = try await request("hostBitrateStart",json:String(decoding:JSONEncoder().encode(["maxKbps":maxKbps]),as:UTF8.self))
+        return started.on ? HostBitrateStart(initialKbps:started.initialKbps ?? 0,maxKbps:started.maxKbps ?? maxKbps) : nil
+    }
+    public func stopHostBitrate() async throws {
+        struct Stopped: Decodable, Sendable { let on: Bool }
+        let _: Stopped = try await request("hostBitrateStop",json:"{}")
+    }
+    public func hostBitrateFeedback(_ feedback: HostBitrateFeedback) async throws -> HostBitrateAction {
+        try await request("hostBitrateFeedback",json:String(decoding:JSONEncoder().encode(feedback),as:UTF8.self))
     }
     public func setBitrate(kbps: UInt32) async throws -> UInt32 {
         struct Applied: Decodable, Sendable { let kbps: UInt32 }

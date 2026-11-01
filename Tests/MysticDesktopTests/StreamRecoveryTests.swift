@@ -33,6 +33,26 @@ final class StreamRecoveryTests: XCTestCase {
         XCTAssertEqual(sessions.all[1].configuration?.bitrateKbps,Int32(profile.bitrateMbps)*1000)
         model.disconnect()
     }
+    func testAHostWithoutLiveBitrateRunsItsOwnControllerUntilTheStreamEnds() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
+        host.supportsBitrate=false;host.hostController=HostBitrateStart(initialKbps:15_000,maxKbps:20_000)
+        let model=try await running(host,sessions,clock,adaptive:true)
+        try await wait { model.rates.status == "Automatic bitrate (host): 15 Mbps" }
+        XCTAssertEqual(host.hostBitrateCalls,["on 20000"])
+        XCTAssertTrue(model.rates.automaticActive,"the health report offers no trial while the host owns the bitrate")
+        XCTAssertEqual(model.rates.appliedKbps,15_000)
+        model.disconnect()
+        try await wait { host.hostBitrateCalls == ["on 20000","off"] }
+        // A host with no controller leaves the stream at its fixed bitrate.
+        let plain=RecoveryHost(),plainSessions=RecoverySessions()
+        plain.supportsBitrate=false
+        let fixed=try await running(plain,plainSessions,RecoveryClock(),adaptive:true)
+        try await wait { fixed.rates.status == "Automatic bitrate unavailable on this host; using fixed bitrate." }
+        XCTAssertFalse(fixed.rates.automaticActive)
+        fixed.disconnect()
+        try await Task.sleep(for:.milliseconds(20))
+        XCTAssertEqual(plain.hostBitrateCalls,["on 20000"],"nothing to turn off")
+    }
     func testHealthTrialStartsFromTheLiveBitrateAndReportsRefusals() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
         let model=try await running(host,sessions,clock)
@@ -415,6 +435,16 @@ final class StreamRecoveryTests: XCTestCase {
         try await wait { sessions.all[1].displayReports == [8] }
         model.disconnect()
     }
+    func testFractionalDisplayRateGoesToTheLaunchAndStream() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        let model=try await running(host,sessions,RecoveryClock(),configure:{ $0.launchRefreshRate={ 59.94 } })
+        XCTAssertEqual(host.launches.last?.clientRefreshRateX100,5994)
+        XCTAssertEqual(sessions.all[0].configuration?.clientRefreshRateX100,5994)
+        model.disconnect()
+        XCTAssertEqual(DisplayRefresh.x100(nil),0)
+        XCTAssertEqual(DisplayRefresh.x100(.nan),0)
+        XCTAssertEqual(DisplayRefresh.x100(119.88),11988)
+    }
     private func running(_ host: RecoveryHost,_ sessions: RecoverySessions,_ clock: RecoveryClock,
                          reconnect: Bool = true,adaptive: Bool = false,pacing: FramePacingMode = .lowLatency,
                          configure: (ConnectionModel) -> Void = { _ in }) async throws -> ConnectionModel {
@@ -546,6 +576,14 @@ private final class RecoveryHost: HostService,@unchecked Sendable {
     // Tests set these before a request starts; access from the main actor's async calls only.
     var supportsBitrate=true,rejectRate=false
     var liveKbps:UInt32=0,liveRuntime=true
+    /// A Foundation Sunshine host's own bitrate controller, when set.
+    var hostController:HostBitrateStart?
+    private var controllerCalls:[String]=[]
+    var hostBitrateCalls:[String] { lock.withLock { controllerCalls } }
+    func startHostBitrate(maxKbps:UInt32) async throws -> HostBitrateStart? {
+        lock.withLock { controllerCalls.append("on \(maxKbps)") };return hostController
+    }
+    func stopHostBitrate() async throws { lock.withLock { controllerCalls.append("off") } }
     func liveBitrate() async throws -> LiveBitrate { LiveBitrate(runtime:liveRuntime,kbps:liveKbps) }
     var launches:[LaunchOptions] { lock.withLock { options } }
     var rates:[UInt32] { lock.withLock { requests } }

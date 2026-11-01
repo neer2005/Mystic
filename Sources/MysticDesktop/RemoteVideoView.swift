@@ -78,6 +78,10 @@ final class RemoteVideoView: NSView {
         let tracking = NSTrackingArea(rect:.zero,options:[.mouseMoved,.activeInKeyWindow,.inVisibleRect],owner:self,userInfo:nil)
         addTrackingArea(tracking);self.tracking = tracking
     }
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if let capture,capture.drawsHostCursor { addCursorRect(presenter.videoRect.intersection(bounds),cursor:capture.hostCursor.current) }
+    }
     func isVideoPoint(_ point: NSPoint) -> Bool { presenter.videoRect.contains(convert(point,from:nil)) }
     override func mouseDown(with event: NSEvent) { capture?.mouseButton(event,down:true) }
     override func mouseUp(with event: NSEvent) { capture?.mouseButton(event,down:false) }

@@ -20,6 +20,19 @@ struct ConsumerMappingTests {
         c.kind=1;c.slot=16;#expect(ControllerFeedback(c) == nil)
     }
 
+    @Test("cursor shapes map every field and refuse a size the buffer cannot hold")
+    func cursorShapeMapping() {
+        var c=MysticCursorShape()
+        c.kind=3;c.width=2;c.height=1;c.hotspot_x=1;c.hotspot_y=0;c.scale_percent=150;c.id=7;c.pixel_bytes=8
+        let pixels=Array(UInt8(0)..<UInt8(12))
+        #expect(HostCursorShape(c,pixels:pixels) == .image(id:7,image:HostCursorImage(width:2,height:1,hotspotX:1,hotspotY:0,scalePercent:150,rgba:Array(pixels.prefix(8)))))
+        c.pixel_bytes=13;#expect(HostCursorShape(c,pixels:pixels) == .rejected)
+        c.kind=2;#expect(HostCursorShape(c,pixels:pixels) == .show(id:7))
+        c.kind=0;#expect(HostCursorShape(c,pixels:pixels) == .hide)
+        c.kind=1;#expect(HostCursorShape(c,pixels:pixels) == .standard)
+        c.kind=9;#expect(HostCursorShape(c,pixels:pixels) == .rejected)
+    }
+
     @Test("video setup maps every field")
     func videoSetupMapping() {
         var c = MysticVideoSetup()

@@ -104,8 +104,22 @@ reported as healthy. A failed or invalid bitrate response stops adaptation and
 leaves playback running, with a visible explanation.
 
 This changes bitrate only; resolution and frame rate are automatic quality's, below.
-Foundation Sunshine's host-side ABR controller, thermal inputs and network queue-delay
-measurements remain separate work. Requests use the existing pinned HTTPS host connection.
+Requests use the existing pinned HTTPS host connection.
+
+### Host-run automatic bitrate (Foundation Sunshine)
+
+A host without live bitrate may run the controller itself, as Foundation Sunshine does
+(`/api/abr`). With Automatic Bitrate on, Mystic asks `/api/abr/capabilities` at stream start
+and, when the host has one, turns it on balanced, from 0 up to the selected bitrate. Every
+three seconds it reports the window's frame loss, round trip, decode rate and dropped frames
+(`/api/abr/feedback`), one report at a time, and shows the bitrate the host chose; Nightjar's
+desktop `host_abr.rs` and Moonlight V+ PC do the same. Other hosts answer 404 and keep the
+fixed bitrate. These requests use their own connection to the host, so the request that turns
+the controller off at disconnect, reconnect or a manual bitrate change still reaches the host
+after the stream's connection is cancelled; a start that finishes after its stream ended turns
+the controller off itself, and a start waits for an earlier stop. While the host owns the
+bitrate the stream health report offers no trial. Not yet tried against a Foundation host.
+Thermal inputs and network queue-delay measurements remain separate work.
 
 ## Automatic quality
 

@@ -29,9 +29,20 @@ public final class StreamInputCapture {
     @ObservationIgnored private var cursorHidden = false
     @ObservationIgnored private var restorePoint: CGPoint?
     @ObservationIgnored private var skipWarpMotion = false
+    /// The host's cursor as the pointer over the video while it sends shapes.
+    @ObservationIgnored let hostCursor = HostCursor()
+    @ObservationIgnored private(set) var hostCursorOn = false
+    @ObservationIgnored private var hostCursorWarned = false
+    /// Desktop control draws the host's cursor; the host has left it out of the video.
+    var drawsHostCursor: Bool { hostCursorOn && mode == .desktop }
 
     init(send: @escaping (RemoteInputEvent) -> Bool, failure: @escaping (String) -> Void) {
         self.send = send;self.failure = failure
+        hostCursor.changed = { [weak self] in self?.refreshCursor() }
+        hostCursor.failure = { [weak self] message in
+            guard let self,!self.hostCursorWarned else { return }
+            self.hostCursorWarned = true;self.failure(message)
+        }
     }
     isolated deinit { release() }
     func attach(_ target: RemoteVideoView) {
@@ -68,6 +79,7 @@ public final class StreamInputCapture {
             NSCursor.hide();cursorHidden = true
         }
         mode = next
+        refreshCursor()
         if controllers == nil {
             controllers=StreamControllers(feedbackFailure:failure,send:send,failure: { [weak self] in
                 self?.release();self?.failure("Controller input backlog was full. Control released; click video to resume.")
@@ -95,6 +107,20 @@ public final class StreamInputCapture {
         if let restorePoint { _ = CGWarpMouseCursorPosition(restorePoint);self.restorePoint = nil }
         if hadInput { _ = send(state.releaseAll()) }
         movement = InputDelta();wheel = InputDelta()
+        refreshCursor()
+    }
+    /// Shapes were turned on or off at the host; either way it starts its image cache again.
+    func setHostCursor(_ on: Bool) {
+        hostCursorOn = on;hostCursor.reset();refreshCursor()
+    }
+    func applyHostCursor(_ shapes: [HostCursorShape]) { if hostCursorOn { hostCursor.apply(shapes) } }
+    private func refreshCursor() {
+        guard let view,let window = view.window else { return }
+        window.invalidateCursorRects(for:view)
+        // Cursor rects apply on the next movement; a pointer already over the video changes now.
+        if window.isKeyWindow,view.isVideoPoint(window.mouseLocationOutsideOfEventStream),mode != .relative {
+            (drawsHostCursor ? hostCursor.current : NSCursor.arrow).set()
+        }
     }
     private static func cgPoint(_ cocoa: NSPoint) -> CGPoint {
         CGPoint(x:cocoa.x,y:(NSScreen.screens.first?.frame.maxY ?? 0)-cocoa.y)

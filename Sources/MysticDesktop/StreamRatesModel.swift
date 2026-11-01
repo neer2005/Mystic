@@ -17,13 +17,15 @@ public final class StreamRatesModel {
     @ObservationIgnored private var automatic=false
     @ObservationIgnored private var initialized=false
     @ObservationIgnored private var lastDecoded: UInt64=0
+    /// A Foundation Sunshine host's own controller, for hosts without live bitrate.
+    @ObservationIgnored let hostBitrate=HostBitrateController()
     @ObservationIgnored private unowned let model: ConnectionModel
     init(model: ConnectionModel) { self.model=model }
 
     public var launchKbps: UInt32 { UInt32(model.plan?.configuration.bitrateKbps ?? 10_000) }
     public var launchFPS: UInt32 { UInt32(model.plan?.configuration.fps ?? 60) }
     /// Automatic bitrate owns the rate, so the health report offers no trial.
-    public var automaticActive: Bool { automatic }
+    public var automaticActive: Bool { automatic || hostBitrate.active }
     /// The stream's bitrate as far as Mystic knows it: the last applied, else the launch request.
     public var currentKbps: UInt32 { appliedKbps ?? launchKbps }
     /// A health-report trial step was applied.
@@ -40,6 +42,7 @@ public final class StreamRatesModel {
     }
     func stopAutomatic(status: String? = nil) {
         task?.cancel();task=nil;automatic=false
+        hostBitrate.stop()
         if let status { self.status=status }
     }
     /// Before a launch attempt: telemetry and the automatic-bitrate handshake start over.
@@ -50,8 +53,33 @@ public final class StreamRatesModel {
         message="Rates affect this stream only. Manual changes pause automatic bitrate until reconnect."
         automatic=adaptive && launch.runtimeBitrate == true
         status = !adaptive ? "Fixed bitrate: \(configuration.bitrateKbps/1000) Mbps" :
-            (launch.runtimeBitrate == true ? "Automatic bitrate: waiting for video…" : "Automatic bitrate unavailable on this host; using fixed bitrate.")
+            (launch.runtimeBitrate == true ? "Automatic bitrate: waiting for video…" : "Automatic bitrate: asking the host…")
+        guard adaptive,launch.runtimeBitrate != true else { return }
+        // Without live bitrate, a Foundation Sunshine host may run the controller itself.
+        let token=model.generation
+        hostBitrate.start(maxKbps:UInt32(configuration.bitrateKbps),nowMillis:Self.nowMillis,
+                          connect:{ [weak self] in
+                              guard let self else { throw HostConnectionError("The stream ended.") }
+                              return try await self.model.detachedHost()
+                          }) { [weak self] result in
+            guard let self,self.model.generation == token else { return }
+            switch result {
+            case .success(let kbps?): self.appliedKbps=kbps;self.status="Automatic bitrate (host): \(kbps/1000) Mbps"
+            case .success(nil): self.status="Automatic bitrate unavailable on this host; using fixed bitrate."
+            case .failure(let error): self.status="Automatic bitrate unavailable: \(error.localizedDescription)"
+            }
+        }
     }
+    /// The host's controller takes this second's network figures; every third second it may move the bitrate.
+    func hostBitrateTick(_ snapshot: VideoTelemetrySnapshot,measures: NetworkMeasures?) {
+        guard model.phase == .streaming,hostBitrate.active else { return }
+        let token=model.generation
+        hostBitrate.tick(measures:measures,decoded:snapshot.decoded,nowMillis:Self.nowMillis()) { [weak self] kbps,_ in
+            guard let self,self.model.generation == token else { return }
+            self.appliedKbps=kbps;self.status="Automatic bitrate (host): \(kbps/1000) Mbps"
+        }
+    }
+    private static func nowMillis() -> UInt64 { DispatchTime.now().uptimeNanoseconds/1_000_000 }
 
     public func refresh() async {
         guard model.phase == .streaming,!busy,let session=model.session else { return }
@@ -72,7 +100,7 @@ public final class StreamRatesModel {
         busy=true;message="Waiting for host confirmation…"
         // Drain any older automatic write before sending the manual one. A manual change also
         // replaces a health-report trial.
-        automatic=false
+        automatic=false;hostBitrate.stop()
         await session.trialClear()
         let pending=task
         await pending?.value

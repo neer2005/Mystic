@@ -28,7 +28,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | Remote Monitor, input-only, co-op | Pending | Explicit roles and permissions |
 | Network profiles, launch shortcuts/CLI | Partial | Nightjar's command line and `mystic://stream` links, with Copy Launch Link/Command Line (LAUNCHING.md). Profiles by network pending |
 | Host details/web UI, PIN lock, languages | Partial / pending | Host sidebar exists; full controls and localization pending |
-| Window position memory | Pending | Nightjar (`window_place.rs`) reopens on the same display, position and size |
+| Window position memory | Implemented by macOS | AppKit saves each window's frame by scene (`NSWindow Frame stream`, `… library`) and reopens it on the same display, position and size, constrained to the screens present; Nightjar's `window_place.rs` does this by hand |
 | Controller menu navigation | Pending | Nightjar (`console.rs`, `nav_repeat.rs`) drives every screen from a controller |
 | H.264/HEVC decoding | Implemented | Big Dawg HEVC verified |
 | AV1 hardware decode | Implemented, hardware validation pending | Current Mac reports unsupported hardware |
@@ -38,9 +38,10 @@ must be investigated and documented before a feature is marked inapplicable.
 | Upscaling | Pending | Choose Mac-native rendering path |
 | Native pacing, HUD | Implemented, partial parity | Low Latency/Balanced; Balanced with FPS limit, Smoothest video, PTS Metal renderer, VRR/phase-lock remain |
 | Performance overlay modes and host telemetry | Pending | Nightjar (`overlay.rs`) has Compact, Statistics and Debug, with the host's CPU/GPU load, temperatures, power and clocks |
-| Fractional refresh / virtual display controls | Pending | Native settings and host capability negotiation. Launch sends neither `launch_refresh_rate_x100` nor `client_refresh_rate_x100`, so 59.94 Hz launches as 60 |
+| Fractional refresh rate | Implemented, live validation pending | The screen's exact rate goes in `client_refresh_rate_x100` at launch and in the ANNOUNCE, as Nightjar's desktop client sends it; see FRAME-PACING.md |
+| Virtual display controls | Pending | Native settings and host capability negotiation |
 | Recovery, automatic bitrate | Implemented | Big Dawg reconnect passed; congestion testing pending. Startup stage allowlist matches Nightjar. A network back on an address the stream cannot continue over reconnects at once (NETWORK.md); a real network drop not yet tested |
-| Automatic bitrate on Foundation Sunshine hosts | Pending | Nightjar (`host_abr.rs`) turns on the host's own controller and reports the network every three seconds; Mystic's automatic bitrate needs Rubylight |
+| Automatic bitrate on Foundation Sunshine hosts | Implemented, live validation pending | Nightjar's `host_abr.rs`: the host's controller on at stream start, a report every three seconds, off at the end over its own connection; see NETWORK.md |
 | Automatic quality (resolution/FPS) | Implemented, live validation pending | Nightjar's ladder over Reconfigure, per profile; see NETWORK.md |
 | Link test before the first bitrate | Pending | Off by default in Nightjar (`http::probe_start_kbps`, `launch::estimated_kbps`) |
 | Live manual bitrate/FPS | Implemented | Big Dawg negotiation/UI verified; live Apply pending; see LIVE-RATES.md |
@@ -56,9 +57,10 @@ must be investigated and documented before a feature is marked inapplicable.
 | Microphone | Implemented | Live host input-meter response verified previously |
 | Microphone echo cancellation | Deferred (2026-10-31) | macOS voice processing removes only what plays through the same audio engine as the microphone; Mystic plays and records on separate engines. Doing it means playing the stream through the microphone's engine while it is on, which likely limits surround to stereo and applies voice processing to game sound. If taken up: Nightjar's Automatic (off with headphones), On and Off |
 | Keyboard/mouse and fullscreen | Implemented | User verified on Big Dawg |
+| Display stays awake while streaming | Implemented | `DisplayWake` holds an idle-display-sleep activity for the stream, as SDL keeps Nightjar's screen saver off |
 | Keyboard follows text fields, layout report | Pending | Nightjar (`text_field.rs`) handles host text-field notices (0x553B) and reports the keyboard layout (0x553E); Mystic sends US key positions only |
 | Saved key chords, import/export | Pending | Nightjar (`shortcuts.rs`) shares Android's file format; Mystic has only its release chord |
-| Host cursor shapes | Pending | Nightjar (`stream/cursor.rs`) shows the host's cursor, with a hide debounce |
+| Host cursor shapes | Implemented, live validation pending | Nightjar's `stream/cursor.rs`: Local Cursor in desktop control, 32-image cache, 150 ms hide debounce; see INPUT.md |
 | Controller input/rumble | Implemented, physical validation pending | Controller unavailable during joint playtest. 16 controllers, as Nightjar |
 | Controller mapping, motion, touchpad, LEDs/battery | Partial, physical validation pending | Typed arrivals, Guide/touchpad click/Share/paddles, motion, battery and light done (see INPUT.md); motion axes unverified. Touchpad contacts pending: GameController has no reliable finger-down state. Per-model remapping pending |
 | Controller as mouse, host night mode/headphone surround | Pending | Nightjar stream menu (`controller_mouse.rs`, `menu_extras.rs`; Rubylight `/audio`) |
@@ -68,7 +70,8 @@ must be investigated and documented before a feature is marked inapplicable.
 | Clipboard images, files, shared folders, USB | Pending | Capability/permission-aware native flows |
 | Session graphics / Radeon controls | Implemented | Big Dawg GPU/settings and permission gating verified; live writes/restore pending Host control permission; see GRAPHICS.md |
 | Accessibility and system appearance | Partial | SwiftUI/accessibility labels present; systematic audit pending |
-| Release packaging, CI, notarization, updates | Pending | Signed local app exists; distribution and release checks remain; Nightjar checks for updates once per launch (`update_check.rs`) |
+| Release packaging, CI, notarization | Pending | Signed local app exists; distribution and release checks remain |
+| Update check | Implemented | Nightjar's `update_check.rs` against Mystic's GitHub releases, once per launch; offers nothing until a release is published; see SETTINGS.md |
 | Redacted reports / crash records | Pending | Privacy-safe diagnostics and export; Nightjar desktop writes redacted logs (`logfile.rs`, `report::redact`) and crash dumps (`crash_dump.rs`) |
 | Published latency measurements | Pending | Timestamp and glass-to-glass method |
 | PyroWave | Last | Metal decode, calibration, bandwidth and pacing integration |

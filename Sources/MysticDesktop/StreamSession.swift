@@ -33,6 +33,9 @@ protocol StreamSessionService: AnyObject, Sendable {
     func clipboardStep(active: Bool,baseline: Bool,text: String?) async throws -> ClipboardSyncResult
     func liveRates(kbps: UInt32,fpsMilliHz: UInt32) async throws -> LiveRates
     func takeControllerFeedback() async -> [ControllerFeedback]
+    /// Starts or stops host cursor shapes; false when the host does not take them.
+    func setCursorShapes(_ enabled: Bool) async -> Bool
+    func takeCursorShapes() async -> [HostCursorShape]
     func requestVideoRecovery()
     func setMicrophoneMuted(_ muted: Bool)
     func send(_ event: RemoteInputEvent) -> Bool
@@ -74,6 +77,8 @@ extension StreamSessionService {
     func qualityBegin(_ mode: AutomaticQuality) async -> Bool? { false }
     func qualityTick(decodedWidth: UInt32,decodedHeight: UInt32,suspended: Bool) async -> QualityTick? { nil }
     func qualityEnd() async {}
+    func setCursorShapes(_ enabled: Bool) async -> Bool { false }
+    func takeCursorShapes() async -> [HostCursorShape] { [] }
     func liveRates(kbps: UInt32,fpsMilliHz: UInt32) async throws -> LiveRates { throw HostConnectionError("Live rate controls are unavailable.") }
     func clipboardStep(active: Bool,baseline: Bool,text: String?) async throws -> ClipboardSyncResult {
         ClipboardSyncResult(available:false,text:nil)
@@ -187,6 +192,16 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
     func takeControllerFeedback() async -> [ControllerFeedback] {
         await withCheckedContinuation { continuation in queue.async { [self] in
             continuation.resume(returning:acceptingInput ? engine.takeControllerFeedback() : [])
+        } }
+    }
+    func setCursorShapes(_ enabled: Bool) async -> Bool {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            continuation.resume(returning:acceptingInput && (try? engine.cursorShapes(enabled:enabled)) != nil)
+        } }
+    }
+    func takeCursorShapes() async -> [HostCursorShape] {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            continuation.resume(returning:acceptingInput ? engine.takeCursorShapes() : [])
         } }
     }
     /// Nightjar's floors: 720 lines and 30 fps.

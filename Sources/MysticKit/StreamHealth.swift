@@ -11,6 +11,9 @@ public struct NetworkMeasures: Decodable, Sendable, Equatable {
     public let poorConnection: Bool
     /// The network is silent and input is being held until the host answers.
     public let inputHeld: Bool
+    /// This tick's frames the network completed and dropped.
+    public var completedFrames: UInt64? = nil
+    public var droppedFrames: UInt64? = nil
 }
 
 /// Nightjar's stream doctor report over the last 30 seconds (`nightjar_policy::health::Report`).

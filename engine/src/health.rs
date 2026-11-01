@@ -88,6 +88,8 @@ pub unsafe extern "C" fn mystic_session_health_tick(
             "rttMs": stats.rtt.map(|(rtt, _)| ms(rtt)), "rttVarianceMs": stats.rtt.map(|(_, var)| ms(var)),
             "lossPercent": tick.loss_percent, "jitterMs": tick.jitter_ms, "receivedFps": tick.received_fps,
             "poorConnection": tick.poor_connection, "inputHeld": stats.input_contact_lost,
+            // This tick's frames, for the report a Foundation host's bitrate controller takes.
+            "completedFrames": completed, "droppedFrames": drops,
         }))
     })())
 }

@@ -18,6 +18,16 @@ buffers carry renderer-relative timestamps and the negotiated frame duration.
 Pixel buffers and HDR attachments are retained without a CPU image copy. This
 does not add Metal rendering, refresh-rate switching, VRR control or beam racing.
 
+## Display refresh rate
+
+Each launch tells the host the stream screen's refresh rate x100, as Nightjar's desktop
+client does: CoreGraphics's mode rate (59.94 Hz on a 59.94 Hz display; the nominal maximum
+where a panel reports 0). It goes in the launch request (`client_refresh_rate_x100`) and the
+stream's ANNOUNCE (`clientRefreshRateX100`). A host that reads fractional rates then launches
+59.94 rather than 60 when the display rounds to the stream's frame rate, so frames are not
+dropped or repeated every 16 seconds; other hosts, and streams at another rate, keep the
+integer rate. Not yet tried against a host that reads fractions.
+
 ## Bounds and recovery
 
 The mailbox retains at most one pending image plus one image in a suspended drain
