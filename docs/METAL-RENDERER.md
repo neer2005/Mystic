@@ -1,7 +1,7 @@
 # Metal renderer
 
-Status: in progress on the `codex/metal-renderer` branch. Off by default: Settings → Video →
-Renderer. The display layer stays the default until the two have been compared on real hosts.
+Status: on `main` as an experimental option, off by default: Settings → Video → Renderer. The
+display layer stays the default until the open problems below have been tested.
 
 ## Why
 
