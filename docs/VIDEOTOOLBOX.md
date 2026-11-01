@@ -69,9 +69,15 @@ The consumer copies borrowed compressed data before returning to the engine.
 CoreMedia owns each submitted block buffer. Decoded images retain IOSurface-backed
 pixel buffers, with no CPU pixel copy in the presentation path.
 
-Consumer operations serialize on a private queue. At most three decode operations
-are in flight. Queue overflow, invalid configuration, and reference loss request
-an IDR. Asynchronous decoder/display failures immediately request a keyframe and latch
+Consumer operations serialize on a private queue. About 100 ms of frames may be in flight
+(the frame rate over ten, at least three: 12 at 120 fps, 6 at 60). Wi-Fi delivers frames in
+clumps after a stall, and a frame dropped for want of a slot is a lost reference that needs a
+keyframe, which at a high rate is large enough to cause the next clump; the first limit, three
+frames, overflowed 53 times in 11 minutes of a 3024×1890 120 fps Wi-Fi stream, once 25 times
+in 13 seconds. So a submit with every slot taken waits up to 100 ms for one to free, holding
+the engine's video thread as a synchronous decoder would; an invalidation wakes it at once.
+Only a decoder still full after that drops the frame. Queue overflow, invalid configuration,
+and reference loss request an IDR. Asynchronous decoder/display failures immediately request a keyframe and latch
 recovery before the next submission. See [RECOVERY.md](RECOVERY.md). Recovery discards dependent frames until a usable keyframe arrives.
 New parameter sets rebuild the session; keyframe dimension changes are accepted.
 

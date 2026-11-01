@@ -264,6 +264,27 @@ final class VideoDecoderTests: XCTestCase {
         XCTAssertFalse(state.reserve(generation:8))
     }
 
+    func testTheQueueHoldsAboutATenthOfASecondAndWaitsForASlot() throws {
+        XCTAssertEqual(DecodeCompletionState.capacity(fps:120),12)
+        XCTAssertEqual(DecodeCompletionState.capacity(fps:60),6)
+        XCTAssertEqual(DecodeCompletionState.capacity(fps:30),3)
+        XCTAssertEqual(DecodeCompletionState.capacity(fps:1),3)
+        let state=DecodeCompletionState()
+        state.reset(generation:3)
+        for _ in 0..<6 { XCTAssertTrue(state.reserve(generation:3,capacity:6)) }
+        // A clump of frames: the seventh waits for the decoder rather than being dropped.
+        DispatchQueue.global().asyncAfter(deadline:.now()+0.02) { _ = state.complete(generation:3) }
+        let started=Date()
+        XCTAssertTrue(state.reserve(generation:3,capacity:6,wait:1))
+        XCTAssertGreaterThan(Date().timeIntervalSince(started),0.01)
+        // A decoder that never finishes still gives up after the wait.
+        XCTAssertFalse(state.reserve(generation:3,capacity:6,wait:0.03))
+        // An invalidation wakes a waiter at once, which then refuses the old generation.
+        DispatchQueue.global().asyncAfter(deadline:.now()+0.02) { state.reset(generation:4) }
+        let waking=Date()
+        XCTAssertFalse(state.reserve(generation:3,capacity:6,wait:2))
+        XCTAssertLessThan(Date().timeIntervalSince(waking),1)
+    }
     func testMailboxCoalescesAndRejectsStaleGenerations() throws {
         var image: CVPixelBuffer?
         XCTAssertEqual(CVPixelBufferCreate(kCFAllocatorDefault, 64, 64, kCVPixelFormatType_32BGRA, nil, &image), 0)
