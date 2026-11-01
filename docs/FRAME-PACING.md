@@ -97,7 +97,22 @@ HEVC 10-bit HDR, 3024×1890 at 120 fps negotiated, fixed 100 Mbps, on a 120 Hz p
 - **Balanced reset the video timeline 12 times in 100 s** with "Presentation timestamp discontinuity" and lost 1,214
   frames, and did so once on Desktop. A spike anchored its timeline on late frames, so on-time frames
   looked over 100 ms in the future and were treated as corrupt; smaller shifts made each frame wait until
-  the next replaced it. Such frames now realign the timeline; the fix has automated checks, not a new run.
+  the next replaced it. Such frames now realign the timeline.
+- **After that fix,** the same title screen and setup, 100-second runs read at 90 s:
+
+  | Run | Video resets | Timeline realignments | Presenter drops | Decoded to screen p50, ms | Uneven |
+  | --- | --- | --- | --- | --- | --- |
+  | Balanced 1 | 0 | 606 | 25 | 23 | 11% |
+  | Balanced 2 | 0 | 989 | 30 | 23 | 57% |
+  | Balanced 3 | 0 | 580 | 38 | 22 | 46% |
+  | Smoothest Video | 0 | 324 | 744 | 34 | 21% |
+  | Low Latency | 0 | 0 | 19 | 21 | 43% (at 60 s) |
+
+  The resets are gone, but **Balanced now realigns about seven to eleven times a second**. A 120 fps
+  stream gives it an 8.3 ms buffer while this game shows about 60 fps on a remote route, so ordinary
+  jitter crosses its limits. It is not yet the steady pacing it is meant to be.
+- In that Low Latency run nothing was shown between 60 and 90 s: renderer drops went from 568 to 2,371
+  with the shown count unchanged. The cause is unknown; the window being covered is one possibility.
 - This is one title screen in one sitting, with no AWDL record for these runs and no camera.
 
 ## HUD measurements

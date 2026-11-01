@@ -879,7 +879,7 @@ public final class ConnectionModel {
     /// What reached the screen, for comparing pacings afterwards.
     private func logPresentation(mode: FramePacingMode) {
         guard let presentation=videoTelemetry?.presentation else { return }
-        var line="Presentation (\(mode.label)): queue peak \(presentation.peakQueueDepth), late \(presentation.lateFrames), drops \(presentation.droppedFrames), renderer drops \(presentation.rendererDroppedFrames.map(String.init) ?? "none reported"), shared refreshes \(presentation.sharedRefreshes)"
+        var line="Presentation (\(mode.label)): queue peak \(presentation.peakQueueDepth), late \(presentation.lateFrames), drops \(presentation.droppedFrames), renderer drops \(presentation.rendererDroppedFrames.map(String.init) ?? "none reported"), shared refreshes \(presentation.sharedRefreshes), timeline resets \(presentation.resynchronizations)"
         if let hold=presentation.holdMicros { line+=", held \(hold) us" }
         if let shown=presentation.cadence.summary {
             line+=", shown \(presentation.cadence.shown) every \(shown.p50)/\(shown.p95)/\(shown.p99) us, uneven \(Int((presentation.cadence.unevenShare ?? 0)*100))%"
