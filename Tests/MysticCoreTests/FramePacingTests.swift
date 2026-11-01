@@ -5,7 +5,7 @@ struct FramePacingTests {
     @Test func lowLatencyIsImmediateAndBalancedBuffersOneFrameAtBothRates() {
         for fps:UInt32 in [60,120] {
             let interval=(1_000_000 + Int64(fps)/2)/Int64(fps)
-            for mode in FramePacingMode.allCases {
+            for mode:FramePacingMode in [.lowLatency,.balanced] {
                 var pacer=FramePacer(mode:mode)
                 let delay=mode == .balanced ? interval : 0
                 #expect(pacer.plan(sourcePTS:9_000_000,rendererNow:50_000,ageMicros:0,frameRate:fps).action == .enqueue(timeMicros:50_000+delay,late:false,resynchronize:false))
@@ -72,6 +72,55 @@ struct FramePacingTests {
                 #expect(action == .enqueue(timeMicros:50_000+source+interval,late:false,resynchronize:false))
                 pacer.accepted(sourcePTS:source,rendererNow:now)
             }
+        }
+    }
+    @Test func theFPSLimitSpacesEarlyFramesByAFrameAndNeverHoldsLonger() {
+        var pacer=FramePacer(mode:.fpsLimit)
+        func step(_ source:Int64,_ now:Int64) -> FramePacingPlan.Action {
+            let action=pacer.plan(sourcePTS:source,rendererNow:now,ageMicros:0,frameRate:60).action
+            pacer.accepted(sourcePTS:source,rendererNow:now)
+            return action
+        }
+        #expect(step(0,1000) == .enqueue(timeMicros:1000,late:false,resynchronize:false))
+        // A burst: each frame takes the next slot, at most one frame ahead of now.
+        #expect(step(16667,2000) == .enqueue(timeMicros:17667,late:false,resynchronize:false))
+        #expect(step(33334,3000) == .enqueue(timeMicros:19667,late:false,resynchronize:false))
+        // A late frame starts the slots again.
+        #expect(step(50001,80000) == .enqueue(timeMicros:80000,late:false,resynchronize:false))
+        #expect(step(66668,96667) == .enqueue(timeMicros:96667,late:false,resynchronize:false))
+    }
+    @Test func aPlannedSlotIsNotTakenUntilTheFrameIsAccepted() {
+        var pacer=FramePacer(mode:.fpsLimit)
+        _=pacer.plan(sourcePTS:0,rendererNow:1000,ageMicros:0,frameRate:60);pacer.accepted(sourcePTS:0,rendererNow:1000)
+        #expect(pacer.plan(sourcePTS:16667,rendererNow:2000,ageMicros:0,frameRate:60).action == .enqueue(timeMicros:17667,late:false,resynchronize:false))
+        #expect(pacer.plan(sourcePTS:16667,rendererNow:2000,ageMicros:0,frameRate:60).action == .enqueue(timeMicros:17667,late:false,resynchronize:false))
+    }
+    @Test func smoothestFollowsThePCsTimingBehindATwoFrameBuffer() {
+        for fps:UInt32 in [60,120] {
+            var pacer=FramePacer(mode:.smoothest)
+            let interval=(1_000_000+Int64(fps)/2)/Int64(fps)
+            for frame in 0..<240 {
+                let source=Int64(frame)*interval
+                var now=50_000+source+[Int64(0),-2000,2000,0][frame%4]
+                var action=pacer.plan(sourcePTS:source,rendererNow:now,ageMicros:100,frameRate:fps).action
+                if case let .wait(delay)=action {
+                    now+=Int64(delay)
+                    action=pacer.plan(sourcePTS:source,rendererNow:now,ageMicros:100+delay,frameRate:fps).action
+                }
+                #expect(action == .enqueue(timeMicros:50_000+source+interval*2,late:false,resynchronize:false))
+                pacer.accepted(sourcePTS:source,rendererNow:now)
+            }
+        }
+        // Its buffer is not a future timestamp, however low the rate.
+        var slow=FramePacer(mode:.smoothest)
+        #expect(slow.plan(sourcePTS:0,rendererNow:0,ageMicros:0,frameRate:10).action == .enqueue(timeMicros:200_000,late:false,resynchronize:false))
+    }
+    @Test func onlyTheInOrderPacingsKeepAFreshFrameWhenANewerWaits() {
+        for mode in FramePacingMode.allCases {
+            let pacer=FramePacer(mode:mode)
+            #expect(pacer.isSuperseded(ageMicros:0,frameRate:60) == !mode.keepsOrder)
+            #expect(pacer.isSuperseded(ageMicros:nil,frameRate:60) == !mode.keepsOrder)
+            #expect(pacer.isSuperseded(ageMicros:16668,frameRate:60))
         }
     }
     @Test func presenterDropsQueueAndRendererMetricsRemainSeparate() {

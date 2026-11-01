@@ -140,10 +140,10 @@ final class MetalPresentationReceiver: PresentationReceiver {
     private let renderQueue=DispatchQueue(label:"mystic.video.metal",qos:.userInteractive)
     /// The presenter's timeline, to turn a frame's timestamp into a moment.
     private let clock: @Sendable () -> CMTime
-    private nonisolated let slot=MetalFrameSlot<RenderFrame>()
+    private nonisolated let slot: MetalFrameSlot<RenderFrame>
     private var lastFormat: VideoLayerFormat?
-    init(clock: @escaping @Sendable () -> CMTime) throws {
-        drawer=try MetalFrameDrawer();self.clock=clock
+    init(clock: @escaping @Sendable () -> CMTime,capacity: Int = 1) throws {
+        drawer=try MetalFrameDrawer();self.clock=clock;slot=MetalFrameSlot(capacity:capacity)
         layer.device=drawer.device
         layer.framebufferOnly=true;layer.isOpaque=true
         // Two made a frame wait out a refresh for a drawable, and at 120 Hz most were then superseded.
@@ -159,7 +159,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
         layer.drawableSize=size
         CATransaction.commit()
     }
-    /// Hands the frame over at once; the render queue draws whichever is newest when a drawable is free.
+    /// Hands the frame over at once; the render queue draws the slot's next frame when a drawable is free.
     func enqueue(_ sample: sending CMSampleBuffer) async throws -> AVSampleBufferVideoRenderer.Receiver.EnqueueResult {
         if let failure=slot.takeFailure() { throw failure }
         guard let image=CMSampleBufferGetImageBuffer(sample) else { throw VideoDecoderError.invalidSample("sample has no image") }
@@ -241,30 +241,33 @@ private struct RenderFrame: @unchecked Sendable { let image: CVPixelBuffer;let t
 /// CAMetalLayer's nextDrawable is meant to be called off the main thread.
 private struct UnsafeLayer: @unchecked Sendable { let layer: CAMetalLayer }
 
-/// The one frame waiting for a drawable. A newer one replaces it, and that counts as missed.
+/// The frames waiting for a drawable, oldest first. Past `capacity` the oldest goes, and that counts
+/// as missed; a capacity of one is always the newest frame.
 final class MetalFrameSlot<Frame>: @unchecked Sendable {
     private let lock=NSLock()
-    private var frame: Frame?
+    private let capacity: Int
+    private var frames: [Frame]=[]
     private var draining=false
     private var failure: (any Error)?
     private var missedCount: UInt64=0
+    init(capacity: Int = 1) { self.capacity=max(1,capacity) }
     /// True when the caller must start draining.
     func offer(_ next: Frame) -> Bool {
         lock.lock();defer { lock.unlock() }
-        if frame != nil { missedCount += 1 }
-        frame=next
+        if frames.count >= capacity { frames.removeFirst();missedCount += 1 }
+        frames.append(next)
         if draining { return false };draining=true;return true
     }
     /// Whether to keep draining; false also ends the drain, so `offer` starts another.
     var isWaiting: Bool {
         lock.lock();defer { lock.unlock() }
-        if frame == nil { draining=false;return false }
+        if frames.isEmpty { draining=false;return false }
         return true
     }
-    func take() -> Frame? { lock.lock();defer { lock.unlock() };defer { frame=nil };return frame }
-    func discardWaiting() { lock.lock();defer { lock.unlock() };if frame != nil { missedCount += 1;frame=nil } }
+    func take() -> Frame? { lock.lock();defer { lock.unlock() };return frames.isEmpty ? nil : frames.removeFirst() }
+    func discardWaiting() { lock.lock();defer { lock.unlock() };if !frames.isEmpty { missedCount += 1;frames.removeFirst() } }
     /// A flush: the waiting frame is no longer wanted, which is not a miss.
-    func clear() { lock.lock();defer { lock.unlock() };frame=nil }
+    func clear() { lock.lock();defer { lock.unlock() };frames=[] }
     func countMissed() { lock.lock();defer { lock.unlock() };missedCount += 1 }
     var missed: UInt64 { lock.lock();defer { lock.unlock() };return missedCount }
     func fail(_ error: any Error) { lock.lock();defer { lock.unlock() };failure=error }

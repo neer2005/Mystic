@@ -1,7 +1,7 @@
 # Native frame pacing
 
-Settings → Video → Frame Pacing selects **Low Latency** or **Balanced** for the
-next stream. Older preferences default to Low Latency. The choice is captured
+Settings → Video → Frame Pacing selects **Low Latency**, **Balanced**, **Balanced
+with FPS Limit** or **Smoothest Video** for the next stream. Older preferences default to Low Latency. The choice is captured
 with the stream's launch settings and retained through automatic reconnects.
 It cannot change during an active/starting/recovering stream.
 
@@ -11,6 +11,20 @@ onto the renderer clock with one negotiated frame interval of lead: about 16.7 m
 at 60 fps or 8.3 ms at 120 fps. It preserves source cadence and tolerates modest
 arrival jitter at the cost of that extra buffer. Audio playback is unchanged;
 real A/V alignment still needs listening/visual validation.
+
+Balanced with FPS Limit and Smoothest Video are Nightjar's two in-order pacings. Neither lets a
+newer frame replace a waiting one that is still fresh: a frame is skipped only once it is over a
+frame old and a newer one waits, or when the three-frame mailbox overflows.
+
+- **Balanced with FPS Limit** follows Nightjar's `cap_slot`: each frame gets the slot one frame
+  after the last, never before now and never more than one frame away, and a late frame starts the
+  slots again. Source timestamps do not move the slots.
+- **Smoothest Video** maps source PTS deltas onto the renderer clock like Balanced, behind two
+  frame intervals of lead. This is a Mac choice: Nightjar's desktop shows each frame in turn at
+  the refresh, while its PyroWave path maps host timestamps with an extra refresh of buffering.
+
+All four modes work on both renderers. On Metal a frame's time becomes `present(_:atTime:)`, and
+the in-order modes draw from a first-in, first-out slot of three frames rather than the newest.
 
 The native AVSampleBufferRenderSynchronizer/receiver remains the presentation
 path. Source timestamps retain their independent origin; new uncompressed sample
@@ -30,8 +44,8 @@ integer rate. Not yet tried against a host that reads fractions.
 
 ## Bounds and recovery
 
-The mailbox retains at most one pending image plus one image in a suspended drain
-or enqueue. New decoded images replace an older pending image. Balanced waits
+The mailbox retains at most one pending image, or three in the in-order modes, plus one image in
+a suspended drain or enqueue. Past that bound a new decoded image replaces the oldest pending one. Balanced waits
 before enqueueing a sample more than one frame ahead of the renderer clock;
 while waiting it can discard the held image if a newer one is pending. These
 waits and suspended enqueues are cancelled/flushed on generation resets.
@@ -53,7 +67,7 @@ Settings changes elsewhere cannot change a recovering stream's captured mode.
 The latency HUD now shows:
 
 - Active pacing mode.
-- Presenter image queue depth (0–2) and its high-water mark.
+- Presenter image queue depth (0–2, or 0–4 in the in-order modes) and its high-water mark.
 - Late-to-presenter frames, including late images dropped by policy.
 - Presenter drops, with superseded, late and timestamp/order breakdowns.
 - Timeline resynchronizations.
@@ -81,7 +95,8 @@ coalescing, suspended-enqueue cancellation, wait cancellation, generation fences
 and rate-change flushing. Telemetry tests reject stale counters/metrics. Settings
 and reconnect tests cover migration, persistence and the captured mode.
 
-Both modes also run through the real hardware-decoder/display-layer fixture test,
-including renderer metrics and clearing on stop. These checks do not establish
+Low Latency and Balanced also run through the real hardware-decoder/display-layer fixture test,
+including renderer metrics and clearing on stop. The in-order modes have automated checks of the
+policy, mailbox and Metal slot only, and have not been seen on a stream. These checks do not establish
 smoothness on a visible panel, sustained gaming latency or HDR fidelity. See
 [PLAYTEST.md](PLAYTEST.md) for live checks.

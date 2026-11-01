@@ -94,6 +94,15 @@ final class MetalVideoRendererTests: XCTestCase {
         XCTAssertEqual(slot.missed,3,"a flush is not a miss");XCTAssertNil(slot.take())
         slot.countMissed();XCTAssertEqual(slot.missed,4)
     }
+    func testAnInOrderSlotDrawsOldestFirstAndMissesOnlyPastItsCapacity() {
+        let slot=MetalFrameSlot<Int>(capacity:3)
+        XCTAssertTrue(slot.offer(1));XCTAssertFalse(slot.offer(2));XCTAssertFalse(slot.offer(3))
+        XCTAssertEqual(slot.missed,0)
+        XCTAssertFalse(slot.offer(4));XCTAssertEqual(slot.missed,1)
+        XCTAssertEqual(slot.take(),2);XCTAssertTrue(slot.isWaiting)
+        slot.discardWaiting();XCTAssertEqual(slot.missed,2,"a drawable timeout misses one frame")
+        XCTAssertEqual(slot.take(),4);XCTAssertFalse(slot.isWaiting)
+    }
     func testADrawFailureIsReportedOnce() {
         let slot=MetalFrameSlot<Int>()
         XCTAssertNil(slot.takeFailure())

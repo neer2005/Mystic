@@ -29,7 +29,8 @@ are the same code on both paths. The presenter's `surface` is the layer the view
 
 1. Match the display layer behind a setting (this stage).
 2. Measure against the display layer on hosts: latency, dropped frames, SDR and HDR picture.
-3. PTS-driven pacing; Balanced with FPS limit and Smoothest video.
+3. PTS-driven pacing; Balanced with FPS limit and Smoothest video. Built, on both renderers, and
+   not yet tried live; see `FRAME-PACING.md`.
 4. MetalFX upscaling, with bilinear as the baseline.
 5. Make Metal the default. VRR and phase-lock follow; PyroWave stays last.
 

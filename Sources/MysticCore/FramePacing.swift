@@ -2,7 +2,28 @@
 public enum FramePacingMode: String, CaseIterable, Codable, Hashable, Sendable {
     case lowLatency = "lowLatency"
     case balanced = "balanced"
-    public var label: String { self == .lowLatency ? "Low Latency" : "Balanced" }
+    case fpsLimit = "fpsLimit"
+    case smoothest = "smoothest"
+    public var label: String {
+        switch self {
+        case .lowLatency: "Low Latency"
+        case .balanced: "Balanced"
+        case .fpsLimit: "Balanced with FPS Limit"
+        case .smoothest: "Smoothest Video"
+        }
+    }
+    public var detail: String {
+        switch self {
+        case .lowLatency: "Presents decoded frames without intentional buffering."
+        case .balanced: "Uses about one frame of buffering to absorb arrival jitter."
+        case .fpsLimit: "Shows no more frames a second than the stream's rate: an early frame waits up to one frame for its turn."
+        case .smoothest: "Shows every frame in turn at the PC's timing, with about two frames of buffering. Adds the most delay."
+        }
+    }
+    /// Nightjar's two in-order pacings: a newer frame does not replace an older one that is still fresh.
+    public var keepsOrder: Bool { self == .fpsLimit || self == .smoothest }
+    /// Decoded frames the presenter may hold, besides the one it is working on.
+    public var retainedFrames: Int { keepsOrder ? 3 : 1 }
 }
 
 public enum PresentationDropReason: String, CaseIterable, Hashable, Sendable {
@@ -30,6 +51,8 @@ public struct FramePacer: Sendable {
     private var anchorRenderer: Int64 = 0
     private var lastSourcePTS: Int64?
     private var lastAcceptedAt: Int64?
+    private var lastSlot: Int64?
+    private var plannedSlot: Int64?
     private var pendingResynchronization = false
     private var futureStrikes = 0
     public init(mode: FramePacingMode = .lowLatency) { self.mode=mode }
@@ -51,13 +74,22 @@ public struct FramePacer: Sendable {
             pendingResynchronization=hasAcceptedFrame
             self.frameRate=frameRate;anchorSource=nil
         }
+        let buffer=mode == .smoothest ? interval*2 : interval
         if mode == .lowLatency {
             return result(.enqueue(timeMicros:rendererNow,late:ageMicros.map { $0 > UInt64(interval) } ?? false,
                                    resynchronize:pendingResynchronization))
         }
+        if mode == .fpsLimit {
+            // Nightjar's `cap_slot`: a frame after the last slot, never before now or over a frame away.
+            guard rendererNow <= Int64.max-interval else { return result(.drop(.invalidTimestamp)) }
+            let slot=lastSlot.map { min(max($0+interval,rendererNow),rendererNow+interval) } ?? rendererNow
+            plannedSlot=slot
+            return result(.enqueue(timeMicros:slot,late:ageMicros.map { $0 > UInt64(interval) } ?? false,
+                                   resynchronize:pendingResynchronization))
+        }
         if anchorSource == nil {
             anchorSource=sourcePTS
-            let (anchor,overflow)=rendererNow.addingReportingOverflow(interval)
+            let (anchor,overflow)=rendererNow.addingReportingOverflow(buffer)
             guard !overflow else { anchorSource=nil;return result(.drop(.invalidTimestamp)) }
             anchorRenderer=anchor
         }
@@ -67,21 +99,29 @@ public struct FramePacer: Sendable {
         let (lead,leadOverflow)=target.subtractingReportingOverflow(rendererNow)
         guard !leadOverflow else { return result(.drop(.invalidTimestamp)) }
         // A single corrupt future PTS must not move the timeline or poison source ordering.
-        guard lead <= 100_000 else { return futureTimestamp() }
+        guard lead <= max(100_000,buffer+interval) else { return futureTimestamp() }
         let stalled=lastAcceptedAt.map { rendererNow >= $0 && rendererNow-$0 > 100_000 } ?? false
         if lead < -interval*2 || stalled {
             anchorSource=sourcePTS
-            let (anchor,overflow)=rendererNow.addingReportingOverflow(interval)
+            let (anchor,overflow)=rendererNow.addingReportingOverflow(buffer)
             guard !overflow else { return result(.drop(.invalidTimestamp)) }
             anchorRenderer=anchor;pendingResynchronization=hasAcceptedFrame
             return result(.enqueue(timeMicros:anchor,late:lead < 0,resynchronize:pendingResynchronization))
         }
-        // Do not feed the native renderer more than one frame into the future.
-        if lead > interval { return result(.wait(microseconds:UInt64(lead-interval))) }
+        // Do not feed the renderer further ahead than the mode's buffer.
+        if lead > buffer { return result(.wait(microseconds:UInt64(lead-buffer))) }
         return result(.enqueue(timeMicros:max(0,target),late:lead < 0,resynchronize:pendingResynchronization))
     }
     public mutating func accepted(sourcePTS: Int64,rendererNow: Int64) {
         lastSourcePTS=sourcePTS;lastAcceptedAt=rendererNow;pendingResynchronization=false;futureStrikes=0
+        lastSlot=plannedSlot ?? lastSlot
+    }
+    /// Whether a newer waiting frame replaces this one. The in-order pacings skip a frame only once
+    /// it is over a frame old (Nightjar's `take_due`); an unknown age stays, bounded by the mailbox.
+    public func isSuperseded(ageMicros: UInt64?,frameRate: UInt32) -> Bool {
+        guard mode.keepsOrder else { return true }
+        guard let ageMicros,frameRate > 0 else { return false }
+        return ageMicros > UInt64((1_000_000 + Int64(frameRate)/2)/Int64(frameRate))
     }
     private mutating func futureTimestamp() -> FramePacingPlan {
         futureStrikes=min(2,futureStrikes+1)
@@ -104,7 +144,7 @@ public struct PresentationMetrics: Sendable, Equatable {
         if reason == .late { lateFrames &+= count }
     }
     public mutating func late() { lateFrames &+= 1 }
-    public mutating func queue(depth: Int) { queueDepth=max(0,min(2,depth));peakQueueDepth=max(peakQueueDepth,queueDepth) }
+    public mutating func queue(depth: Int) { queueDepth=max(0,min(4,depth));peakQueueDepth=max(peakQueueDepth,queueDepth) }
     public mutating func resynchronize() { resynchronizations &+= 1 }
     public mutating func renderer(dropped: UInt64?,corrupted: UInt64?) {
         rendererDroppedFrames=dropped;rendererCorruptedFrames=corrupted

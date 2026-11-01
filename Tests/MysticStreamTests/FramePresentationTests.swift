@@ -17,7 +17,8 @@ final class FramePresentationTests: XCTestCase {
                 try await wait { receiver.accepted.count == 1 }
                 let sample=try XCTUnwrap(receiver.accepted.first)
                 let interval=(1_000_000+Int64(fps)/2)/Int64(fps)
-                XCTAssertEqual(sample.ptsMicros,mode == .balanced ? interval : 0)
+                let buffer:[FramePacingMode:Int64]=[.balanced:interval,.smoothest:interval*2]
+                XCTAssertEqual(sample.ptsMicros,buffer[mode] ?? 0)
                 XCTAssertEqual(CMTimeCompare(sample.duration,CMTime(value:1,timescale:Int32(fps))),0)
                 XCTAssertEqual(presenter.videoSize.width,64)
                 presenter.reset(generation:2)
@@ -41,6 +42,25 @@ final class FramePresentationTests: XCTestCase {
         try await wait { receiver.accepted.count == 2 && telemetry.snapshot().presentation.queueDepth == 0 }
         XCTAssertEqual(receiver.accepted.map(\.width),[64,80])
         presenter.reset(generation:2)
+    }
+    func testInOrderPacingsPresentEachWaitingFrameAndDropOnlyPastTheirBound() async throws {
+        for mode:FramePacingMode in [.fpsLimit,.smoothest] {
+            let receiver=TestPresentationReceiver();receiver.hold=true
+            let clock=PresentationClock(),telemetry=VideoTelemetry();telemetry.activate(generation:1)
+            let presenter=DisplayLayerPresenter(telemetry:telemetry,mode:mode,receiverOverride:receiver,rendererClock:{ clock.now })
+            presenter.reset(generation:1);presenter.offer(try frame(pts:0,generation:1))
+            try await wait { receiver.waiting }
+            let widths=[65,66,67,68]
+            for (index,width) in widths.enumerated() {
+                presenter.offer(DecodedVideoFrame(pixelBuffer:try pixel(width:width),presentationTime:CMTime(value:Int64(index+1)*1000,timescale:1_000_000),generation:1))
+            }
+            let pressure=telemetry.snapshot().presentation
+            XCTAssertEqual(pressure.queueDepth,4);XCTAssertEqual(pressure.drops[.superseded],1,"only the oldest past the bound")
+            clock.time=4000;receiver.release()
+            try await wait { receiver.accepted.count == 4 && telemetry.snapshot().presentation.queueDepth == 0 }
+            XCTAssertEqual(receiver.accepted.map(\.width),[64,66,67,68])
+            presenter.reset(generation:2)
+        }
     }
     func testResetCancelsSuspendedEnqueueAndRejectsOldGenerationWork() async throws {
         let receiver=TestPresentationReceiver();receiver.hold=true
