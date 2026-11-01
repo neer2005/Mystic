@@ -17,7 +17,7 @@ final class FramePresentationTests: XCTestCase {
                 try await wait { receiver.accepted.count == 1 }
                 let sample=try XCTUnwrap(receiver.accepted.first)
                 let interval=(1_000_000+Int64(fps)/2)/Int64(fps)
-                let buffer:[FramePacingMode:Int64]=[.balanced:interval,.smoothest:interval*2]
+                let buffer:[FramePacingMode:Int64]=[.balanced:interval,.smoothest:interval*2,.pcFrameTimes:500]
                 XCTAssertEqual(sample.ptsMicros,buffer[mode] ?? 0)
                 XCTAssertEqual(CMTimeCompare(sample.duration,CMTime(value:1,timescale:Int32(fps))),0)
                 XCTAssertEqual(presenter.videoSize.width,64)
@@ -44,7 +44,7 @@ final class FramePresentationTests: XCTestCase {
         presenter.reset(generation:2)
     }
     func testInOrderPacingsPresentEachWaitingFrameAndDropOnlyPastTheirBound() async throws {
-        for mode:FramePacingMode in [.fpsLimit,.smoothest] {
+        for mode:FramePacingMode in [.fpsLimit,.smoothest,.pcFrameTimes] {
             let receiver=TestPresentationReceiver();receiver.hold=true
             let clock=PresentationClock(),telemetry=VideoTelemetry();telemetry.activate(generation:1)
             let presenter=DisplayLayerPresenter(telemetry:telemetry,mode:mode,receiverOverride:receiver,rendererClock:{ clock.now })

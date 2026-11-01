@@ -68,6 +68,7 @@ public struct VideoTelemetryAccumulator: Sendable {
     public mutating func presentationLate() { presentation.late() }
     public mutating func presentationQueue(depth: Int) { presentation.queue(depth:depth) }
     public mutating func presentationResynchronize() { presentation.resynchronize() }
+    public mutating func presentationHold(micros: Int64) { presentation.hold(micros:micros) }
     public mutating func rendererMetrics(dropped: UInt64?,corrupted: UInt64?) { presentation.renderer(dropped:dropped,corrupted:corrupted) }
     public mutating func snapshot(nowMicros: UInt64) -> VideoTelemetrySnapshot {
         var summaries: [VideoTimingStage: VideoTimingSummary]=[:]

@@ -123,6 +123,57 @@ struct FramePacingTests {
             #expect(pacer.isSuperseded(ageMicros:16668,frameRate:60))
         }
     }
+    @Test func pcFrameTimesFollowThePCAndHoldForTheJitter() {
+        var pacer=FramePacer(mode:.pcFrameTimes)
+        var previous:Int64?
+        for frame in 0..<600 {
+            let source=Int64(frame)*16667
+            let now=50_000+source+[Int64(0),4000,1000,3000][frame%4]
+            guard case let .enqueue(time,_,_)=pacer.plan(sourcePTS:source,rendererNow:now,ageMicros:0,frameRate:60).action else {
+                Issue.record("Every frame is scheduled");return
+            }
+            pacer.accepted(sourcePTS:source,rendererNow:now)
+            #expect(time >= now)
+            if frame > 300,let previous { #expect(abs(time-previous-16667) <= 30) }
+            previous=time
+        }
+        #expect(pacer.holdMicros != nil)
+    }
+    @Test func pcFrameTimesTakeAFrameAgeAsItsReadyTime() {
+        var pacer=FramePacer(mode:.pcFrameTimes)
+        #expect(pacer.plan(sourcePTS:0,rendererNow:10_000,ageMicros:2000,frameRate:60).action == .enqueue(timeMicros:10_000,late:false,resynchronize:false))
+        #expect(pacer.holdMicros == 500)
+    }
+    @Test func thePresentClockWarmsUpBeforeLearning() {
+        var clock=PresentClock()
+        #expect(clock.schedule(hostMicros:0,readyMicros:90_000) == .init(presentMicros:90_500,late:false,holdMicros:500))
+        #expect(clock.delayMicros == nil)
+        _=clock.schedule(hostMicros:250_000,readyMicros:270_000)
+        #expect(clock.delayMicros == 20_500)
+    }
+    @Test func thePresentClockRisesAtOnceFallsInSecondsAndCapsItsHold() {
+        var clock=PresentClock()
+        var host:Int64=0
+        func run(_ frames:Int,lateBy:Int64) -> PresentClock.Schedule {
+            var last=clock.schedule(hostMicros:host,readyMicros:host+lateBy)
+            for _ in 1..<frames { host+=8333;last=clock.schedule(hostMicros:host,readyMicros:host+lateBy) }
+            return last
+        }
+        _=run(200,lateBy:20_000)
+        #expect(clock.delayMicros == 20_500)
+        host+=8333
+        #expect(clock.schedule(hostMicros:host,readyMicros:host+300_000).late,"A stalled frame is shown at once")
+        #expect((clock.delayMicros ?? 0) <= 20_000+50_000)
+        let settled=run(600,lateBy:20_000)
+        #expect(clock.delayMicros == 20_500);#expect(settled.holdMicros == 500)
+    }
+    @Test func aRestartedVideoClockStartsTheClockAgain() {
+        var clock=PresentClock()
+        for frame in 0..<60 { _=clock.schedule(hostMicros:Int64(frame)*16667,readyMicros:Int64(frame)*16667+5000) }
+        #expect(clock.delayMicros != nil)
+        _=clock.schedule(hostMicros:20_000_000,readyMicros:1_000_000)
+        #expect(clock.delayMicros == nil)
+    }
     @Test func presenterDropsQueueAndRendererMetricsRemainSeparate() {
         var recorder=VideoTelemetryAccumulator()
         recorder.presentationQueue(depth:2);recorder.presentationDrop(.superseded,count:10)

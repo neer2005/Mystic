@@ -225,7 +225,7 @@ that adaptation is unavailable and continue at the fixed rate.
 1. At 60 fps, compare Low Latency and Balanced in Settings → Video across separate
    streams. Use a repeatable camera pan or scrolling scene. Compare smoothness,
    control response and audio alignment; repeat at 120 fps if the Mac/host support it.
-2. Enable the latency HUD. Presenter queue depth should stay at 0–2 (0–4 with Balanced with FPS Limit or Smoothest Video). Note late
+2. Enable the latency HUD. Presenter queue depth should stay at 0–2 (0–4 with Balanced with FPS Limit, Smoothest Video or PC Frame Times). Note late
    frames, superseded drops, renderer drops (when available), and decode/enqueue
    timings. An enqueued frame is not proof it reached the screen.
 3. Switch focus away and back, briefly interrupt the network, and use Test Video
