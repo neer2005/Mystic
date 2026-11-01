@@ -47,6 +47,16 @@ extension ConnectionModel {
         get { settings.value.microphoneEnabled ?? false }
         set { settings.update { $0.microphoneEnabled=newValue } }
     }
+    /// Look for a newer stable release once per launch.
+    public var checkForUpdates: Bool {
+        get { settings.value.checkForUpdates ?? true }
+        set { settings.update { $0.checkForUpdates=newValue } }
+    }
+    /// Nightjar's "Local cursor": in desktop control, the host's cursor is the Mac pointer.
+    public var localCursor: Bool {
+        get { settings.value.localCursor ?? true }
+        set { settings.update { $0.localCursor=newValue } }
+    }
     public var clipboardSync: Bool {
         get { settings.value.clipboardSync ?? false }
         set { settings.update { $0.clipboardSync=newValue } }

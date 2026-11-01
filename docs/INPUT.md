@@ -18,7 +18,19 @@ Input Monitoring access. Only the focused streaming view controls the host.
   disconnecting, or quitting releases capture and held keys/buttons.
 - After a release, input stays released until explicitly activated again.
 
-Control Desktop leaves the local pointer visible. Absolute positions use the
+Control Desktop leaves the local pointer visible. With Settings → General → Local Cursor
+(on by default, as Nightjar) and a host that sends cursor shapes (control messages
+0x5540/0x5541; the serverinfo's `CursorShapeVersion` and the stream's DESCRIBE must both offer
+them), the host leaves its cursor out of the video and Mystic draws the host's cursor as the
+Mac pointer over the video, so it moves without video delay. Shapes are on only in desktop
+control, as Nightjar's `stream/cursor.rs`: released input and Capture Mouse turn them off and
+the host draws its cursor into the video again. Images keep the host display's scale (a
+64-pixel cursor from a 200% display is 32 points, drawn from every pixel on Retina), the 32
+most recently used are cached, a hide waits 150 ms for a show that cancels it (Windows hides
+the cursor while changing it), and an id the host never sent or a malformed shape draws the
+Mac arrow with one line in the session log. Not yet tried against a live host.
+
+Absolute positions use the
 actual aspect-fit video rectangle, derived from decoded presentation dimensions
 including clean aperture and pixel aspect ratio. Letterbox clicks are ignored;
 drags are clamped at image edges. The protocol receives normalized coordinates in

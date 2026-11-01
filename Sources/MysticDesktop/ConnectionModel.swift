@@ -97,6 +97,7 @@ public final class ConnectionModel {
         if code == 0 { NSApplication.shared.terminate(nil) } else { exit(code) }
     }
     @ObservationIgnored public var startupLaunchHandled=false
+    public let updates=UpdateChecker()
     @ObservationIgnored private var quitWhenStreamEnds=false
     @ObservationIgnored private var shortcutFromCommandLine=false
     @ObservationIgnored private var shortcutStreamed=false
@@ -291,6 +292,8 @@ public final class ConnectionModel {
     @ObservationIgnored private var telemetry: VideoTelemetry?
     @ObservationIgnored private var rendererMetricsMonitor: Task<Void,Never>?
     @ObservationIgnored private var controllerFeedbackMonitor: Task<Void, Never>?
+    /// This attempt's host can send its cursor shapes.
+    @ObservationIgnored private var hostCursorOffered=false
     @ObservationIgnored private var statisticsMonitor: Task<Void, Never>?
     @ObservationIgnored private var operation: Task<Void, Never>?
     /// Changes on connect, disconnect and recovery; async work checks it before applying results.
@@ -318,6 +321,8 @@ public final class ConnectionModel {
     @ObservationIgnored private(set) var plan: StreamPlan?
     /// The headroom of the screen the stream will open on, read when a plan is made.
     @ObservationIgnored var launchHeadroom: () -> Double? = { NSScreen.main.map { Double($0.maximumPotentialExtendedDynamicRangeColorComponentValue) } }
+    /// That screen's refresh rate in Hz, which may be fractional (59.94).
+    @ObservationIgnored var launchRefreshRate: () -> Double? = { NSScreen.main.map(DisplayRefresh.hertz) }
     /// The first headroom seen per screen this plan: macOS raises it as brightness falls, and
     /// a host that rewrote its HDR metadata for every change would restart its decoder.
     @ObservationIgnored private var reportedHeadroom: [String:Float] = [:]
@@ -414,6 +419,12 @@ public final class ConnectionModel {
         guard !isBusy,!hasSession else { return }
         address=endpoint.address;port=String(endpoint.port);connect()
     }
+    /// Another connection to the connected host, for requests that must outlive this one's
+    /// cancel, such as turning the host's bitrate controller off as the stream ends.
+    func detachedHost() async throws -> any HostService {
+        let address=connectedAddress,port=connectedPort,endpoint=endpoint,vault=vault,factory=makeHost
+        return try await Task.detached { try factory(address,port,vault.identity(),vault.certificate(for:endpoint)) }.value
+    }
     private func rememberConnectedHost(_ info: HostInfo) {
         guard rememberHost,let target=HostEndpoint(address:connectedAddress,port:connectedPort) else { return }
         savedHosts.remember(endpoint:target,name:info.name,uniqueID:info.paired ? info.uniqueID : nil)
@@ -483,12 +494,14 @@ public final class ConnectionModel {
             }
             options.gamepadMask = UInt16((1 << min(StreamControllers.slots,GCController.controllers().filter { $0.extendedGamepad != nil }.count))-1)
             options.displayHeadroom = launchHeadroom()
+            options.clientRefreshRateX100 = DisplayRefresh.x100(launchRefreshRate())
             options.clipboardSync=clipboardSync
             options.width = dims[0]; options.height = dims[1]; options.fps = video.fps; options.hdr = video.hdr
             var config = StreamConfiguration()
             config.width = Int32(dims[0]); config.height = Int32(dims[1]); config.fps = Int32(video.fps)
             config.bitrateKbps = video.bitrateMbps * 1000; config.supportedVideoFormats = mask
             config.colorSpace = video.hdr ? 2 : 1; config.colorRange = 0
+            config.clientRefreshRateX100 = Int32(options.clientRefreshRateX100)
             config.microphone = microphoneEnabled
             config.channelCount = options.channelCount; config.channelMask = options.channelMask
             let correction=ErrorCorrection(rawValue:settings.value.errorCorrection ?? "") ?? .host
@@ -591,6 +604,7 @@ public final class ConnectionModel {
                         guard let self,self.generation == token else { return }
                         self.clipboardStatus=message;self.clipboardBusy=busy
                     })
+                self.hostCursorOffered=launch.cursorShapes == true
                 self.rates.streamStarted(launch:launch,adaptive:adaptive,configuration:config)
                 self.monitorMedia(audio, telemetry:telemetry,token: token)
             } catch {
@@ -651,6 +665,7 @@ public final class ConnectionModel {
                 self.processMediaSnapshot(snapshot)
                 await self.health.tick(snapshot)
                 guard self.generation == token else { return }
+                self.rates.hostBitrateTick(snapshot,measures:self.health.measures)
                 await self.quality.tick()
                 guard self.generation == token else { return }
                 await self.rates.refresh()
@@ -677,15 +692,31 @@ public final class ConnectionModel {
             }
         }
     }
+    /// Controller feedback and host cursor shapes, which both arrive as host control messages.
     private func monitorControllerFeedback(_ session: any StreamSessionService,token: UUID) {
         controllerFeedbackMonitor?.cancel()
         controllerFeedbackMonitor=Task { [weak self] in
+            var cursorShapes=false
             while !Task.isCancelled {
                 guard let self,self.generation == token else { return }
                 let epoch=self.inputCapture?.feedbackEpoch
                 let values=await session.takeControllerFeedback()
                 guard self.generation == token,!Task.isCancelled else { return }
                 self.inputCapture?.applyControllerFeedback(values,epoch:epoch)
+                // As Nightjar: shapes only in desktop control, where the pointer is visible.
+                let wanted=self.hostCursorOffered && self.localCursor && self.inputCapture?.mode == .desktop
+                if wanted != cursorShapes {
+                    let accepted=await session.setCursorShapes(wanted)
+                    guard self.generation == token,!Task.isCancelled else { return }
+                    if wanted,!accepted { self.hostCursorOffered=false;self.record("The host does not send its cursor for this stream; the video shows it.",token:token) }
+                    cursorShapes=wanted && accepted
+                    self.inputCapture?.setHostCursor(cursorShapes)
+                }
+                if cursorShapes {
+                    let shapes=await session.takeCursorShapes()
+                    guard self.generation == token,!Task.isCancelled else { return }
+                    self.inputCapture?.applyHostCursor(shapes)
+                }
                 do { try await Task.sleep(for:.milliseconds(16)) } catch { return }
             }
         }

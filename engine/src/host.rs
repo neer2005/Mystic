@@ -283,6 +283,27 @@ impl MysticHost {
                 let applied = self.client.set_bitrate(kbps).map_err(HostError::from)?;
                 Ok(json!({"kbps":applied}))
             }
+            // A Foundation Sunshine host runs the bitrate controller itself (`host_abr.rs` in
+            // Nightjar's desktop client); others answer 404, which is "none".
+            "hostBitrateStart" => {
+                use nightjar_core::http::foundation::AbrRequest;
+                let max = v["maxKbps"].as_u64().filter(|v| (1..=150_000).contains(v)).ok_or("invalid bitrate")? as u32;
+                match self.client.abr_capabilities() {
+                    Ok(caps) if caps.supported => {}
+                    Ok(_) | Err(nightjar_core::http::Error::NotFound(_)) => return Ok(json!({"on":false})),
+                    Err(error) => return Err(HostError::from(error)),
+                }
+                let on = self.client.configure_abr(&AbrRequest::balanced_up_to(max)).map_err(HostError::from)?;
+                Ok(json!({"on":true,"initialKbps":on.initial_bitrate,"maxKbps":on.max_bitrate}))
+            }
+            "hostBitrateStop" => {
+                self.client.configure_abr(&nightjar_core::http::foundation::AbrRequest::off()).map_err(HostError::from)?;
+                Ok(json!({"on":false}))
+            }
+            "hostBitrateFeedback" => {
+                let action = self.client.abr_feedback(&abr_feedback(&v)?).map_err(HostError::from)?;
+                Ok(json!({"newKbps":action.new_bitrate.filter(|kbps| *kbps > 0),"reason":action.reason}))
+            }
             "liveBitrate" => {
                 // The stream doctor's trial starts from the encoder's live rate, never the saved one.
                 let i = self.client.server_info_https().map_err(HostError::from)?;
@@ -354,6 +375,8 @@ impl MysticHost {
                     fec: v.get("fec").and_then(Value::as_i64).map(|n| crate::fec_choice(n.clamp(-2,255) as i16)),
                     // The engine sends it only to hosts other than Rubylight, which get DisplayCaps.
                     display_luminance: v["displayHeadroom"].as_f64().and_then(|h| crate::display::luminance(h as f32)),
+                    // Hosts that read fractions launch 59.94 Hz when it rounds to the stream's rate.
+                    client_refresh_rate_x100: refresh_x100(&v),
                     ..Default::default()
                 };
                 let result = if i.current_game == app_id {
@@ -369,6 +392,8 @@ impl MysticHost {
                     json!({"rtspURL":launched.rtsp_session_url,"appVersion":i.app_version,
                     "codecSupport":i.server_codec_mode_support,"key":key,"iv":iv,
                     "runtimeBitrate":i.capabilities.has(Feature::RuntimeBitrate),
+                    // The stream's DESCRIBE must offer 0x5540 as well; the session checks that.
+                    "cursorShapes":i.capabilities.has(Feature::CursorShape),
                     // As Nightjar's desktop client: only a Rubylight host is told the route is wireless.
                     "clientWireless":v["clientWireless"].as_bool().unwrap_or(false)
                         && i.capabilities.family() == nightjar_core::http::Family::Rubylight,
@@ -447,6 +472,21 @@ fn dimension(v: &Value, name: &str, max: u32) -> Result<u32, String> {
         .filter(|n| *n > 0 && *n <= u64::from(max))
         .map(|n| n as u32)
         .ok_or_else(|| format!("invalid {name}"))
+}
+/// The app's network report since the last one; figures out of range count as unmeasured.
+fn abr_feedback(v: &Value) -> Result<nightjar_core::http::foundation::AbrFeedback, String> {
+    let figure = |name: &str, max: f64| v[name].as_f64().filter(|n| n.is_finite() && (0.0..=max).contains(n)).unwrap_or(0.0);
+    Ok(nightjar_core::http::foundation::AbrFeedback {
+        packet_loss: figure("packetLoss", 100.0),
+        rtt_ms: figure("rttMs", 60_000.0),
+        decode_fps: figure("decodeFps", 1000.0),
+        dropped_frames: v["droppedFrames"].as_u64().map_or(0, |n| n.min(u64::from(u32::MAX)) as u32),
+        current_bitrate: v["currentKbps"].as_u64().filter(|n| (1..=150_000).contains(n)).ok_or("invalid bitrate")? as u32,
+    })
+}
+/// The display's refresh rate x100 (5994 for 59.94 Hz); 0 when absent or out of range.
+fn refresh_x100(v: &Value) -> u32 {
+    v["clientRefreshRateX100"].as_u64().filter(|n| (100..=100_000).contains(n)).map_or(0, |n| n as u32)
 }
 #[cfg(test)]
 mod tests {
@@ -558,5 +598,21 @@ mod tests {
         }
         assert!(dimension(&json!({"width":-1}), "width", 7680).is_err());
         assert!(dimension(&json!({"width":7681}), "width", 7680).is_err());
+    }
+    #[test]
+    fn host_bitrate_reports_keep_figures_in_range() {
+        let f = abr_feedback(&json!({"packetLoss":2.5,"rttMs":8,"decodeFps":119.5,"droppedFrames":6,"currentKbps":35000})).unwrap();
+        assert_eq!((f.packet_loss, f.rtt_ms, f.decode_fps, f.dropped_frames, f.current_bitrate), (2.5, 8.0, 119.5, 6, 35000));
+        let f = abr_feedback(&json!({"packetLoss":140,"rttMs":-1,"droppedFrames":u64::MAX,"currentKbps":1})).unwrap();
+        assert_eq!((f.packet_loss, f.rtt_ms, f.decode_fps, f.dropped_frames), (0.0, 0.0, 0.0, u32::MAX));
+        assert!(abr_feedback(&json!({"currentKbps":0})).is_err());
+    }
+    #[test]
+    fn refresh_rate_is_passed_through_only_in_range() {
+        assert_eq!(refresh_x100(&json!({"clientRefreshRateX100":5994})), 5994);
+        assert_eq!(refresh_x100(&json!({})), 0);
+        assert_eq!(refresh_x100(&json!({"clientRefreshRateX100":99})), 0);
+        assert_eq!(refresh_x100(&json!({"clientRefreshRateX100":100_001})), 0);
+        assert_eq!(refresh_x100(&json!({"clientRefreshRateX100":-6000})), 0);
     }
 }

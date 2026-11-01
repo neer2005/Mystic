@@ -5,7 +5,14 @@ display controls native EDR presentation, with macOS mapping HDR to SDR when nee
 The latency HUD shows source color tags and display headroom; see [HDR.md](HDR.md).
 
 Open Mystic → Settings with Command–Comma. General controls the default library
-view, app sort order, latency HUD visibility, and opt-in clipboard text sync. Video contains resolution, frame
+view, app sort order, latency HUD visibility, opt-in clipboard text sync, Local Cursor (the
+host's cursor as the Mac pointer in desktop control; see [INPUT.md](INPUT.md)) and Check for
+Updates. Check for Updates (on by default, as Nightjar) asks GitHub once per launch for
+Mystic's latest release (`api.github.com/repos/neer2005/Mystic/releases/latest`) and, when a
+stable release is newer than this build, shows a notice in the library window with a link to
+its github.com page. Nothing is downloaded or installed; drafts and pre-releases are never
+offered; a build without a bundle version is never checked. The result of the check, including
+a rate limit or no published release, shows under the switch rather than as an alert. Video contains resolution, frame
 rate, frame pacing, bitrate, codec and HDR. Audio contains the host channel layout, local volume
 and mute, plus opt-in Mac microphone forwarding with a separate microphone mute. Network controls interrupted-stream recovery and local host discovery while the library is
 open. Automatic reconnect defaults on; automatic bitrate in Video defaults off.

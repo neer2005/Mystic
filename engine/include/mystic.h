@@ -375,6 +375,28 @@ int64_t mystic_session_trial_begin(MysticSession *session, bool undo, uint32_t l
 void mystic_session_trial_applied(MysticSession *session, bool undo, uint32_t previous_kbps, uint32_t applied_kbps);
 void mystic_session_trial_clear(MysticSession *session);
 
+/* Host cursor shapes (additive to ABI 5): the host leaves its cursor out of the video and
+ * sends its shape, for a local pointer in desktop control. Start or stop returns 0, or
+ * MYSTIC_ERR_UNIMPLEMENTED when the host does not take them. Take returns 1 with the oldest
+ * shape (an image's RGBA in `pixels`, which must hold MYSTIC_CURSOR_MAX_PIXEL_BYTES), or 0
+ * when none waits. Serialized with start and stop. */
+#define MYSTIC_CURSOR_MAX_PIXEL_BYTES 36864 /* 96 * 96 * 4 */
+#define MYSTIC_CURSOR_HIDE 0
+#define MYSTIC_CURSOR_DEFAULT 1
+#define MYSTIC_CURSOR_SHOW 2   /* the image cached under id */
+#define MYSTIC_CURSOR_IMAGE 3  /* cache under id and show */
+#define MYSTIC_CURSOR_REJECTED 4 /* a malformed shape: show the default pointer */
+typedef struct {
+    uint8_t kind;
+    uint16_t width, height, hotspot_x, hotspot_y;
+    uint16_t scale_percent; /* the host display's scale; 100 = 96 DPI */
+    uint32_t id;
+    uint32_t pixel_bytes; /* straight-alpha sRGB RGBA, rows top to bottom */
+} MysticCursorShape;
+int32_t mystic_session_cursor_shapes(const MysticSession *session, bool enabled);
+int32_t mystic_session_take_cursor(const MysticSession *session, MysticCursorShape *out,
+                                   uint8_t *pixels, size_t capacity);
+
 #ifdef __cplusplus
 }
 #endif

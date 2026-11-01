@@ -418,6 +418,22 @@ public final class StreamingEngine {
         return values.prefix(Int(count)).compactMap { ControllerFeedback($0) }
     }
 
+    /// Starts or stops host cursor shapes; throws `unsupportedByHost` when the host takes none.
+    public func cursorShapes(enabled: Bool) throws {
+        try check(mystic_session_cursor_shapes(requireHandle(),enabled))
+    }
+    /// Called only on the serialized session worker: every waiting shape, oldest first.
+    public func takeCursorShapes(limit: Int = 32) -> [HostCursorShape] {
+        var shapes: [HostCursorShape]=[]
+        var pixels=[UInt8](repeating:0,count:Int(MYSTIC_CURSOR_MAX_PIXEL_BYTES))
+        while shapes.count < limit {
+            var value=MysticCursorShape()
+            guard mystic_session_take_cursor(requireHandle(),&value,&pixels,pixels.count) == 1 else { break }
+            shapes.append(HostCursorShape(value,pixels:pixels))
+        }
+        return shapes
+    }
+
     /// Tells the host the stream display's EDR headroom. True when sent, false when the host
     /// already has these values; throws `unsupportedByHost` when it takes no display reports.
     public func reportDisplay(headroom: Float) throws -> Bool {

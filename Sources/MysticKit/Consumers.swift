@@ -145,6 +145,21 @@ extension ControllerFeedback {
     }
 }
 
+extension HostCursorShape {
+    init(_ cValue: MysticCursorShape,pixels: [UInt8]) {
+        switch Int32(cValue.kind) {
+        case MYSTIC_CURSOR_HIDE: self = .hide
+        case MYSTIC_CURSOR_DEFAULT: self = .standard
+        case MYSTIC_CURSOR_SHOW: self = .show(id:cValue.id)
+        case MYSTIC_CURSOR_IMAGE where Int(cValue.pixel_bytes) <= pixels.count:
+            self = .image(id:cValue.id,image:HostCursorImage(width:Int(cValue.width),height:Int(cValue.height),
+                hotspotX:Int(cValue.hotspot_x),hotspotY:Int(cValue.hotspot_y),scalePercent:Int(cValue.scale_percent),
+                rgba:Array(pixels.prefix(Int(cValue.pixel_bytes)))))
+        default: self = .rejected
+        }
+    }
+}
+
 // These are internal on purpose: they are the field-by-field translation the callbacks use,
 // kept as named initialisers so a swapped or forgotten field is a test failure rather than a
 // stream that renders at the wrong size.
