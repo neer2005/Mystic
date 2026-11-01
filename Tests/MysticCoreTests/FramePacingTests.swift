@@ -73,6 +73,38 @@ struct FramePacingTests {
             }
         }
     }
+    /// Plays frames arriving at `arrival(frame)` after their PC time; returns the realignments after the first second.
+    private func realignments(mode:FramePacingMode,frames:Int,sourceInterval:Int64,streamFPS:UInt32,arrival:(Int)->Int64) -> Int {
+        var pacer=FramePacer(mode:mode),clock:Int64=0,count=0
+        for frame in 0..<frames {
+            let source=Int64(frame)*sourceInterval
+            clock=max(clock,50_000+source+arrival(frame))
+            var now=clock
+            var action=pacer.plan(sourcePTS:source,rendererNow:now,ageMicros:0,frameRate:streamFPS).action
+            if case let .wait(delay)=action {
+                now+=Int64(delay)
+                action=pacer.plan(sourcePTS:source,rendererNow:now,ageMicros:UInt64(delay),frameRate:streamFPS).action
+            }
+            guard case let .enqueue(_,_,resynchronize)=action else { Issue.record("Frame \(frame): \(action)");continue }
+            pacer.accepted(sourcePTS:source,rendererNow:now)
+            if resynchronize,Int64(frame)*sourceInterval > 1_000_000 { count+=1 }
+        }
+        return count
+    }
+    @Test func aSlowerGameOnAFasterStreamDoesNotRealignOnOrdinaryJitter() {
+        for mode:FramePacingMode in [.balanced,.smoothest] {
+            let count=realignments(mode:mode,frames:1200,sourceInterval:16667,streamFPS:120) { Int64($0*2654435761%35_000) }
+            #expect(count == 0,"\(mode): \(count) realignments")
+        }
+    }
+    @Test func aLastingShiftStillRealigns() {
+        let count=realignments(mode:.balanced,frames:600,sourceInterval:16667,streamFPS:60) { $0 > 300 ? 90_000 : 0 }
+        #expect(count >= 1 && count <= 2,"\(count) realignments")
+    }
+    @Test func slowContentIsNotAStall() {
+        // An idle desktop: two frames a second, each on time.
+        #expect(realignments(mode:.balanced,frames:60,sourceInterval:500_000,streamFPS:60) { _ in 0 } <= 1)
+    }
     @Test func timestampArithmeticCannotOverflow() {
         var pacer=FramePacer(mode:.balanced)
         #expect(pacer.plan(sourcePTS:0,rendererNow:Int64.max,ageMicros:nil,frameRate:60).action == .drop(.invalidTimestamp))

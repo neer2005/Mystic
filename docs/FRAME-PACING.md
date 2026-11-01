@@ -62,8 +62,9 @@ waits and suspended enqueues are cancelled/flushed on generation resets.
 
 Low Latency drops images older than two frame intervals at the presenter.
 Balanced allows up to the greater of 100 ms or three intervals for local image
-age. It reanchors after long stalls, when a frame comes over two buffers early against
-the timeline, or on a negotiated frame-rate change, flushing
+age. The buffer is the larger of the negotiated interval and the median gap between recent frames, up to
+50 ms. It reanchors after long stalls, after three frames in a row over two buffers early or two frame times
+late, when the measured buffer changes by over a quarter, or on a negotiated frame-rate change, flushing
 old renderer scheduling while preserving the current displayed image. Corrupt,
 negative, duplicate and out-of-order timestamps cannot commit source ordering.
 One forward timestamp far ahead of the time since the last frame is dropped; repeated jumps request
@@ -111,6 +112,10 @@ HEVC 10-bit HDR, 3024×1890 at 120 fps negotiated, fixed 100 Mbps, on a 120 Hz p
   The resets are gone, but **Balanced now realigns about seven to eleven times a second**. A 120 fps
   stream gives it an 8.3 ms buffer while this game shows about 60 fps on a remote route, so ordinary
   jitter crosses its limits. It is not yet the steady pacing it is meant to be.
+- **After that,** the buffer follows the frames' measured median gap (up to 50 ms), a stall is time beyond
+  the PC's own gap, and it takes three frames in a row out of line to realign. In a simulation of a 60 fps
+  game on a 120 fps stream with 0-35 ms of jitter this took 75 realignments to none, but the jitter is assumed
+  and this has not been run live. It should add about 8 ms over the table above for such a game.
 - In that Low Latency run nothing was shown between 60 and 90 s: renderer drops went from 568 to 2,371
   with the shown count unchanged. The cause is unknown; the window being covered is one possibility.
 - This is one title screen in one sitting, with no AWDL record for these runs and no camera.

@@ -65,6 +65,11 @@ public struct FramePacer: Sendable {
     public private(set) var holdMicros: Int64?
     private var pendingResynchronization = false
     private var futureStrikes = 0
+    private var earlyOrLateStrikes = 0
+    private var anchorBuffer: Int64 = 0
+    private var sourceSteps: [Int64] = []
+    private var nextStep = 0
+    private var lastSeenSource: Int64?
     public init(mode: FramePacingMode = .lowLatency) { self.mode=mode }
     public mutating func reset() { let grid=refreshGrid;self=FramePacer(mode:mode);refreshGrid=grid }
 
@@ -82,9 +87,12 @@ public struct FramePacer: Sendable {
         if let ageMicros,ageMicros > UInt64(ageLimit) { return result(.drop(.late)) }
         if frameRate != self.frameRate {
             pendingResynchronization=hasAcceptedFrame
-            self.frameRate=frameRate;anchorSource=nil
+            self.frameRate=frameRate;anchorSource=nil;sourceSteps=[];nextStep=0
         }
-        let buffer=mode == .smoothest ? interval*2 : interval
+        noteSource(sourcePTS)
+        // A game slower than the stream arrives at its own pace: the stream's interval is too short a buffer.
+        let frameTime=mode == .balanced || mode == .smoothest ? contentInterval(atLeast:interval) : interval
+        let buffer=mode == .smoothest ? frameTime*2 : frameTime
         if mode == .lowLatency {
             return result(.enqueue(timeMicros:rendererNow,late:ageMicros.map { $0 > UInt64(interval) } ?? false,
                                    resynchronize:pendingResynchronization))
@@ -115,25 +123,29 @@ public struct FramePacer: Sendable {
             anchorSource=sourcePTS
             let (anchor,overflow)=rendererNow.addingReportingOverflow(buffer)
             guard !overflow else { anchorSource=nil;return result(.drop(.invalidTimestamp)) }
-            anchorRenderer=anchor
+            anchorRenderer=anchor;anchorBuffer=buffer;earlyOrLateStrikes=0
         }
         let (step,stepOverflow)=sourcePTS.subtractingReportingOverflow(anchorSource!)
         let (target,targetOverflow)=anchorRenderer.addingReportingOverflow(step)
         guard !stepOverflow,!targetOverflow else { return result(.drop(.invalidTimestamp)) }
         let (lead,leadOverflow)=target.subtractingReportingOverflow(rendererNow)
         guard !leadOverflow else { return result(.drop(.invalidTimestamp)) }
-        // Against the time since the last frame, a corrupt PTS has already gone above. Early here
-        // means the timeline was anchored on a late frame: waiting would keep every frame this far
-        // behind, and each would be replaced by the next before its time came.
-        let early=lead > buffer*2
-        let stalled=lastAcceptedAt.map { rendererNow >= $0 && rendererNow-$0 > 100_000 } ?? false
-        if lead < -interval*2 || stalled || early {
-            anchorSource=sourcePTS
+        // Elapsed beyond the PC's own step: a slow game's long gaps between frames are not a stall.
+        let stalled=lastAcceptedAt.map { rendererNow >= $0 && rendererNow-$0 > max(0,sourcePTS-(lastSourcePTS ?? sourcePTS))+100_000 } ?? false
+        let resized=abs(buffer-anchorBuffer)*4 > anchorBuffer
+        let early=lead > buffer*2,lateBy=lead < -frameTime*2
+        // A corrupt PTS has gone above. One frame out of line is jitter; several mean the timeline
+        // really is off, such as anchored on a late frame after a network spike.
+        earlyOrLateStrikes=early || lateBy ? earlyOrLateStrikes+1 : 0
+        if stalled || resized || earlyOrLateStrikes >= Self.strikesToRealign {
+            anchorSource=sourcePTS;earlyOrLateStrikes=0
             let (anchor,overflow)=rendererNow.addingReportingOverflow(buffer)
             guard !overflow else { return result(.drop(.invalidTimestamp)) }
-            anchorRenderer=anchor;pendingResynchronization=hasAcceptedFrame
+            anchorRenderer=anchor;anchorBuffer=buffer;pendingResynchronization=hasAcceptedFrame
             return result(.enqueue(timeMicros:anchor,late:lead < 0,resynchronize:pendingResynchronization))
         }
+        // An outlying early frame goes at the buffer's edge: waiting, the next would replace it.
+        if early { return result(.enqueue(timeMicros:rendererNow+buffer,late:false,resynchronize:pendingResynchronization)) }
         // Do not feed the renderer further ahead than the mode's buffer.
         if lead > buffer { return result(.wait(microseconds:UInt64(lead-buffer))) }
         return result(.enqueue(timeMicros:max(0,target),late:lead < 0,resynchronize:pendingResynchronization))
@@ -148,6 +160,20 @@ public struct FramePacer: Sendable {
         guard mode.keepsOrder else { return true }
         guard let ageMicros,frameRate > 0 else { return false }
         return ageMicros > UInt64((1_000_000 + Int64(frameRate)/2)/Int64(frameRate))
+    }
+    private static let strikesToRealign=3
+    /// The longest frame time the buffer follows, so an idle desktop does not add a long delay.
+    private static let longestFrameTime: Int64=50_000
+    private mutating func noteSource(_ source: Int64) {
+        defer { lastSeenSource=source }
+        guard let lastSeenSource,source > lastSeenSource else { return }
+        if sourceSteps.count < 31 { sourceSteps.append(source-lastSeenSource) } else { sourceSteps[nextStep]=source-lastSeenSource }
+        nextStep=(nextStep+1)%31
+    }
+    /// The median gap between recent frames on the PC, once there are enough to say.
+    private func contentInterval(atLeast interval: Int64) -> Int64 {
+        guard sourceSteps.count >= 8 else { return interval }
+        return max(interval,min(sourceSteps.sorted()[sourceSteps.count/2],Self.longestFrameTime))
     }
     private mutating func futureTimestamp() -> FramePacingPlan {
         futureStrikes=min(2,futureStrikes+1)
