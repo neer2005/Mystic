@@ -52,6 +52,27 @@ struct FramePacingTests {
         #expect(pacer.plan(sourcePTS:25000,rendererNow:208333,ageMicros:0,frameRate:120).action == .enqueue(timeMicros:216666,late:false,resynchronize:true))
         #expect(pacer.frameIntervalMicros == 8333)
     }
+    /// A network spike anchors the timeline late; the frames after it are then early against it.
+    @Test func framesBackOnTimeAfterASpikeRealignWithoutAResetOrAFreeze() {
+        for mode:FramePacingMode in [.balanced,.smoothest] {
+            for fps:UInt32 in [60,120] {
+                var pacer=FramePacer(mode:mode)
+                let interval=(1_000_000+Int64(fps)/2)/Int64(fps)
+                var longest:UInt64=0,clock:Int64=0
+                for frame in 0..<120 {
+                    let source=Int64(frame)*interval
+                    // Twenty frames arrive 130 ms late, then all are on time again.
+                    let now=max(clock,50_000+source+((40..<60).contains(frame) ? 130_000 : 0));clock=now
+                    switch pacer.plan(sourcePTS:source,rendererNow:now,ageMicros:0,frameRate:fps).action {
+                    case .enqueue: pacer.accepted(sourcePTS:source,rendererNow:now)
+                    case let .wait(delay): longest=max(longest,delay)
+                    case let other: Issue.record("Frame \(frame) at \(fps) fps: \(other)")
+                    }
+                }
+                #expect(longest <= UInt64(mode == .smoothest ? interval*2 : interval),"A longer wait in Balanced is replaced by the next frame, and so on")
+            }
+        }
+    }
     @Test func timestampArithmeticCannotOverflow() {
         var pacer=FramePacer(mode:.balanced)
         #expect(pacer.plan(sourcePTS:0,rendererNow:Int64.max,ageMicros:nil,frameRate:60).action == .drop(.invalidTimestamp))

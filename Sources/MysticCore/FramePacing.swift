@@ -122,10 +122,12 @@ public struct FramePacer: Sendable {
         guard !stepOverflow,!targetOverflow else { return result(.drop(.invalidTimestamp)) }
         let (lead,leadOverflow)=target.subtractingReportingOverflow(rendererNow)
         guard !leadOverflow else { return result(.drop(.invalidTimestamp)) }
-        // A single corrupt future PTS must not move the timeline or poison source ordering.
-        guard lead <= max(100_000,buffer+interval) else { return futureTimestamp() }
+        // Against the time since the last frame, a corrupt PTS has already gone above. Early here
+        // means the timeline was anchored on a late frame: waiting would keep every frame this far
+        // behind, and each would be replaced by the next before its time came.
+        let early=lead > buffer*2
         let stalled=lastAcceptedAt.map { rendererNow >= $0 && rendererNow-$0 > 100_000 } ?? false
-        if lead < -interval*2 || stalled {
+        if lead < -interval*2 || stalled || early {
             anchorSource=sourcePTS
             let (anchor,overflow)=rendererNow.addingReportingOverflow(buffer)
             guard !overflow else { return result(.drop(.invalidTimestamp)) }
