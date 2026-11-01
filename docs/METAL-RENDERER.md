@@ -126,6 +126,27 @@ which leaves out the transition into the game.
   within several seconds, and this is eight readings in one sitting.
 - Quit and Start, and resuming a running game, also worked here.
 
+### Where decoded-to-screen time goes
+
+Big Dawg Desktop, 2026-11-01: Low Latency, 3024×1890 at 120 fps negotiated, about 20 fps of mostly idle content,
+fixed 100 Mbps, on a 120 Hz panel. One run each, read at 60 s. Medians in ms, and the session log has these per stream.
+
+| Run | Decoded to screen | To enqueue | For drawable | Encode | GPU | GPU done to shown |
+| --- | --- | --- | --- | --- | --- | --- |
+| Window, HDR | 22.2 | 0.1 | 0.1 | 0.1 | 0.8 | 20.8 |
+| Window, SDR | 22.2 | 0.1 | 0.1 | 0.2 | 0.8 | 20.6 |
+| Window, HDR, `displaySyncEnabled` off | 12.0 | 0.1 | 0.1 | 0.2 | 0.7 | 10.5 |
+| Full screen, HDR | 14.3 | 0.1 | 0.1 | 0.1 | 1.2 | 12.2 |
+| Full screen, SDR | 23.7 | 0.1 | 0.1 | 0.3 | 1.2 | 21.4 |
+| Full screen, HDR, `displaySyncEnabled` off | 7.6 | 0.1 | 0.1 | 0.2 | 1.4 | 5.5 |
+
+- **Mystic's own stages take under 2 ms.** Almost all the rest is after the GPU finishes, in the system's path to the panel.
+- Turning `displaySyncEnabled` off about halved it in both window and full screen, with more renderer drops
+  (18 against 3, and 93 against 36). It is not a setting yet: tearing has not been looked at.
+- "Shown" is Metal's `presentedTime`, and whether it means the same with sync off is unconfirmed; a camera would settle it.
+- That full screen beat a window with HDR but not with SDR is unexplained, and full screen was requested, not checked.
+- One idle run each, with no game load. The display layer cannot report this, so it is not compared.
+
 ## Open problems before Metal can be the default
 
 - **Automatic bitrate** still needs comparing, since these runs used a fixed one.
