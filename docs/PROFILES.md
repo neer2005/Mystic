@@ -26,6 +26,26 @@ preferences stay global. Restore Global Defaults preserves all host/game profile
 To reset a game, choose Use host defaults; to reset a host, enable Use global
 defaults in its editor. These actions do not change pairings or host permissions.
 
+## Network profiles
+
+Settings → Network → Network Profiles holds up to 50 named profiles, after Nightjar's settings
+profiles. A profile changes only the settings it names (resolution, frame rate, bitrate,
+automatic bitrate, automatic quality, HDR), applied on top of whatever the global, host and game
+settings resolve to; Mystic's host and game profiles are whole settings rather than changes, so
+a network profile applied beneath them, as in Nightjar, would do nothing for a PC with its own.
+**Use** picks one by hand. With **Choose by Network** on, a rule per kind of network picks one,
+and Use applies where no rule does; deleting a profile clears the choices that named it.
+
+The kind comes from the route toward the PC, found when connecting (alongside loading the
+library): a metered connection (`isExpensive` or `isConstrained`, such as an iPhone hotspot)
+first, as Nightjar's mobile data; then away, for a VPN route or an address outside the local
+network (private and link-local addresses, `.local` and single-label names are local;
+Tailscale's 100.64.0.0/10 is not); then Wi-Fi or wired. Nightjar tells home Wi-Fi from other
+Wi-Fi by the network's name, which macOS gives an app only with Location Services, so Mystic
+uses the route instead. The chosen profile shows in Stream Details and the session log, and is
+fixed for the stream like the rest of its settings, through reconnects. Saved in
+`networkProfiles.v1`.
+
 ## Identity and storage
 
 Profiles use the paired host's unique ID, with its endpoint as a fallback only

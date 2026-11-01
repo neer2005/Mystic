@@ -23,6 +23,10 @@ public struct MysticSettingsView: View {
                         Toggle("Local Cursor",isOn:$model.localCursor)
                         Text("In desktop control, the host's cursor becomes the Mac pointer, so it moves without video delay. Needs a host that sends its cursor; Sunshine-based hosts and Rubylight with cursor shapes do.").font(.caption).foregroundStyle(.secondary)
                     }
+                    Section("Library") {
+                        Toggle("Quick Resume",isOn:$model.quickResume)
+                        Text("Choosing a PC that is running a game goes straight back into the game instead of opening its library.").font(.caption).foregroundStyle(.secondary)
+                    }
                     Section("Updates") {
                         Toggle("Check for Updates",isOn:$model.checkForUpdates)
                         Text("Once per launch, Mystic asks GitHub whether a newer release is out and links to its page. Nothing is downloaded or installed. \(model.updates.status).").font(.caption).foregroundStyle(.secondary)
@@ -65,6 +69,7 @@ public struct MysticSettingsView: View {
                         Text("A Rubylight host paces video for Wi-Fi from the first frame. A wired link speed lets any host cap its sending rate. Over a VPN, the Mac's own connection decides.")
                             .foregroundStyle(.secondary)
                     }.disabled(model.hasSession || model.isBusy)
+                    Section("Network Profiles") { NetworkProfilesView(model:model) }.disabled(model.hasSession || model.isBusy)
                     Section("Network Changes") {
                         Toggle("Keep Streams When the Network Changes",isOn:$model.clientRoaming)
                         Toggle("Also onto Metered Networks",isOn:$model.roamingOnMeteredNetworks).disabled(!model.clientRoaming)

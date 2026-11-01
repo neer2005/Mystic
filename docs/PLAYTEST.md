@@ -47,7 +47,14 @@ version for each.
    monitor within a few seconds.
 8. **Remote access check.** Away from home (or over a VPN), right-click the connected PC →
    Check Remote Access…. Record the outcome, round trip and route.
-9. **Updates.** Settings → General's update line should say no release has been published,
+9. **Network profiles.** Save a profile that sets 720p and 10 Mbps, turn on Choose by Network
+   with it for Away, and connect over a VPN or hotspot: Stream Details should name it and the
+   stream should start at 720p. At home the rule for Wi-Fi or Wired applies instead.
+10. **Quick resume and quit on leave.** With a game running, turn on Quick Resume and choose
+    the PC: the stream should start without the library. Turn on Quit Game When Leaving for a
+    game, Disconnect, and check it is gone on the PC; pull the network cable mid-stream and
+    check it is still running.
+11. **Updates.** Settings → General's update line should say no release has been published,
    until the first one is.
 
 ## Audio output switching

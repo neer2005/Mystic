@@ -46,6 +46,8 @@ struct NetworkRoute: Equatable, Sendable {
         /// smaller MTU (WireGuard's 1420, Tailscale's 1280) would fragment every 1392-byte one.
         var vpn: Bool
         var interface: String?
+        /// The Mac's internet connection bills by data or saves data (an iPhone hotspot).
+        var metered=false
     }
 
     /// Looks up the route toward `host`, giving up after `timeout`. Sends nothing: a UDP
@@ -53,10 +55,10 @@ struct NetworkRoute: Equatable, Sendable {
     static func toward(host: String,port: UInt16,timeout: Duration = .seconds(1)) async -> Report {
         async let route=routeInterface(host:host,port:port,timeout:timeout)
         async let connection=connectionMedium(timeout:timeout)
-        let interface=await route
-        return Report(route:resolve(route:interface.flatMap(medium),connection:await connection),
+        let interface=await route,(internet,metered)=await connection
+        return Report(route:resolve(route:interface.flatMap(medium),connection:internet),
                       vpn:interface.map { isVPN(name:$0.name,type:$0.type,mtu:linkMTU($0.name)) } ?? false,
-                      interface:interface?.name)
+                      interface:interface?.name,metered:metered)
     }
 
     private static func routeInterface(host: String,port: UInt16,timeout: Duration) async -> NWInterface? {
@@ -86,14 +88,16 @@ struct NetworkRoute: Equatable, Sendable {
         let tunnels=["utun","ipsec","ppp","tun","tap","zt","feth","wg"]
         return tunnels.contains { name.hasPrefix($0) } || (1..<1500).contains(mtu)
     }
-    private static func connectionMedium(timeout: Duration) async -> NetworkMedium? {
+    private static func connectionMedium(timeout: Duration) async -> (NetworkMedium?,Bool) {
         let monitor=NWPathMonitor()
-        let once=Once<NetworkMedium?>()
+        let once=Once<(NetworkMedium?,Bool)>()
         let medium=await withCheckedContinuation { continuation in
             once.set(continuation)
-            monitor.pathUpdateHandler={ path in once.finish(path.status == .satisfied ? medium(path) : nil) }
+            monitor.pathUpdateHandler={ path in
+                once.finish(path.status == .satisfied ? (medium(path),path.isExpensive || path.isConstrained) : (nil,false))
+            }
             monitor.start(queue:.global(qos:.userInitiated))
-            Task { try? await Task.sleep(for:timeout);once.finish(nil) }
+            Task { try? await Task.sleep(for:timeout);once.finish((nil,false)) }
         }
         monitor.cancel()
         return medium

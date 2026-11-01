@@ -9,6 +9,21 @@ with a controller plugged into the PC, and macOS would otherwise dim the screen 
 minutes. Nightjar gets the same from SDL, which keeps the screen saver off while it runs.
 Closing the lid or choosing Sleep still sleeps the Mac.
 
+## Quick resume and quit on leave
+
+Settings → General → Quick Resume (off by default, as Nightjar's) makes choosing a PC that is
+running a game go straight back into that game once its library loads, opening the stream
+window, instead of showing the library. Nightjar's policy: only with a game running and in the
+library.
+
+Stream Details → Quit Game When Leaving is kept per game on each PC (`quitOnLeave.v1`), as
+Nightjar keeps it per host record. Only a leave the player chose quits the game: Disconnect in
+the stream toolbar, the menu or the sidebar, and closing the stream window. A lost connection,
+an error, the host ending the stream or quitting Mystic never does, so the game is still there
+to resume (Nightjar's `quits_on_leave`). The quit goes over its own connection after the stream
+has stopped, checks the game is still the one running, and the result shows in the status and
+the session log.
+
 ## Host session panel
 
 Session and Graphics is available from the library and stream toolbars and from

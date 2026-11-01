@@ -1,5 +1,6 @@
 import Foundation
 import MysticCore
+import MysticKit
 
 extension ConnectionModel {
     /// Host IDs survive address/name changes. Endpoint fallback is only used when the host has no ID.
@@ -8,9 +9,9 @@ extension ConnectionModel {
         if !host.uniqueID.isEmpty { return "id:"+Self.profileIdentifier(host.uniqueID) }
         return selectedHostEndpointID.map { "endpoint:"+$0 }
     }
-    public var gameProfileKey: String? {
-        guard let app=library.selected else { return nil }
-        return app.uuid.isEmpty ? "app-id:\(app.id)" : "uuid:"+Self.profileIdentifier(app.uuid)
+    public var gameProfileKey: String? { library.selected.map(gameKey) }
+    func gameKey(_ app: HostApp) -> String {
+        app.uuid.isEmpty ? "app-id:\(app.id)" : "uuid:"+Self.profileIdentifier(app.uuid)
     }
     private static func profileIdentifier(_ value: String) -> String {
         UUID(uuidString:value)?.uuidString.lowercased() ?? value

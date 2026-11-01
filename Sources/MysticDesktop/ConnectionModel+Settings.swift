@@ -51,6 +51,11 @@ extension ConnectionModel {
         get { settings.value.microphoneEnabled ?? false }
         set { settings.update { $0.microphoneEnabled=newValue } }
     }
+    /// Nightjar's quick resume: choosing a PC that runs a game goes straight back into it.
+    public var quickResume: Bool {
+        get { settings.value.quickResume ?? false }
+        set { settings.update { $0.quickResume=newValue } }
+    }
     /// Look for a newer stable release once per launch.
     public var checkForUpdates: Bool {
         get { settings.value.checkForUpdates ?? true }

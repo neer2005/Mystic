@@ -75,6 +75,7 @@ public struct HostLibraryView: View {
             }
             await model.updates.startOnce(enabled:model.checkForUpdates)
         }
+        .onChange(of:model.quickResumeLaunch) { if model.quickResumeLaunch != nil,model.hasSession { openWindow(id:"stream") } }
         .onChange(of:model.showingHome) { if model.showingHome { Task { await model.homeSync.refresh() } } }
         .onDisappear { model.libraryDisappeared() }
         .onChange(of:model.settings.value) { model.applyLiveSettings() }
@@ -305,7 +306,18 @@ public struct HostLibraryView: View {
                         .help("Return or double-click in the library also starts the selected app.")
                     if (model.host?.currentGame ?? 0) > 0 { quitButton }
                 }
-                Section("Video") { GameVideoPreferencesView(model:model) }
+                Section("Video") {
+                    GameVideoPreferencesView(model:model)
+                    if let profile=model.activeNetworkProfile {
+                        LabeledContent("Network Profile",value:profile.name)
+                        Text("On \(model.networkKind?.label.lowercased() ?? "this network"), \(profile.name) changes: \(profile.overrides.summary).")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Section("Leaving") {
+                    Toggle("Quit Game When Leaving",isOn:$model.quitsOnLeave).disabled(model.hostProfileKey == nil)
+                    Text("Disconnecting from this game's stream also quits it on the PC. A lost connection never does.").font(.caption).foregroundStyle(.secondary)
+                }
                 Section("Audio") { AudioPreferencesView(model:model) }
                 Section { Text("Video settings are saved per game for future streams. Audio, microphone and clipboard settings are shared by all games. Video and channel layout are fixed while streaming.").font(.caption).foregroundStyle(.secondary) }
             } else { Section { Text("Select an app to see stream options.").foregroundStyle(.secondary) } }
@@ -349,7 +361,7 @@ private struct HostSidebar: View {
                     hostRow(host.name,endpoint:host.endpoint,id:host.id)
                         .contextMenu {
                             if isActive(host.id) {
-                                Button("Disconnect",systemImage:"eject") { model.disconnect() }.disabled(!model.canDisconnect)
+                                Button("Disconnect",systemImage:"eject") { model.leave() }.disabled(!model.canDisconnect)
                                 Button("Check Remote Access…",systemImage:"globe") { checkingRemote=true }.disabled(!model.remoteCheck.available)
                             } else if !locked {
                                 Button("Connect",systemImage:"network") { model.connect(to:host.endpoint) }
@@ -406,7 +418,7 @@ private struct HostSidebar: View {
             } icon: { Image(systemName:"desktopcomputer") }
             Spacer(minLength:0)
             if active {
-                Button("Disconnect from \(name)",systemImage:"eject.fill") { model.disconnect() }
+                Button("Disconnect from \(name)",systemImage:"eject.fill") { model.leave() }
                     .labelStyle(.iconOnly).buttonStyle(.borderless)
                     .disabled(!model.canDisconnect)
                     .help("Disconnect from \(name)")
