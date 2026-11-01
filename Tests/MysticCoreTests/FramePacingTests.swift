@@ -91,11 +91,12 @@ struct FramePacingTests {
         }
         return count
     }
-    @Test func aSlowerGameOnAFasterStreamDoesNotRealignOnOrdinaryJitter() {
-        for mode:FramePacingMode in [.balanced,.smoothest] {
-            let count=realignments(mode:mode,frames:1200,sourceInterval:16667,streamFPS:120) { Int64($0*2654435761%35_000) }
-            #expect(count == 0,"\(mode): \(count) realignments")
-        }
+    @Test func jitterOnASlowerGameRealignsLessWithoutALongerBuffer() {
+        // Balanced keeps the stream's own short buffer, since a longer one is added delay: this
+        // jitter still crosses it. One frame out of line no longer realigns, which was 75 here.
+        let jitter:(Int)->Int64={ Int64($0*2654435761%35_000) }
+        #expect(realignments(mode:.balanced,frames:1200,sourceInterval:16667,streamFPS:120,arrival:jitter) <= 50)
+        #expect(realignments(mode:.smoothest,frames:1200,sourceInterval:16667,streamFPS:120,arrival:jitter) == 0)
     }
     @Test func aLastingShiftStillRealigns() {
         let count=realignments(mode:.balanced,frames:600,sourceInterval:16667,streamFPS:60) { $0 > 300 ? 90_000 : 0 }
