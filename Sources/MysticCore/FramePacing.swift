@@ -57,12 +57,16 @@ public struct FramePacer: Sendable {
     private var lastSlot: Int64?
     private var plannedSlot: Int64?
     private var clock=PresentClock()
+    /// The display's refresh timeline on the renderer clock, for `pcFrameTimes`; none without one.
+    public var refreshGrid: PresentClock.Grid?
+    /// The latest planned frame takes the refresh of the one before it.
+    public private(set) var sharesRefresh=false
     /// How long `pcFrameTimes` is holding the latest planned frame after it was ready.
     public private(set) var holdMicros: Int64?
     private var pendingResynchronization = false
     private var futureStrikes = 0
     public init(mode: FramePacingMode = .lowLatency) { self.mode=mode }
-    public mutating func reset() { self=FramePacer(mode:mode) }
+    public mutating func reset() { let grid=refreshGrid;self=FramePacer(mode:mode);refreshGrid=grid }
 
     public mutating func plan(sourcePTS: Int64, rendererNow: Int64, ageMicros: UInt64?, frameRate: UInt32) -> FramePacingPlan {
         func result(_ action: FramePacingPlan.Action) -> FramePacingPlan { FramePacingPlan(action:action) }
@@ -88,6 +92,12 @@ public struct FramePacer: Sendable {
         if mode == .pcFrameTimes {
             guard sourcePTS <= Int64.max/4,rendererNow <= Int64.max/4 else { return result(.drop(.invalidTimestamp)) }
             let ready=max(0,rendererNow-Int64(ageMicros ?? 0))
+            if let refreshGrid {
+                let schedule=clock.schedule(hostMicros:sourcePTS,readyMicros:ready,grid:refreshGrid)
+                holdMicros=schedule.holdMicros;sharesRefresh=schedule.sharesRefresh
+                return result(.enqueue(timeMicros:max(schedule.releaseMicros,rendererNow),late:schedule.late,
+                                       resynchronize:pendingResynchronization))
+            }
             let schedule=clock.schedule(hostMicros:sourcePTS,readyMicros:ready)
             holdMicros=schedule.holdMicros
             return result(.enqueue(timeMicros:max(schedule.presentMicros,rendererNow),late:schedule.late,
@@ -152,6 +162,8 @@ public struct PresentationMetrics: Sendable, Equatable {
     public private(set) var rendererDroppedFrames: UInt64?
     public private(set) var rendererCorruptedFrames: UInt64?
     public private(set) var holdMicros: Int64?
+    public private(set) var sharedRefreshes: UInt64=0
+    public private(set) var cadence=ShownCadence()
     public var droppedFrames: UInt64 { drops.values.reduce(0,&+) }
     public init() {}
     public mutating func drop(_ reason: PresentationDropReason,count: UInt64 = 1) {
@@ -162,6 +174,8 @@ public struct PresentationMetrics: Sendable, Equatable {
     public mutating func queue(depth: Int) { queueDepth=max(0,min(4,depth));peakQueueDepth=max(peakQueueDepth,queueDepth) }
     public mutating func resynchronize() { resynchronizations &+= 1 }
     public mutating func hold(micros: Int64) { holdMicros=micros }
+    public mutating func sharedRefresh() { sharedRefreshes &+= 1 }
+    public mutating func shown(_ cadence: ShownCadence) { self.cadence=cadence }
     public mutating func renderer(dropped: UInt64?,corrupted: UInt64?) {
         rendererDroppedFrames=dropped;rendererCorruptedFrames=corrupted
     }

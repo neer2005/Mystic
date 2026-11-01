@@ -146,7 +146,7 @@ public final class DisplayLayerPresenter {
                 if mailbox.hasNewerFrame(than:frame),pacer.isSuperseded(ageMicros:age,frameRate:frame.frameRate) {
                     telemetry?.presentationDrop(generation:frame.generation,reason:.superseded);return
                 }
-                guard let rendererNow=Self.micros(rendererClock?() ?? (metal == nil ? synchronizer.currentTime() : metalClock.now())) else {
+                guard let rendererNow=rendererNow() else {
                     throw VideoDecoderError.invalidSample("invalid renderer clock")
                 }
                 switch pacer.plan(sourcePTS:sourcePTS,rendererNow:rendererNow,ageMicros:age,frameRate:frame.frameRate).action {
@@ -176,12 +176,14 @@ public final class DisplayLayerPresenter {
                     guard mailbox.isCurrent(frame.generation) else { return }
                     videoOutput.update(image:frame.pixelBuffer);configureDynamicRange()
                     let enqueueStarted=VideoTelemetry.nowMicros()
+                    metal?.nextFrameAge=age.map { Double($0)/1_000_000 }
                     let result=try await receiver.enqueue(sample)
                     guard mailbox.isCurrent(frame.generation) else { return }
                     try checkEnqueue(result)
                     if case .cancelledDueToFlush = result { return }
                     if late { telemetry?.presentationLate(generation:frame.generation) }
                     if let hold=pacer.holdMicros { telemetry?.presentationHold(generation:frame.generation,micros:hold) }
+                    if pacer.sharesRefresh { telemetry?.presentationSharedRefresh(generation:frame.generation) }
                     if let timing=frame.timing {
                         telemetry?.enqueue(generation:frame.generation,timing:timing,startMicros:enqueueStarted,endMicros:VideoTelemetry.nowMicros())
                     }
@@ -196,11 +198,24 @@ public final class DisplayLayerPresenter {
             decoderFailure?(work.generation,String(describing:error));onFailure(String(describing:error))
         }
     }
+    /// PC Frame Times goes on a display's refresh timeline when it has one.
+    public var wantsRefreshTimeline: Bool { pacingMode == .pcFrameTimes }
+    /// `secondsToRefresh` from now to a coming refresh, `interval` between refreshes; nil when no display.
+    public func updateRefresh(secondsToRefresh: Double,interval: Double?) {
+        guard let interval,interval.isFinite,secondsToRefresh.isFinite,(0.002...0.1).contains(interval),anchored,let now=rendererNow() else {
+            pacer.refreshGrid=nil;return
+        }
+        pacer.refreshGrid=PresentClock.Grid(anchorMicros:now+Int64(secondsToRefresh*1_000_000),intervalMicros:Int64(interval*1_000_000))
+    }
+    private func rendererNow() -> Int64? {
+        Self.micros(rendererClock?() ?? (metal == nil ? synchronizer.currentTime() : metalClock.now()))
+    }
     /// Renderer-reported drops are separate from Mystic's queue/policy drops; no scanout claim.
     public func refreshRendererMetrics() async {
         guard let generation=displayedGeneration,mailbox.isCurrent(generation) else { return }
         if let metal {
             telemetry?.rendererMetrics(generation:generation,dropped:metal.droppedFrames,corrupted:nil)
+            telemetry?.presentationShown(generation:generation,cadence:metal.cadence)
             return
         }
         let metrics: AVVideoPerformanceMetrics?=await withCheckedContinuation { continuation in

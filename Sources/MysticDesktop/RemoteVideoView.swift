@@ -1,5 +1,15 @@
 import AppKit
 import MysticStream
+import QuartzCore
+
+/// The display link holds its target; this keeps it from holding the view.
+@MainActor
+private final class RefreshTimeline: NSObject {
+    weak var presenter: DisplayLayerPresenter?
+    @objc func tick(_ link: CADisplayLink) {
+        presenter?.updateRefresh(secondsToRefresh:link.targetTimestamp-CACurrentMediaTime(),interval:link.targetTimestamp-link.timestamp)
+    }
+}
 
 @MainActor
 final class RemoteVideoView: NSView {
@@ -9,6 +19,8 @@ final class RemoteVideoView: NSView {
     private weak var movementWindow: NSWindow?
     private var previousAcceptsMouseMoved = false
     private var displayObservers: [any NSObjectProtocol] = []
+    private let refreshTimeline=RefreshTimeline()
+    private var refreshLink: CADisplayLink?
     init(presenter: DisplayLayerPresenter,capture: StreamInputCapture?) {
         self.presenter = presenter;self.capture = capture
         super.init(frame:.zero)
@@ -20,7 +32,7 @@ final class RemoteVideoView: NSView {
         setAccessibilityHelp("Click to control the host. Control Option Shift Escape releases input.")
     }
     required init?(coder: NSCoder) { nil }
-    isolated deinit { stopObservingDisplay() }
+    isolated deinit { stopObservingDisplay();refreshLink?.invalidate() }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func resignFirstResponder() -> Bool { capture?.release();return true }
@@ -51,9 +63,22 @@ final class RemoteVideoView: NSView {
     private func updateDisplay() {
         let screen=window?.screen
         needsLayout = true
+        updateRefreshLink()
         presenter.updateDisplay(name:screen?.localizedName,
             currentHeadroom:screen.map { Double($0.maximumExtendedDynamicRangeColorComponentValue) },
             potentialHeadroom:screen.map { Double($0.maximumPotentialExtendedDynamicRangeColorComponentValue) })
+    }
+    /// Runs only for the pacing that uses it. At the screen's top rate, so a ProMotion panel's
+    /// timeline is its fastest rather than whatever the moment's content asks for.
+    private func updateRefreshLink() {
+        refreshLink?.invalidate();refreshLink=nil
+        refreshTimeline.presenter=presenter
+        guard presenter.wantsRefreshTimeline,let screen=window?.screen else { presenter.updateRefresh(secondsToRefresh:0,interval:nil);return }
+        let link=displayLink(target:refreshTimeline,selector:#selector(RefreshTimeline.tick))
+        let top=Float(screen.maximumFramesPerSecond)
+        link.preferredFrameRateRange=CAFrameRateRange(minimum:top,maximum:top,preferred:top)
+        link.add(to:.main,forMode:.common)
+        refreshLink=link
     }
     private func stopObservingDisplay() {
         for observer in displayObservers { NotificationCenter.default.removeObserver(observer) }
@@ -71,7 +96,7 @@ final class RemoteVideoView: NSView {
             if window != nil { capture?.attach(self) }
         }
     }
-    func disconnectInput() { capture?.detach(self);stopObservingDisplay();presenter.updateDisplay(name:nil,currentHeadroom:nil,potentialHeadroom:nil) }
+    func disconnectInput() { capture?.detach(self);stopObservingDisplay();refreshLink?.invalidate();refreshLink=nil;presenter.updateDisplay(name:nil,currentHeadroom:nil,potentialHeadroom:nil) }
     override func layout() { super.layout();presenter.layout(in:bounds,pixelsPerPoint:window?.backingScaleFactor ?? 1) }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
