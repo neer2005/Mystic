@@ -102,10 +102,31 @@ seconds each, one after the other, with `awdl0`'s status logged every 5 seconds.
 - System's drops kept growing after that stretch (681, 1,942, 2,766 at 30, 60 and 90 s), so AWDL does
   not explain the gap in drops. Metal's were 330, 440 and 670.
 
+### A real game at 60 fps
+
+Dragon Ball: Sparking! Zero on its title screen, about 60 fps and 19 Mbps, HDR, fixed 100 Mbps, same
+stream settings, one after the other. Figures are the change over 90 seconds of a running stream,
+which leaves out the transition into the game.
+
+| | System | Metal |
+| --- | --- | --- |
+| Decoded / enqueued | 5,414 / 5,398 | 5,473 / 5,441 |
+| Superseded before the renderer | 16 | 33 |
+| Dropped by the renderer | 322 (6.0%) | 204 (3.7%) |
+| Client submit → enqueue p50 / p95 ms (end of run) | 5.53 / 8.95 | 5.21 / 8.52 |
+| Renderer enqueue p50 / p95 ms (end of run) | 0.04 / 0.08 | 0.02 / 0.03 |
+| Timeline resets | 0 | 0 |
+
+- At a game's own 60 fps the renderers are close; the large gap at 120 fps does not carry over.
+- Same caveat on the drop counts. A title screen is also not a battle: motion is gentle.
+- Round-trip spikes of 18-29 ms, and one sample of 14.5% loss just after the System resume, happened
+  regardless of renderer. Quit and Start, and resuming a running game, also worked here.
+
 ## Open problems before Metal can be the default
 
 - **Automatic bitrate** still needs comparing, since these runs used a fixed one.
-- **Longer and busier runs:** every run so far was 90 seconds of mostly idle content.
+- **Longer and busier runs:** every run so far was 90 seconds of idle desktop or a title screen.
+- **A true 120 fps game** has not been measured; this one ran at 60.
 - **Not tried live:** SDR, HLG, Video Size other than Fit, moving between screens, a real game.
 - Screen latency needs a camera or timestamp measurement before any claim that Metal matches.
 - 4:2:0 chroma is sampled bilinearly without accounting for chroma siting.
