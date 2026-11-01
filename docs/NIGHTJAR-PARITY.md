@@ -32,7 +32,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | Controller menu navigation | Pending | Nightjar (`console.rs`, `nav_repeat.rs`) drives every screen from a controller |
 | H.264/HEVC decoding | Implemented | Big Dawg HEVC verified |
 | AV1 hardware decode | Implemented, hardware validation pending | Current Mac reports unsupported hardware |
-| HDR10 and SDR transitions | Implemented, partial parity | PQ/BT.2020 HUD and visual MacBook checks passed with user. Display luminance is never sent: Nightjar sends `DisplayCaps` to Rubylight hosts and `display_luminance` at launch to others (`sdl.rs`), so the host currently tone-maps for a generic display |
+| HDR10 and SDR transitions | Implemented | PQ/BT.2020 HUD and visual MacBook checks passed with user. Display luminance goes to the host as Nightjar's estimate from EDR headroom (DisplayCaps for Rubylight, the launch query for others; see HDR.md). Live host check pending |
 | HLG, HDR10+, Dolby Vision, 10-bit SDR | Partial / pending | HLG metadata path exists; format-specific fidelity and capability work remain. Launch never sets `ten_bit_sdr`; Nightjar first checks the decoder with fixtures (`color_probe.rs`) |
 | Full-chroma/true 4:4:4 | Pending | Codec/presentation integration and supported-hardware checks, with a decoder check as above |
 | Upscaling | Pending | Choose Mac-native rendering path |
@@ -59,8 +59,8 @@ must be investigated and documented before a feature is marked inapplicable.
 | Keyboard follows text fields, layout report | Pending | Nightjar (`text_field.rs`) handles host text-field notices (0x553B) and reports the keyboard layout (0x553E); Mystic sends US key positions only |
 | Saved key chords, import/export | Pending | Nightjar (`shortcuts.rs`) shares Android's file format; Mystic has only its release chord |
 | Host cursor shapes | Pending | Nightjar (`stream/cursor.rs`) shows the host's cursor, with a hide debounce |
-| Controller input/rumble | Implemented, partial parity | Controller unavailable during joint playtest. At most four controllers (Nightjar: 16) |
-| Controller mapping, motion, touchpad, LEDs/battery | Partial / pending | Arrival announces only analog triggers, rumble and trigger rumble; Nightjar (`gamepad.rs`) also announces touchpad, dual touchpad, accelerometer, gyro, battery and RGB LED |
+| Controller input/rumble | Implemented, physical validation pending | Controller unavailable during joint playtest. 16 controllers, as Nightjar |
+| Controller mapping, motion, touchpad, LEDs/battery | Partial, physical validation pending | Typed arrivals, Guide/touchpad click/Share/paddles, motion, battery and light done (see INPUT.md); motion axes unverified. Touchpad contacts pending: GameController has no reliable finger-down state. Per-model remapping pending |
 | Controller as mouse, host night mode/headphone surround | Pending | Nightjar stream menu (`controller_mouse.rs`, `menu_extras.rs`; Rubylight `/audio`) |
 | DualSense adaptive triggers / PCM haptics | Pending | Mac device/API support investigation |
 | Touch/pen and local cursor | Pending applicability audit | Native Mac input devices and host support; Nightjar sends raw touchpad contacts to the PC (`touchpad.rs`) |

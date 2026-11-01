@@ -36,4 +36,19 @@ struct ControllerInputTests {
         try delivery.deliver(.releaseAll) { sent.append($0) }
         #expect(sent.count == count)
     }
+    @Test func sensorAndBatteryReadingsKeepOneQueuedEntryBehindTheirArrival() {
+        var q=RemoteInputQueue(capacity:8)
+        let gyro={ (x: Float) in RemoteInputEvent.controllerMotion(slot:15,kind:.gyroscope,x:x,y:0,z:0) }
+        let accel=RemoteInputEvent.controllerMotion(slot:15,kind:.accelerometer,x:0,y:9.8,z:0)
+        let other=RemoteInputEvent.controllerMotion(slot:3,kind:.gyroscope,x:5,y:0,z:0)
+        let low=RemoteInputEvent.controllerBattery(slot:15,battery:ControllerBattery(state:.discharging,percent:10))
+        let charging=RemoteInputEvent.controllerBattery(slot:15,battery:ControllerBattery(state:.charging,percent:11))
+        let key=RemoteInputEvent.key(code:0x41,down:true,modifiers:0,flags:0)
+        for event in [gyro(1),accel,key,gyro(2),other,low,gyro(3),charging] { let accepted=q.append(event);#expect(accepted) }
+        #expect(q.take() == [gyro(3),accel,key,other,charging])
+        // A reading never moves ahead of the arrival that reassigned its slot.
+        let arrival=RemoteInputEvent.controllerArrival(slot:15,activeMask:0x8000)
+        for event in [gyro(1),arrival,gyro(2),gyro(3)] { let accepted=q.append(event);#expect(accepted) }
+        #expect(q.take() == [gyro(1),arrival,gyro(3)])
+    }
 }

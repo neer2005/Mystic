@@ -1,5 +1,6 @@
 import Testing
 @testable import MysticKit
+import MysticCore
 
 /// These tests run the real C ABI against the real engine library. They need
 /// `engine/target/release/libmystic_ffi.a`, built by `engine/scripts/test-c-abi.sh`.
@@ -41,6 +42,19 @@ struct StreamingEngineTests {
         }
         #expect(throws: EngineError.notStarted) {
             try engine.controllerArrival(slot:0,activeMask:1)
+        }
+        #expect(throws: EngineError.notStarted) {
+            try engine.controllerArrival(slot:15,activeMask:0x8000,capabilities:[.analogTriggers,.gyroscope,.battery,.light],
+                                         kind:.playStation,buttons:ControllerButtons.classic | ControllerButtons.touchpad)
+        }
+        #expect(throws: EngineError.notStarted) {
+            try engine.controllerMotion(slot:15,kind:.gyroscope,x:1,y:2,z:3)
+        }
+        #expect(throws: EngineError.notStarted) {
+            try engine.controllerBattery(slot:15,battery:ControllerBattery(state:.charging,percent:80))
+        }
+        #expect(throws: EngineError.notStarted) {
+            _ = try engine.reportDisplay(headroom:4)
         }
         #expect(throws: EngineError.notStarted) {
             try engine.controller(slot:0,activeMask:1,buttons:0x1000,leftTrigger:17,rightTrigger:29,

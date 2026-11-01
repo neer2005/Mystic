@@ -224,6 +224,11 @@ public final class ConnectionModel {
         let tellLinkSpeed: Bool
     }
     @ObservationIgnored private(set) var plan: StreamPlan?
+    /// The headroom of the screen the stream will open on, read when a plan is made.
+    @ObservationIgnored var launchHeadroom: () -> Double? = { NSScreen.main.map { Double($0.maximumPotentialExtendedDynamicRangeColorComponentValue) } }
+    /// The first headroom seen per screen this plan: macOS raises it as brightness falls, and
+    /// a host that rewrote its HDR metadata for every change would restart its decoder.
+    @ObservationIgnored private var reportedHeadroom: [String:Float] = [:]
     @ObservationIgnored private var recovery = StreamRecovery()
     @ObservationIgnored private var recovering = false
     @ObservationIgnored private var hadVideo = false
@@ -374,7 +379,8 @@ public final class ConnectionModel {
             case "7.1": options.channelCount = 8; options.channelMask = 0x63F
             default: break
             }
-            options.gamepadMask = UInt16((1 << min(4,GCController.controllers().filter { $0.extendedGamepad != nil }.count))-1)
+            options.gamepadMask = UInt16((1 << min(StreamControllers.slots,GCController.controllers().filter { $0.extendedGamepad != nil }.count))-1)
+            options.displayHeadroom = launchHeadroom()
             options.clipboardSync=clipboardSync
             options.width = dims[0]; options.height = dims[1]; options.fps = video.fps; options.hdr = video.hdr
             var config = StreamConfiguration()
@@ -393,7 +399,7 @@ public final class ConnectionModel {
     }
     private func startPreparedPlan(_ plan: StreamPlan,connection: any HostService,capabilities: VideoCapabilities) {
         recovery=StreamRecovery();recovering=false;hadVideo=false;connectedAt=nil
-        self.plan=plan;streamingAppName=plan.app.name
+        self.plan=plan;streamingAppName=plan.app.name;reportedHeadroom=[:]
         launchStream(plan,connection:connection,capabilities:capabilities)
     }
     public func play() {
@@ -444,6 +450,7 @@ public final class ConnectionModel {
                 let presenter = DisplayLayerPresenter(telemetry:telemetry,mode:plan.framePacing,onFailure: { [weak self] message in
                     Task { @MainActor in self?.record(message, token: token) }
                 })
+                presenter.displayChanged = { [weak self] in self?.reportDisplay(token:token) }
                 let decoder = VideoToolboxDecoder(capabilities: capabilities, presenter: presenter, telemetry:telemetry,requestRecovery:{ [weak session] in session?.requestVideoRecovery() },log: { [weak self] message in
                     Task { @MainActor in self?.record(message, token: token) }
                 })
@@ -576,6 +583,7 @@ public final class ConnectionModel {
             if let session { monitorControllerFeedback(session,token:token) }
             clipboard?.start()
             if let presenter { monitorRendererMetrics(presenter,token:token) }
+            reportDisplay(token:token)
             status = "Streaming \(plan?.app.name ?? library.selected?.name ?? "video")."
         case .stageStarting(let stage): status = "Starting \(stage.name)…"
         case .stageComplete: break
@@ -678,6 +686,18 @@ public final class ConnectionModel {
         if let token, generation != token { return }
         errorMessage = message; phase = host?.paired == true && !library.apps.isEmpty ? .ready : .failed
         status = "Connection needs attention."; pairingPIN = nil
+    }
+    /// Tells a host that takes display reports which screen the stream is on.
+    private func reportDisplay(token: UUID) {
+        guard generation == token,phase == .streaming,let session,let output=presenter?.videoOutput,
+              let screen=output.screenName else { return }
+        let headroom=reportedHeadroom[screen] ?? Float(output.potentialHeadroom ?? 1)
+        reportedHeadroom[screen]=headroom
+        Task { [weak self] in
+            let result=await session.reportDisplay(headroom:headroom)
+            guard let self,self.generation == token,result == .sent else { return }
+            self.record("Told host the display: \(screen), EDR headroom \(String(format:"%.1f",headroom))×.",token:token)
+        }
     }
     private func record(_ message: String, token: UUID) {
         guard generation == token else { return }

@@ -15,7 +15,9 @@ struct ConsumerMappingTests {
         c.slot=3;c.kind=2;c.first=0x1234;c.second=0xFEDC;c.epoch=0xFEDCBA9876543210
         #expect(ControllerFeedback(c) == ControllerFeedback(slot:3,kind:.triggerRumble,first:0x1234,second:0xFEDC,epoch:0xFEDCBA9876543210))
         c.kind=99;#expect(ControllerFeedback(c) == nil)
-        c.kind=1;c.slot=4;#expect(ControllerFeedback(c) == nil)
+        c.kind=3;c.slot=15;#expect(ControllerFeedback(c)?.kind == .light)
+        c.kind=5;#expect(ControllerFeedback(c)?.kind == .gyroscopeRate)
+        c.kind=1;c.slot=16;#expect(ControllerFeedback(c) == nil)
     }
 
     @Test("video setup maps every field")

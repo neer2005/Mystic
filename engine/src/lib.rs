@@ -28,11 +28,12 @@ mod controller_feedback;
 mod clipboard;
 mod rates;
 mod health;
+mod display;
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::{Arc, Mutex};
 
-use nightjar_core::input::{InputError, InputQueue};
+use nightjar_core::input::{packets::MAX_CONTROLLERS, InputError, InputQueue};
 use nightjar_core::sdp::{AudioConfiguration, StreamConfig, StreamLocation};
 use nightjar_core::session::{
     AudioRenderer, AudioSetup, DecodeStatus, HostInfo, Interrupt, Listener, Session, SessionConfig,
@@ -42,7 +43,7 @@ use nightjar_core::video::{Frame, FrameType};
 
 /// Bumped whenever a struct layout or function signature changes. The Swift side refuses
 /// to run against a mismatch rather than misreading memory.
-pub const MYSTIC_ABI_VERSION: u32 = 3;
+pub const MYSTIC_ABI_VERSION: u32 = 4;
 
 // ---------------------------------------------------------------------------
 // Result codes
@@ -443,6 +444,7 @@ struct ListenerAdapter {
     feedback: Arc<Mutex<controller_feedback::FeedbackMailbox>>,
     clipboard: Arc<Mutex<clipboard::ClipboardState>>,
     rates: Arc<Mutex<rates::Rates>>,
+    display: Arc<Mutex<display::DisplayReports>>,
 }
 
 impl ListenerAdapter {
@@ -465,6 +467,7 @@ impl Listener for ListenerAdapter {
     fn host_control_messages(&self, messages: &[u16]) {
         self.clipboard.lock().unwrap_or_else(|e| e.into_inner()).announce(messages);
         self.rates.lock().unwrap_or_else(|e|e.into_inner()).announce(messages);
+        self.display.lock().unwrap_or_else(|e| e.into_inner()).announce(messages);
     }
     fn control_event(&self, event: nightjar_core::control::ControlEvent) {
         if matches!(event,nightjar_core::control::ControlEvent::RateChange(_)) {
@@ -475,7 +478,9 @@ impl Listener for ListenerAdapter {
             return;
         }
         if matches!(event, nightjar_core::control::ControlEvent::Rumble { .. }
-            | nightjar_core::control::ControlEvent::RumbleTriggers { .. }) {
+            | nightjar_core::control::ControlEvent::RumbleTriggers { .. }
+            | nightjar_core::control::ControlEvent::SetControllerLed { .. }
+            | nightjar_core::control::ControlEvent::SetMotionEventState { .. }) {
             self.feedback.lock().unwrap_or_else(|e| e.into_inner()).receive(event);
         }
     }
@@ -524,6 +529,7 @@ pub struct MysticSession {
     feedback: Arc<Mutex<controller_feedback::FeedbackMailbox>>,
     clipboard: Arc<Mutex<clipboard::ClipboardState>>,
     rates: Arc<Mutex<rates::Rates>>,
+    display: Arc<Mutex<display::DisplayReports>>,
     doctor: health::Doctor,
 }
 
@@ -582,6 +588,7 @@ pub extern "C" fn mystic_session_new() -> *mut MysticSession {
         feedback: Arc::new(Mutex::new(controller_feedback::FeedbackMailbox::default())),
         clipboard: Arc::new(Mutex::new(clipboard::ClipboardState::default())),
         rates: Arc::new(Mutex::new(rates::Rates::default())),
+        display: Arc::new(Mutex::new(display::DisplayReports::default())),
         doctor: health::Doctor::default(),
     }))
 }
@@ -685,7 +692,7 @@ pub unsafe extern "C" fn mystic_session_start(
         network: handle.network.clone(),
     });
     let audio: Box<dyn AudioRenderer> = Box::new(AudioAdapter { callbacks });
-    let listener = Arc::new(ListenerAdapter { callbacks, feedback: handle.feedback.clone(), clipboard: handle.clipboard.clone(), rates:handle.rates.clone() });
+    let listener = Arc::new(ListenerAdapter { callbacks, feedback: handle.feedback.clone(), clipboard: handle.clipboard.clone(), rates:handle.rates.clone(), display: handle.display.clone() });
 
     match Session::start(
         &host_info,
@@ -772,6 +779,19 @@ fn with_input(
         Ok(()) => MYSTIC_OK,
         Err(_) => MYSTIC_ERR_INPUT_FAILED,
     }
+}
+
+/// As `with_input`, for extras a host may not take: refusal is not an input failure.
+fn with_optional_input(
+    handle: *mut MysticSession,
+    f: impl FnOnce(&mut InputQueue) -> Result<(), InputError>,
+) -> i32 {
+    let mut unsupported = false;
+    let result = with_input(handle, |q| match f(q) {
+        Err(InputError::Unsupported) => { unsupported = true; Ok(()) }
+        other => other,
+    });
+    if unsupported { MYSTIC_ERR_UNIMPLEMENTED } else { result }
 }
 
 /// Relative mouse motion.
@@ -880,7 +900,7 @@ pub unsafe extern "C" fn mystic_session_horizontal_scroll(handle: *mut MysticSes
 #[no_mangle]
 pub unsafe extern "C" fn mystic_session_controller(handle: *mut MysticSession, slot: u8, mask: u16,
     buttons: u32, lt: u8, rt: u8, lx: i16, ly: i16, rx: i16, ry: i16) -> i32 {
-    if slot >= 4 || mask & !0xF != 0 { return MYSTIC_ERR_INVALID_ARGUMENT; }
+    if slot >= MAX_CONTROLLERS || buttons & !controller_buttons::KNOWN != 0 { return MYSTIC_ERR_INVALID_ARGUMENT; }
     with_input(handle, |q| q.send_controller(u16::from(slot), mask, buttons, lt, rt, (lx, ly), (rx, ry)))
 }
 
@@ -890,18 +910,58 @@ pub unsafe extern "C" fn mystic_session_controller_arrival(handle: *mut MysticSe
     mystic_session_controller_arrival_with_feedback(handle, slot, mask, 0x01, 0)
 }
 
-/// Capabilities are limited to the implemented analog/rumble/trigger-rumble bits.
+/// ABI 2 entry point: an unknown controller type with the classic buttons.
 #[no_mangle]
 pub unsafe extern "C" fn mystic_session_controller_arrival_with_feedback(
     handle: *mut MysticSession, slot: u8, mask: u16, capabilities: u16, epoch: u64,
 ) -> i32 {
+    mystic_session_controller_announce(handle, slot, mask, 0, controller_buttons::CLASSIC, capabilities, epoch)
+}
+
+/// Bits Mystic delivers: what the controller has and what the Mac sends for it.
+mod controller_buttons {
+    use nightjar_core::input::packets::button::*;
+    pub const CLASSIC: u32 = UP | DOWN | LEFT | RIGHT | PLAY | BACK | LS_CLK | RS_CLK | LB | RB | A | B | X | Y;
+    pub const KNOWN: u32 = CLASSIC | SPECIAL | PADDLE1 | PADDLE2 | PADDLE3 | PADDLE4 | TOUCHPAD | MISC;
+}
+fn delivered_capabilities() -> u16 {
+    use nightjar_core::input::packets::capability::*;
+    ANALOG_TRIGGERS | RUMBLE | TRIGGER_RUMBLE | ACCEL | GYRO | BATTERY_STATE | RGB_LED
+}
+
+/// ABI 4: controller type (0 unknown, 1 Xbox, 2 PlayStation, 3 Nintendo), its buttons and
+/// what Mystic delivers for it. Touchpad contacts are not sent, so that bit is refused.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_controller_announce(
+    handle: *mut MysticSession, slot: u8, mask: u16, kind: u8, supported_buttons: u32, capabilities: u16, epoch: u64,
+) -> i32 {
     use nightjar_core::input::packets::capability;
-    let allowed = capability::ANALOG_TRIGGERS | capability::RUMBLE | capability::TRIGGER_RUMBLE;
-    if slot >= 4 || mask & !0xF != 0 || capabilities & !allowed != 0 { return MYSTIC_ERR_INVALID_ARGUMENT; }
+    if slot >= MAX_CONTROLLERS || kind > 3 || supported_buttons & !controller_buttons::KNOWN != 0
+        || capabilities & !delivered_capabilities() != 0 { return MYSTIC_ERR_INVALID_ARGUMENT; }
     if let Some(handle) = handle.as_ref() {
         handle.feedback.lock().unwrap_or_else(|e| e.into_inner()).clear_slot(slot, epoch);
     }
-    with_input(handle, |q| q.send_controller_arrival(slot, mask, 0, 0xF3FF, capabilities | capability::ANALOG_TRIGGERS))
+    with_input(handle, |q| q.send_controller_arrival(slot, mask, kind, supported_buttons, capabilities | capability::ANALOG_TRIGGERS))
+}
+
+/// Accelerometer (kind 1, m/s² with gravity) or gyroscope (kind 2, degrees per second).
+/// MYSTIC_ERR_UNIMPLEMENTED when the host takes no motion; the stream carries on.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_controller_motion(handle: *mut MysticSession, slot: u8, kind: u8, x: f32, y: f32, z: f32) -> i32 {
+    use nightjar_core::input::packets::motion_type;
+    if slot >= MAX_CONTROLLERS || !matches!(kind, motion_type::ACCEL | motion_type::GYRO)
+        || ![x, y, z].iter().all(|v| v.is_finite()) { return MYSTIC_ERR_INVALID_ARGUMENT; }
+    with_optional_input(handle, |q| q.send_controller_motion(slot, kind, x, y, z))
+}
+
+/// Battery state (0 unknown, 1 none, 2 discharging, 3 charging, 5 full) and percent
+/// (0–100, 255 unknown). MYSTIC_ERR_UNIMPLEMENTED when the host takes no battery reports.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_session_controller_battery(handle: *mut MysticSession, slot: u8, state: u8, percent: u8) -> i32 {
+    if slot >= MAX_CONTROLLERS || !matches!(state, 0 | 1 | 2 | 3 | 5) || (percent > 100 && percent != 0xFF) {
+        return MYSTIC_ERR_INVALID_ARGUMENT;
+    }
+    with_optional_input(handle, |q| q.send_controller_battery(slot, state, percent))
 }
 
 /// Live handle, serialized with start/stop. Only encrypted negotiated streams are exposed.
@@ -983,7 +1043,36 @@ mod tests {
 
     #[test]
     fn abi_version_is_stable() {
-        assert_eq!(mystic_abi_version(), 3);
+        assert_eq!(mystic_abi_version(), 4);
+    }
+
+    #[test]
+    fn controller_entry_points_take_sixteen_slots_and_only_delivered_features() {
+        use nightjar_core::input::packets::{button, capability};
+        unsafe {
+            let handle = mystic_session_new();
+            // Valid arguments reach the session check; anything else is refused first.
+            assert_eq!(mystic_session_controller(handle, 15, 0x8000, button::SPECIAL | button::PADDLE4, 0, 0, 0, 0, 0, 0), MYSTIC_ERR_NOT_STARTED);
+            assert_eq!(mystic_session_controller(handle, 16, 1, 0, 0, 0, 0, 0, 0, 0), MYSTIC_ERR_INVALID_ARGUMENT);
+            assert_eq!(mystic_session_controller(handle, 0, 1, 0x40_0000, 0, 0, 0, 0, 0, 0), MYSTIC_ERR_INVALID_ARGUMENT);
+            let all = capability::RUMBLE | capability::TRIGGER_RUMBLE | capability::ACCEL | capability::GYRO
+                | capability::BATTERY_STATE | capability::RGB_LED;
+            assert_eq!(mystic_session_controller_announce(handle, 15, 0xFFFF, 2, controller_buttons::KNOWN, all, 1), MYSTIC_ERR_NOT_STARTED);
+            for (slot, kind, buttons, caps) in [(16, 0, 0, 0), (0, 4, 0, 0), (0, 0, 0x40_0000, 0),
+                (0, 0, 0, capability::TOUCHPAD), (0, 0, 0, capability::DUAL_TOUCHPAD), (0, 0, 0, capability::HAPTICS_PCM)] {
+                assert_eq!(mystic_session_controller_announce(handle, slot, 1, kind, buttons, caps, 0), MYSTIC_ERR_INVALID_ARGUMENT, "{slot} {kind} {buttons:#x} {caps:#x}");
+            }
+            assert_eq!(mystic_session_controller_arrival_with_feedback(handle, 4, 0x10, capability::RUMBLE, 0), MYSTIC_ERR_NOT_STARTED);
+            assert_eq!(mystic_session_controller_motion(handle, 15, 2, 1.0, 2.0, 3.0), MYSTIC_ERR_NOT_STARTED);
+            assert_eq!(mystic_session_controller_motion(handle, 0, 3, 1.0, 2.0, 3.0), MYSTIC_ERR_INVALID_ARGUMENT);
+            assert_eq!(mystic_session_controller_motion(handle, 0, 1, f32::NAN, 0.0, 0.0), MYSTIC_ERR_INVALID_ARGUMENT);
+            assert_eq!(mystic_session_controller_battery(handle, 15, 5, 100), MYSTIC_ERR_NOT_STARTED);
+            assert_eq!(mystic_session_controller_battery(handle, 0, 2, 0xFF), MYSTIC_ERR_NOT_STARTED);
+            for (state, percent) in [(4, 50), (6, 50), (2, 101)] {
+                assert_eq!(mystic_session_controller_battery(handle, 0, state, percent), MYSTIC_ERR_INVALID_ARGUMENT);
+            }
+            mystic_session_free(handle);
+        }
     }
 
     #[test]

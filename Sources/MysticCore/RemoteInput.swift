@@ -5,7 +5,11 @@ public enum RemoteInputEvent: Sendable, Equatable {
     case motion(dx: Int16, dy: Int16)
     case scroll(vertical: Int16, horizontal: Int16)
     case controller(slot: UInt8, activeMask: UInt16, state: ControllerState)
-    case controllerArrival(slot: UInt8, activeMask: UInt16, capabilities: ControllerCapabilities = .analogTriggers, feedbackEpoch: UInt64 = 0)
+    case controllerArrival(slot: UInt8, activeMask: UInt16, capabilities: ControllerCapabilities = .analogTriggers, feedbackEpoch: UInt64 = 0,
+                           kind: ControllerKind = .unknown, buttons: UInt32 = ControllerButtons.classic)
+    /// Accelerometer in m/s² with gravity, gyroscope in degrees per second.
+    case controllerMotion(slot: UInt8, kind: ControllerMotionKind, x: Float, y: Float, z: Float)
+    case controllerBattery(slot: UInt8, battery: ControllerBattery)
     /// Release keys, pointer buttons and controllers accepted by the engine; discard unsent input.
     case releaseAll
 }
@@ -178,10 +182,25 @@ public struct RemoteInputQueue: Sendable {
             default:break
             }
         }
+        // Only the latest reading matters, so each sensor and battery holds one queued entry,
+        // never moved ahead of an arrival that reassigned its slot.
+        if let index=supersededIndex(event) { pending[index]=event;return true }
         guard pending.count<capacity else { pending=[.releaseAll];return false }
         pending.append(event);return true
     }
     public mutating func take() -> [RemoteInputEvent] { let result=pending;pending.removeAll(keepingCapacity:true);return result }
+    private func supersededIndex(_ event: RemoteInputEvent) -> Int? {
+        for index in pending.indices.reversed() {
+            switch (event,pending[index]) {
+            case let (.controllerMotion(a,ak,_,_,_),.controllerMotion(b,bk,_,_,_)) where a == b && ak == bk: return index
+            case let (.controllerBattery(a,_),.controllerBattery(b,_)) where a == b: return index
+            case let (.controllerMotion(a,_,_,_,_),.controllerArrival(b,_,_,_,_,_)) where a == b: return nil
+            case let (.controllerBattery(a,_),.controllerArrival(b,_,_,_,_,_)) where a == b: return nil
+            default: continue
+            }
+        }
+        return nil
+    }
 }
 
 /// Tracks only events accepted by the transport. Release retries retain failed keys for another attempt.
@@ -214,7 +233,7 @@ public struct RemoteInputDelivery {
         switch event {
         case let .key(code,down,modifiers,flags): if down { keys[code]=(modifiers,flags) } else { keys.removeValue(forKey:code) }
         case let .button(number,down): if down { buttons.insert(number) } else { buttons.remove(number) }
-        case let .controller(slot,mask,_), let .controllerArrival(slot,mask,_,_):
+        case let .controller(slot,mask,_), let .controllerArrival(slot,mask,_,_,_,_):
             if mask & (1 << slot) != 0 { controllers.insert(slot) } else { controllers.remove(slot) }
         default:break
         }

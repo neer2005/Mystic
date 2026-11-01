@@ -29,6 +29,24 @@ screens updates output policy without restarting or renegotiating the host strea
 An unavailable headroom reading is reported as unknown; macOS remains responsible
 for safely mapping the output. No HDR request is made while detached.
 
+## Display luminance for the host
+
+The host tone-maps HDR for the client's display. macOS reports EDR headroom (peak over
+SDR white), not nits, so Mystic sends Nightjar's estimate from that ratio, the rule
+its Android client uses for an HDR/SDR ratio: a peak of 300 nits times the potential
+headroom, 20% of it as the full-frame level and 0.001 nits as black. Headroom of 1 or
+less is SDR, and an estimate beyond 10,000 nits is not sent.
+
+- **Rubylight hosts** get the DisplayCaps message once the stream starts and when the
+  stream moves to another screen. macOS raises the headroom as brightness falls, so
+  each screen's first reading is kept for the whole stream, including reconnects; a
+  host that rewrote its HDR metadata for every change would restart its decoder.
+- **Other hosts** get the launch query's luminance, from the main screen's headroom
+  when the stream is planned. The engine sends it only to hosts other than Rubylight.
+
+It is an estimate, not a measurement: the panel's real peak is not available through
+a public macOS API.
+
 The latency HUD reports source transfer/primaries, optional static metadata,
 destination name, current/potential headroom and requested output mode. These are
 tags and API readings, **not measured screen luminance or proof of HDR fidelity**.
@@ -40,6 +58,9 @@ Automated tests exercise PQ/HLG and SDR transitions, potential versus current
 headroom, SDR destination mapping, invalid readings, required color attachments,
 native HEVC 10-bit decode/enqueue and metadata propagation, generation reset,
 stale-frame rejection, and window notification/attachment/replacement lifecycle.
+Display reports are tested for the estimate's values and the host's limits, the
+announcement requirement, skipped repeats, the launch value, one value per screen
+and its reuse after a reconnect.
 The existing profile tests also cover HEVC 10-bit 4:4:4 metadata propagation.
 The synthetic native test injects display readings; it does not require or prove
 physical HDR output. AV1 hardware verification remains pending on a supported Mac.

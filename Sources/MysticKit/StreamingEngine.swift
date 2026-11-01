@@ -12,6 +12,8 @@ public enum EngineError: Error, Equatable, CustomStringConvertible {
     case startFailed(String)
     case notStarted
     case inputFailed
+    /// The host does not take this optional input, such as motion or battery reports.
+    case unsupportedByHost
 
     public var description: String {
         switch self {
@@ -25,6 +27,8 @@ public enum EngineError: Error, Equatable, CustomStringConvertible {
             return "no session is running"
         case .inputFailed:
             return "the engine rejected the input event"
+        case .unsupportedByHost:
+            return "the host does not take this input"
         }
     }
 }
@@ -116,7 +120,7 @@ public enum EngineEvent: Sendable, Equatable {
 /// ``start(host:configuration:onEvent:)``.
 public final class StreamingEngine {
     /// The ABI this Swift layer was written against.
-    public static let expectedABI: UInt32 = 3
+    public static let expectedABI: UInt32 = 4
 
     private var handle: OpaquePointer?
     var clipboardHandle: OpaquePointer? { handle }
@@ -372,16 +376,33 @@ public final class StreamingEngine {
                            leftX: Int16, leftY: Int16, rightX: Int16, rightY: Int16) throws {
         try check(mystic_session_controller(requireHandle(),slot,activeMask,buttons,leftTrigger,rightTrigger,leftX,leftY,rightX,rightY))
     }
-    public func controllerArrival(slot: UInt8, activeMask: UInt16, capabilities: ControllerCapabilities = .analogTriggers, feedbackEpoch: UInt64 = 0) throws {
-        try check(mystic_session_controller_arrival_with_feedback(requireHandle(),slot,activeMask,capabilities.rawValue,feedbackEpoch))
+    public func controllerArrival(slot: UInt8, activeMask: UInt16, capabilities: ControllerCapabilities = .analogTriggers, feedbackEpoch: UInt64 = 0,
+                                  kind: ControllerKind = .unknown, buttons: UInt32 = ControllerButtons.classic) throws {
+        try check(mystic_session_controller_announce(requireHandle(),slot,activeMask,kind.rawValue,buttons,capabilities.rawValue,feedbackEpoch))
+    }
+    /// Throws `unsupportedByHost` when the host takes no motion; input carries on.
+    public func controllerMotion(slot: UInt8, kind: ControllerMotionKind, x: Float, y: Float, z: Float) throws {
+        try check(mystic_session_controller_motion(requireHandle(),slot,kind.rawValue,x,y,z))
+    }
+    /// Throws `unsupportedByHost` when the host takes no battery reports.
+    public func controllerBattery(slot: UInt8, battery: ControllerBattery) throws {
+        try check(mystic_session_controller_battery(requireHandle(),slot,battery.state.rawValue,battery.percent))
     }
 
-    /// Called only on the serialized session worker. A fixed buffer bounds host feedback.
+    /// Called only on the serialized session worker. One read holds every pending value.
     public func takeControllerFeedback() -> [ControllerFeedback] {
-        var values=Array(repeating:MysticControllerFeedback(),count:8)
+        var values=Array(repeating:MysticControllerFeedback(),count:80)
         let count=mystic_session_take_controller_feedback(requireHandle(),&values,values.count)
         guard count > 0 else { return [] }
         return values.prefix(Int(count)).compactMap { ControllerFeedback($0) }
+    }
+
+    /// Tells the host the stream display's EDR headroom. True when sent, false when the host
+    /// already has these values; throws `unsupportedByHost` when it takes no display reports.
+    public func reportDisplay(headroom: Float) throws -> Bool {
+        let result=mystic_session_display_caps(requireHandle(),headroom)
+        if result == 0 || result == 1 { return result == 1 }
+        try check(result);return false
     }
 
     public var microphoneAvailable: Bool { mystic_session_microphone_available(requireHandle()) }
@@ -413,6 +434,7 @@ public final class StreamingEngine {
         case MYSTIC_OK: return
         case MYSTIC_ERR_NOT_STARTED: throw EngineError.notStarted
         case MYSTIC_ERR_INPUT_FAILED: throw EngineError.inputFailed
+        case MYSTIC_ERR_UNIMPLEMENTED: throw EngineError.unsupportedByHost
         default: throw EngineError.invalidArgument("engine returned \(code)")
         }
     }

@@ -247,6 +247,25 @@ final class StreamRecoveryTests: XCTestCase {
             model.disconnect()
         }
     }
+    func testDisplayHeadroomGoesToTheLaunchAndOncePerScreenToTheHost() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        let model=try await running(host,sessions,RecoveryClock(),configure:{ $0.launchHeadroom={ 3.5 } })
+        XCTAssertEqual(host.launches.last?.displayHeadroom,3.5)
+        XCTAssertEqual(sessions.all[0].displayReports,[],"no screen until a view shows the stream")
+        let presenter=try XCTUnwrap(model.presenter)
+        presenter.updateDisplay(name:"Studio Display",currentHeadroom:1,potentialHeadroom:2.5)
+        try await wait { sessions.all[0].displayReports == [2.5] }
+        // Brightness changes the headroom; the host keeps the first value for that screen.
+        presenter.updateDisplay(name:"Studio Display",currentHeadroom:1,potentialHeadroom:6)
+        presenter.updateDisplay(name:"Built-in Display",currentHeadroom:1,potentialHeadroom:8)
+        try await wait { sessions.all[0].displayReports == [2.5,2.5,8] }
+        model.processMediaSnapshot(picture())
+        sessions.all[0].emit(.terminated(code:-100))
+        try await wait { sessions.all.count == 2 && model.phase == .streaming }
+        try XCTUnwrap(model.presenter).updateDisplay(name:"Built-in Display",currentHeadroom:1,potentialHeadroom:3)
+        try await wait { sessions.all[1].displayReports == [8] }
+        model.disconnect()
+    }
     private func running(_ host: RecoveryHost,_ sessions: RecoverySessions,_ clock: RecoveryClock,
                          reconnect: Bool = true,adaptive: Bool = false,pacing: FramePacingMode = .lowLatency,
                          configure: (ConnectionModel) -> Void = { _ in }) async throws -> ConnectionModel {
@@ -314,6 +333,9 @@ private final class RecoverySession: StreamSessionService, @unchecked Sendable {
         return try recoveryDecode(#"{"available":true,"pending":false,"result":{"kbps":30000,"fpsMilliHz":59940,"bitrateStatus":2,"bitrateReason":4,"fpsStatus":2,"fpsReason":5},"error":null}"#)
     }
     func takeControllerFeedback() async -> [ControllerFeedback] { [] }
+    private var reports:[Float]=[]
+    var displayReports:[Float] { lock.withLock { reports } }
+    func reportDisplay(headroom:Float) async -> DisplayReport { lock.withLock { reports.append(headroom) };return .sent }
     func requestVideoRecovery() {}
     func setMicrophoneMuted(_ muted:Bool) {}
     func send(_ event:RemoteInputEvent)->Bool { true }

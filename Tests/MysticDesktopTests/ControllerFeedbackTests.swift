@@ -16,8 +16,8 @@ final class ControllerFeedbackTests: XCTestCase {
             send:{ events.append($0);return true },failure:{ XCTFail("Input failure") })
         manager.setEnabled(true)
         let epoch=manager.feedbackEpoch
-        XCTAssertTrue(events.contains(.controllerArrival(slot:0,activeMask:3,capabilities:[.analogTriggers,.rumble],feedbackEpoch:epoch)))
-        XCTAssertTrue(events.contains(.controllerArrival(slot:1,activeMask:3,capabilities:[.analogTriggers,.rumble,.triggerRumble],feedbackEpoch:epoch)))
+        XCTAssertTrue(events.contains(.arrival(first,slot:0,mask:3,capabilities:[.analogTriggers,.rumble],epoch:epoch)))
+        XCTAssertTrue(events.contains(.arrival(second,slot:1,mask:3,capabilities:[.analogTriggers,.rumble,.triggerRumble],epoch:epoch)))
         let rumble=ControllerFeedback(slot:0,kind:.rumble,first:0x1234,second:UInt16.max,epoch:epoch)
         let triggers=ControllerFeedback(slot:1,kind:.triggerRumble,first:700,second:900,epoch:epoch)
         manager.applyFeedback([rumble,triggers,
@@ -65,7 +65,7 @@ final class ControllerFeedbackTests: XCTestCase {
         manager.applyFeedback([feedback,feedback],epoch:manager.feedbackEpoch)
         XCTAssertEqual(warnings.count,1);XCTAssertEqual(motor.stops,1)
         XCTAssertNotNil(controller.extendedGamepad?.valueChangedHandler)
-        XCTAssertTrue(events.contains(.controllerArrival(slot:0,activeMask:1,capabilities:.analogTriggers,feedbackEpoch:manager.feedbackEpoch)))
+        XCTAssertTrue(events.contains(.arrival(controller,slot:0,mask:1,epoch:manager.feedbackEpoch)))
         manager.setEnabled(false)
     }
     func testMissingHapticsKeepBasicControllerSupport() {
@@ -74,7 +74,7 @@ final class ControllerFeedbackTests: XCTestCase {
         let manager=StreamControllers(connectedDevices:{ [controller] },makeHaptics:{ _ in nil },
             send:{ events.append($0);return true },failure:{ XCTFail("Input failure") })
         manager.setEnabled(true)
-        XCTAssertTrue(events.contains(.controllerArrival(slot:0,activeMask:1,feedbackEpoch:manager.feedbackEpoch)))
+        XCTAssertTrue(events.contains(.arrival(controller,slot:0,mask:1,epoch:manager.feedbackEpoch)))
         manager.applyFeedback([.init(slot:0,kind:.rumble,first:1,second:2,epoch:manager.feedbackEpoch)],epoch:manager.feedbackEpoch)
         XCTAssertNotNil(controller.extendedGamepad?.valueChangedHandler)
         manager.setEnabled(false)

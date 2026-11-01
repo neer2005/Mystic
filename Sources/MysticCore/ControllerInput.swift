@@ -23,18 +23,58 @@ public struct ControllerState: Sendable, Equatable {
     }
 }
 
-/// Moonlight controller-arrival capability bits implemented by Mystic.
+/// Moonlight controller-arrival capability bits implemented by Mystic. Touchpad bits are
+/// absent: GameController gives no reliable finger-down state, so no contacts are sent.
 public struct ControllerCapabilities: OptionSet, Sendable, Equatable {
     public let rawValue: UInt16
     public init(rawValue: UInt16) { self.rawValue=rawValue }
     public static let analogTriggers=Self(rawValue:0x01)
     public static let rumble=Self(rawValue:0x02)
     public static let triggerRumble=Self(rawValue:0x04)
+    public static let accelerometer=Self(rawValue:0x10)
+    public static let gyroscope=Self(rawValue:0x20)
+    public static let battery=Self(rawValue:0x40)
+    public static let light=Self(rawValue:0x80)
 }
 
-/// An owned snapshot of the host's latest motor amplitudes.
+/// The arrival's controller type, which picks the host's emulated pad.
+public enum ControllerKind: UInt8, Sendable {
+    case unknown=0, xbox=1, playStation=2, nintendo=3
+}
+
+/// Moonlight button flags (`LI_*_FLAG`).
+public enum ControllerButtons {
+    public static let guide: UInt32=0x400
+    public static let paddles: [UInt32]=[0x01_0000,0x02_0000,0x04_0000,0x08_0000]
+    public static let touchpad: UInt32=0x10_0000
+    public static let misc: UInt32=0x20_0000
+    /// D-pad, Start/Back, stick clicks, shoulders and face buttons: every extended gamepad.
+    public static let classic: UInt32=0xF3FF
+}
+
+/// Moonlight's motion sensor types (`LI_MOTION_TYPE_*`).
+public enum ControllerMotionKind: UInt8, Sendable {
+    case accelerometer=1, gyroscope=2
+}
+
+/// A battery report in Moonlight's terms (`LI_BATTERY_STATE_*`, percent 255 when unknown).
+public struct ControllerBattery: Sendable, Equatable {
+    public enum State: UInt8, Sendable { case unknown=0, notPresent=1, discharging=2, charging=3, full=5 }
+    public let state: State
+    public let percent: UInt8
+    public init(state: State,percent: UInt8) { self.state=state;self.percent=percent }
+    /// `level` is 0...1; anything else is an unknown percentage.
+    public init(state: State,level: Float) {
+        self.state=state
+        percent = level.isFinite && (0...1).contains(level) ? UInt8((level*100).rounded()) : 0xFF
+    }
+}
+
+/// An owned snapshot of the host's latest request for one controller output: motor
+/// amplitudes, the light colour (`first` red << 8 | green, `second` blue), or a motion
+/// sensor's report rate in Hz (`first`; zero stops it).
 public struct ControllerFeedback: Sendable, Equatable {
-    public enum Kind: UInt8, Sendable { case rumble=1, triggerRumble=2 }
+    public enum Kind: UInt8, Sendable { case rumble=1, triggerRumble=2, light=3, accelerometerRate=4, gyroscopeRate=5 }
     public let slot: UInt8
     public let kind: Kind
     public let first: UInt16

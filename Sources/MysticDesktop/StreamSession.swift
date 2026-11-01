@@ -44,7 +44,11 @@ protocol StreamSessionService: AnyObject, Sendable {
     func trialBegin(undo: Bool,liveKbps: UInt32) async -> Result<UInt32,TrialRefusal>
     func trialApplied(undo: Bool,previousKbps: UInt32,appliedKbps: UInt32) async
     func trialClear() async
+    /// The display's EDR headroom; whether the host took it (unchanged values count).
+    func reportDisplay(headroom: Float) async -> DisplayReport
 }
+
+enum DisplayReport: Equatable, Sendable { case sent, unchanged, unsupported, failed }
 
 /// The app's side of a stream doctor tick: its own recent timings, NaN when unknown.
 struct HealthTimings: Sendable {
@@ -59,6 +63,7 @@ extension StreamSessionService {
     func trialBegin(undo: Bool,liveKbps: UInt32) async -> Result<UInt32,TrialRefusal> { .failure(.unavailable) }
     func trialApplied(undo: Bool,previousKbps: UInt32,appliedKbps: UInt32) async {}
     func trialClear() async {}
+    func reportDisplay(headroom: Float) async -> DisplayReport { .unsupported }
     func liveRates(kbps: UInt32,fpsMilliHz: UInt32) async throws -> LiveRates { throw HostConnectionError("Live rate controls are unavailable.") }
     func clipboardStep(active: Bool,baseline: Bool,text: String?) async throws -> ClipboardSyncResult {
         ClipboardSyncResult(available:false,text:nil)
@@ -174,6 +179,14 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
             continuation.resume(returning:acceptingInput ? engine.takeControllerFeedback() : [])
         } }
     }
+    func reportDisplay(headroom: Float) async -> DisplayReport {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            guard acceptingInput else { continuation.resume(returning:.failed);return }
+            do { continuation.resume(returning:try engine.reportDisplay(headroom:headroom) ? .sent : .unchanged) }
+            catch EngineError.unsupportedByHost { continuation.resume(returning:.unsupported) }
+            catch { continuation.resume(returning:.failed) }
+        } }
+    }
     func clipboardStep(active: Bool,baseline: Bool,text: String?) async throws -> ClipboardSyncResult {
         try await withCheckedThrowingContinuation { continuation in queue.async { [self] in
             do {
@@ -227,7 +240,13 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
         case let .controller(slot,mask,s):
             try engine.controller(slot:slot,activeMask:mask,buttons:s.buttons,leftTrigger:s.leftTrigger,rightTrigger:s.rightTrigger,
                                   leftX:s.leftX,leftY:s.leftY,rightX:s.rightX,rightY:s.rightY)
-        case let .controllerArrival(slot,mask,capabilities,epoch): try engine.controllerArrival(slot:slot,activeMask:mask,capabilities:capabilities,feedbackEpoch:epoch)
+        case let .controllerArrival(slot,mask,capabilities,epoch,kind,buttons):
+            try engine.controllerArrival(slot:slot,activeMask:mask,capabilities:capabilities,feedbackEpoch:epoch,kind:kind,buttons:buttons)
+        // A host without motion or battery reports refuses them; the stream carries on.
+        case let .controllerMotion(slot,kind,x,y,z):
+            do { try engine.controllerMotion(slot:slot,kind:kind,x:x,y:y,z:z) } catch EngineError.unsupportedByHost {}
+        case let .controllerBattery(slot,battery):
+            do { try engine.controllerBattery(slot:slot,battery:battery) } catch EngineError.unsupportedByHost {}
         case .releaseAll: break
         }
     }
