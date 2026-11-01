@@ -288,6 +288,13 @@ struct FramePacingTests {
         #expect(pacer.holdMicros == 11000)
         pacer.reset();#expect(pacer.refreshGrid != nil,"a new generation keeps the display")
     }
+    @Test func theShownCadenceSummarisesEachStage() {
+        var cadence=ShownCadence()
+        #expect(cadence.stageSummary.isEmpty)
+        for value in [1,2,3] as [Int64] { cadence.record(stages:.init(toEnqueue:value,forDrawable:value*10,encode:0,gpu:0,toScreen:value*100)) }
+        #expect(cadence.stageSummary.map(\.name) == ["to enqueue","for drawable","encode","GPU","to screen"])
+        #expect(cadence.stageSummary[0].p50 == 2 && cadence.stageSummary[4].p95 == 200)
+    }
     @Test func theShownCadenceMeasuresRealPresents() {
         var cadence=ShownCadence()
         #expect(cadence.summary == nil)
