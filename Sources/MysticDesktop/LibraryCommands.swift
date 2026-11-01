@@ -33,10 +33,16 @@ public struct LibraryCommands: Commands {
                 .disabled(findApps == nil)
         }
         CommandGroup(before:.toolbar) {
-            // Toggles rather than a Picker: menu pickers ignore .disabled, and Home has no list layout.
-            layoutToggle("as Grid",value:"grid",key:"1")
-            layoutToggle("as List",value:"list",key:"2")
-            Divider()
+            // An inline picker, present only for the host library (Home has no list layout).
+            // A Toggle anywhere in the View menu makes AppKit drop its Enter Full Screen item,
+            // and a menu picker cannot be disabled, so the options come and go instead.
+            if let layout=actions?.layout {
+                Picker("Library View",selection:layout) {
+                    Text("as Grid").tag("grid").keyboardShortcut("1",modifiers:.command)
+                    Text("as List").tag("list").keyboardShortcut("2",modifiers:.command)
+                }.pickerStyle(.inline)
+                Divider()
+            }
         }
         CommandMenu("Library") {
             Button(actions?.play?.title ?? "Start Stream") { actions?.play?.action() }
@@ -48,10 +54,5 @@ public struct LibraryCommands: Commands {
                 .keyboardShortcut("r",modifiers:.command)
                 .disabled(actions?.refresh == nil)
         }
-    }
-    private func layoutToggle(_ title: String,value: String,key: KeyEquivalent) -> some View {
-        Toggle(title,isOn:Binding(get:{ actions?.layout?.wrappedValue == value },set:{ if $0 { actions?.layout?.wrappedValue=value } }))
-            .keyboardShortcut(key,modifiers:.command)
-            .disabled(actions?.layout == nil)
     }
 }

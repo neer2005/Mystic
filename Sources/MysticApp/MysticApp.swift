@@ -6,6 +6,7 @@ import MysticDesktop
 struct MysticApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = ConnectionModel()
+    init() { FullScreenCommands.suppressAppKitItem() }
     var body: some Scene {
         Window("Mystic", id: "library") { HostLibraryView(model: model).onAppear { appDelegate.model = model } }
             .defaultSize(width: 1200, height: 720)
@@ -13,6 +14,7 @@ struct MysticApp: App {
                 SidebarCommands()
                 // Show Toolbar and Customize Toolbar…; the stream toolbar keeps secondary items there.
                 ToolbarCommands()
+                FullScreenCommands()
                 LibraryCommands()
                 StreamCommands(model:model)
                 CommandGroup(after: .newItem) {

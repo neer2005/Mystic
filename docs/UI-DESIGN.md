@@ -72,9 +72,9 @@ Standard `Window`, `Help`. Every item backed by a `Commands` group.
 
 - **File:** Connect to Host ⌘K, Disconnect ⇧⌘D (disabled with nothing to disconnect).
 - **Edit:** Find Apps ⌘F, scoped to the focused library window.
-- **View:** as Grid ⌘1 / as List ⌘2 (host library only; disabled on Home), Show/Hide
-  Toolbar, Customize Toolbar…, Show/Hide Latency HUD ⌥⌘L, the sidebar command and the
-  system's Enter Full Screen.
+- **View:** as Grid ⌘1 / as List ⌘2 (present for the host library only), Show/Hide
+  Toolbar, Customize Toolbar…, Show/Hide Latency HUD ⌥⌘L, the sidebar command and
+  Enter/Exit Full Screen ⌃⌘F.
 - **Library:** Start Stream / Resume Stream (or Play on *PC* for a Home game installed
   on one PC), Add to/Remove from Favourites (Home), Refresh Library ⌘R. Items follow
   the focused library window and its selection.
@@ -92,9 +92,27 @@ The stream window's toolbar holds Capture Mouse, Mute Sound, Mute Microphone, Se
 and Graphics, and Disconnect; Retry Audio appears only while the output is
 unavailable. Clipboard and Latency HUD are available through Customize Toolbar. The
 window title is the streamed app and the subtitle is the input state, including the
-release chord. Full screen uses the system command and green button rather than a
+release chord. Full screen uses the View menu command and green button rather than a
 toolbar button. The stream window is omitted from the Window menu, because an empty
-stream window has no use.
+stream window has no use. Ending a stream closes the stream window, which also leaves
+full screen; a stream that ended with an error keeps its window, out of full screen, to
+show the message.
+
+### Full screen in the View menu
+
+AppKit adds its own Enter Full Screen item to the View menu, but only for some windows:
+it never appeared while the stream window was in front, although that window has
+`fullScreenPrimary` and ⌃⌘F worked. The window's style, behaviour, toolbar, role, first
+responder and scene commands were ruled out. Mystic therefore owns the item
+(`FullScreenCommands`): each window publishes its full-screen state and toggle as a
+focused value, so the title and availability follow the focused window, and AppKit's
+item is turned off with a registered default (`NSFullScreenMenuItemEverywhere`) from the
+App's initializer, which is early enough and writes nothing to preferences. The item
+shows ⌃⌘F: SwiftUI cannot show AppKit's Globe-F, which the system still honours.
+
+Toggles anywhere in the View menu also made AppKit drop its item, so as Grid / as List is
+an inline picker that is present only while the host library is focused (a menu picker
+cannot be disabled).
 
 ## Feel
 
