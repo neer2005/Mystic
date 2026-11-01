@@ -41,7 +41,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | Full-chroma/true 4:4:4 | Pending | Codec/presentation integration and supported-hardware checks, with a decoder check as above |
 | Metal renderer | Experimental, off by default | Live HDR on Big Dawg; SDR, sizing, full screen and screen latency untested; see METAL-RENDERER.md |
 | Upscaling | Pending | Choose Mac-native rendering path |
-| Native pacing, HUD | Implemented, partial parity | Low Latency/Balanced; Balanced with FPS limit, Smoothest video, PTS Metal renderer, VRR/phase-lock remain |
+| Native pacing, HUD | Implemented, partial parity, live validation pending | All four of Nightjar's frame pacings on both renderers, automated checks only; see FRAME-PACING.md. PC frame times (`present_clock.rs`), VRR and phase-lock remain |
 | Performance overlay modes and host telemetry | Implemented, live validation pending | Nightjar's Compact, Statistics and Debug with the shared health mark and hardware poll; see LATENCY.md |
 | Fractional refresh rate | Implemented, live validation pending | The screen's exact rate goes in `client_refresh_rate_x100` at launch and in the ANNOUNCE, as Nightjar's desktop client sends it; see FRAME-PACING.md |
 | Virtual display controls, display arrangement, PC render resolution and scaling | Implemented, partial live validation | Per host and game, each row following what the host reports. Extend confirmed in Big Dawg's log on launch and resume; other choices not yet tried; see SETTINGS.md |

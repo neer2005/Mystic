@@ -77,12 +77,12 @@ public final class DisplayLayerPresenter {
          rendererClock: (@MainActor () -> CMTime)? = nil,
          onFailure: @escaping @Sendable (String) -> Void = { _ in }) {
         self.telemetry=telemetry;self.onFailure=onFailure;pacingMode=mode;pacer=FramePacer(mode:mode);self.rendererClock=rendererClock
-        mailbox=PresentationMailbox(telemetry:telemetry)
+        mailbox=PresentationMailbox(telemetry:telemetry,capacity:mode.retainedFrames)
         let layer=AVSampleBufferDisplayLayer();self.layer=layer
         let native=synchronizer.sampleBufferReceiver(adding:layer.sampleBufferRenderer)
         let timeline=metalClock
         let metal=renderer == .metal && receiverOverride == nil
-            ? try? MetalPresentationReceiver(clock:{ timeline.now() }) : nil
+            ? try? MetalPresentationReceiver(clock:{ timeline.now() },capacity:mode.retainedFrames) : nil
         self.metal=metal
         receiver=receiverOverride ?? metal ?? NativePresentationReceiver(native)
         synchronizer.delaysRateChangeUntilHasSufficientMediaData=false
@@ -141,14 +141,14 @@ public final class DisplayLayerPresenter {
             }
             if !anchored { synchronizer.setRate(1,time:.zero);metalClock.restart();anchored=true }
             while mailbox.isCurrent(frame.generation) {
-                if mailbox.hasNewerFrame(than:frame) {
+                let now=VideoTelemetry.nowMicros()
+                let age=frame.timing.flatMap { now >= $0.decodedMicros ? now-$0.decodedMicros : nil }
+                if mailbox.hasNewerFrame(than:frame),pacer.isSuperseded(ageMicros:age,frameRate:frame.frameRate) {
                     telemetry?.presentationDrop(generation:frame.generation,reason:.superseded);return
                 }
                 guard let rendererNow=Self.micros(rendererClock?() ?? (metal == nil ? synchronizer.currentTime() : metalClock.now())) else {
                     throw VideoDecoderError.invalidSample("invalid renderer clock")
                 }
-                let now=VideoTelemetry.nowMicros()
-                let age=frame.timing.flatMap { now >= $0.decodedMicros ? now-$0.decodedMicros : nil }
                 switch pacer.plan(sourcePTS:sourcePTS,rendererNow:rendererNow,ageMicros:age,frameRate:frame.frameRate).action {
                 case .drop(let reason): telemetry?.presentationDrop(generation:frame.generation,reason:reason);return
                 case .recoverTimestamp:
@@ -217,17 +217,18 @@ public final class DisplayLayerPresenter {
     }
 }
 
-/// One pending image plus one suspended enqueue. Counters share the mailbox lock's ordering.
+/// Up to `capacity` pending images plus one suspended enqueue. Counters share the mailbox lock's ordering.
 final class PresentationMailbox: @unchecked Sendable {
     private let lock=NSLock()
     private let telemetry: VideoTelemetry?
     private var generation: UInt64=0
-    private var frame: DecodedVideoFrame?
+    private let capacity: Int
+    private var frames: [DecodedVideoFrame]=[]
     private var inFlightGeneration: UInt64?
     private var scheduled=false,dirty=false,wakeScheduled=false
-    init(telemetry: VideoTelemetry? = nil) { self.telemetry=telemetry }
+    init(telemetry: VideoTelemetry? = nil,capacity: Int = 1) { self.telemetry=telemetry;self.capacity=max(1,capacity) }
     private func reportQueue() {
-        telemetry?.presentationQueue(generation:generation,depth:(frame == nil ? 0 : 1) + (inFlightGeneration == generation ? 1 : 0))
+        telemetry?.presentationQueue(generation:generation,depth:frames.count + (inFlightGeneration == generation ? 1 : 0))
     }
     func reserveWake() -> Bool {
         lock.lock();defer { lock.unlock() };guard !wakeScheduled else { return false };wakeScheduled=true;return true
@@ -235,8 +236,8 @@ final class PresentationMailbox: @unchecked Sendable {
     func finishWake() -> UInt64 { lock.lock();defer { lock.unlock() };wakeScheduled=false;return generation }
     func reset(generation: UInt64) -> Bool {
         lock.lock();defer { lock.unlock() };guard generation >= self.generation else { return false }
-        let discarded=UInt64((frame == nil ? 0 : 1) + (inFlightGeneration == self.generation ? 1 : 0))
-        self.generation=generation;frame=nil;inFlightGeneration=nil;dirty=true
+        let discarded=UInt64(frames.count + (inFlightGeneration == self.generation ? 1 : 0))
+        self.generation=generation;frames=[];inFlightGeneration=nil;dirty=true
         if discarded > 0 { telemetry?.presentationDrop(generation:generation,reason:.reset,count:discarded) }
         reportQueue()
         if scheduled { return false };scheduled=true;return true
@@ -246,24 +247,27 @@ final class PresentationMailbox: @unchecked Sendable {
         guard image.presentationTime.isNumeric else {
             telemetry?.presentationDrop(generation:generation,reason:.invalidTimestamp);return false
         }
-        if let frame,CMTimeCompare(image.presentationTime,frame.presentationTime) <= 0 {
+        if let last=frames.last,CMTimeCompare(image.presentationTime,last.presentationTime) <= 0 {
             telemetry?.presentationDrop(generation:generation,reason:.outOfOrder);return false
         }
-        if frame != nil { telemetry?.presentationDrop(generation:generation,reason:.superseded) }
-        frame=image;dirty=true;reportQueue()
+        if frames.count >= capacity {
+            frames.removeFirst();telemetry?.presentationDrop(generation:generation,reason:.superseded)
+        }
+        frames.append(image);dirty=true;reportQueue()
         if scheduled { return false };scheduled=true;return true
     }
     func take() -> (generation: UInt64,frame: DecodedVideoFrame?) {
         lock.lock();defer { lock.unlock() };dirty=false
-        let result=(generation,frame);if frame != nil { inFlightGeneration=generation };frame=nil;reportQueue();return result
+        let frame=frames.isEmpty ? nil : frames.removeFirst()
+        if frame != nil { inFlightGeneration=generation };reportQueue();return (generation,frame)
     }
     func finish() -> Bool {
         lock.lock();defer { lock.unlock() };inFlightGeneration=nil;reportQueue()
-        if dirty { return true };scheduled=false;return false
+        if dirty || !frames.isEmpty { return true };scheduled=false;return false
     }
     func hasNewerFrame(than current: DecodedVideoFrame) -> Bool {
         lock.lock();defer { lock.unlock() }
-        guard let frame,frame.generation == current.generation else { return false }
+        guard let frame=frames.first,frame.generation == current.generation else { return false }
         return CMTimeCompare(frame.presentationTime,current.presentationTime) > 0
     }
     func isCurrent(_ value: UInt64) -> Bool { lock.lock();defer { lock.unlock() };return value == generation }

@@ -151,7 +151,7 @@ struct VideoSettingsFields: View {
             Picker("Frame Pacing",selection:$value.framePacing) {
                 ForEach(FramePacingMode.allCases,id:\.self) { mode in Text(mode.label).tag(mode) }
             }
-            Text(value.framePacing == .lowLatency ? "Presents decoded frames without intentional buffering." : "Uses about one frame of buffering to absorb arrival jitter.")
+            Text(value.framePacing.detail)
                 .font(.caption).foregroundStyle(.secondary)
             Picker("Codec",selection:$value.codec) {
                 Text("Automatic").tag("auto");Text("H.264").tag("h264");Text("HEVC").tag("hevc");Text("AV1").tag("av1")
