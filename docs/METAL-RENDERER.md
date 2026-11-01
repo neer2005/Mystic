@@ -144,14 +144,15 @@ fixed 100 Mbps, on a 120 Hz panel. One run each, read at 60 s. Medians in ms, an
 - Turning `displaySyncEnabled` off about halved it in both window and full screen, with more renderer drops
   (18 against 3, and 93 against 36). It is not a setting yet: tearing has not been looked at.
 - "Shown" is Metal's `presentedTime`, and whether it means the same with sync off is unconfirmed; a camera would settle it.
-- That full screen beat a window with HDR but not with SDR is unexplained, and full screen was requested, not checked.
+- That full screen beat a window with HDR but not with SDR is unexplained. The window state was not logged here, and later
+  runs meant to be windowed logged full screen, so treat the window and full screen labels in this table as unconfirmed.
 - One idle run each, with no game load. The display layer cannot report this, so it is not compared.
 
 ### Display sync on a game
 
 Low Latency on Metal now turns `displaySyncEnabled` off. DRAGON BALL: Sparking! ZERO's title screen, HDR, 120 fps
-negotiated, fixed 100 Mbps, 2026-11-01: four 100-second runs of each, read at 30, 60 and 90 s. All eight were in full screen,
-including the ones meant to be windowed, because the window reopened that way, so a window is not covered on a game.
+negotiated, fixed 100 Mbps, 2026-11-01: four 100-second runs of each, read at 30, 60 and 90 s. All eight logged full screen,
+including the ones meant to be windowed, for a reason not yet known, so a window is not covered on a game.
 
 | | Decoded to screen p50, ms | p95, ms | Renderer drops at 90 s | Uneven |
 | --- | --- | --- | --- | --- |
