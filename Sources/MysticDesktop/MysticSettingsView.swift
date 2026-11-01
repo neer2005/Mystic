@@ -37,6 +37,9 @@ public struct MysticSettingsView: View {
                 Form {
                     Section("Stream Defaults") { VideoPreferencesView(model:model) }
                     Section("Picture") {
+                        Picker("Renderer",selection:$model.videoRenderer) {
+                            ForEach(VideoRendererKind.allCases,id:\.self) { Text($0.label).tag($0) }
+                        }.disabled(model.hasSession || model.isBusy)
                         Picker("Video Size",selection:$model.videoSizing) {
                             ForEach(VideoSizing.allCases,id:\.self) { Text($0.label).tag($0) }
                         }

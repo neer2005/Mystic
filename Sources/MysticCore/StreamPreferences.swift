@@ -26,6 +26,7 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public var hostDisplay: String? = nil // Missing in older documents; the PC's own setting.
     public var renderScalePercent: Int? = nil // Missing in older documents; 100, as Nightjar.
     public var displayScalePercent: Int? = nil // Missing in older documents; the PC's own.
+    public var videoRenderer: String? = nil // Missing in older documents; the display layer.
     public var videoSizing: String? = nil // Missing in older documents; Fit, as Nightjar.
     public var alignVideoTop: Bool? = nil // Missing in older documents; defaults off.
     public var playAudioOnHost: Bool? = nil // Missing in older documents; defaults off.
@@ -109,6 +110,7 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
         value.renderScalePercent=value.renderScalePercent.map { min(HostDisplayMode.renderScales.upperBound,max(HostDisplayMode.renderScales.lowerBound,$0)) }
         // A scale Windows does not offer would make the PC refuse the launch.
         if let scale=value.displayScalePercent,!HostDisplayMode.displayScales.contains(scale) { value.displayScalePercent=nil }
+        if let mode=value.videoRenderer,VideoRendererKind(rawValue:mode) == nil { value.videoRenderer=nil }
         if let mode=value.videoSizing,VideoSizing(rawValue:mode) == nil { value.videoSizing=nil }
         value.input=value.input?.validated()
         if let mode=value.framePacing,FramePacingMode(rawValue:mode) == nil { value.framePacing=nil }
@@ -178,6 +180,12 @@ public struct HostDisplaySupport: Codable, Equatable, Sendable {
     public init(virtualDisplay: HostFeatureAvailability,modes: HostFeatureAvailability,scale: HostFeatureAvailability) {
         self.virtualDisplay=virtualDisplay;self.modes=modes;self.scale=scale
     }
+}
+
+/// What draws the stream.
+public enum VideoRendererKind: String, Codable, CaseIterable, Sendable {
+    case displayLayer,metal
+    public var label: String { self == .metal ? "Metal (Experimental)" : "System" }
 }
 
 /// How the picture fills the stream window, as Nightjar's "Video size".

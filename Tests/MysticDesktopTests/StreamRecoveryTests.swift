@@ -1,3 +1,5 @@
+import QuartzCore
+import AVFoundation
 import XCTest
 import Foundation
 import MysticKit
@@ -597,6 +599,18 @@ final class StreamRecoveryTests: XCTestCase {
         XCTAssertTrue(launch.virtualDisplay);XCTAssertEqual(launch.hostDisplay,.exclusive)
         XCTAssertEqual(launch.renderScalePercent,150);XCTAssertEqual(launch.displayScalePercent,200)
         model.disconnect()
+    }
+    func testTheChosenRendererDrawsTheStreamAndTheViewShowsIt() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        let model=try await running(host,sessions,RecoveryClock(),configure:{ $0.videoRenderer = .metal })
+        let presenter=try XCTUnwrap(model.presenter)
+        XCTAssertEqual(presenter.renderer,.metal);XCTAssertTrue(presenter.surface is CAMetalLayer)
+        let view=RemoteVideoView(presenter:presenter,capture:nil)
+        XCTAssertTrue(view.layer?.sublayers?.contains(presenter.surface) == true)
+        model.disconnect()
+        let plain=try await running(RecoveryHost(),RecoverySessions(),RecoveryClock())
+        XCTAssertEqual(plain.presenter?.renderer,.displayLayer);XCTAssertTrue(plain.presenter?.surface is AVSampleBufferDisplayLayer)
+        plain.disconnect()
     }
     func testAutomaticQualityStartsAtTheChosenMinimums() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions()

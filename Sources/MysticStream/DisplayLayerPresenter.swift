@@ -25,6 +25,13 @@ private final class NativePresentationReceiver: PresentationReceiver {
 @MainActor
 public final class DisplayLayerPresenter {
     public let layer: AVSampleBufferDisplayLayer
+    /// The layer the owning view shows; `layer`, unless Metal is drawing.
+    public var surface: CALayer { metal?.layer ?? layer }
+    /// What is drawing the stream, which is the display layer if Metal could not start.
+    public var renderer: VideoRendererKind { metal == nil ? .displayLayer : .metal }
+    private let metal: MetalPresentationReceiver?
+    /// Metal's timeline: the synchronizer's clock needs samples it will never get on this path.
+    private let metalClock=MetalTimeline()
     public let pacingMode: FramePacingMode
     public let videoOutput = VideoOutputState()
     public private(set) var videoSize: CGSize = .zero { didSet { if videoSize != oldValue { applyLayout() } } }
@@ -44,8 +51,10 @@ public final class DisplayLayerPresenter {
     private func applyLayout() {
         let rect=videoRect
         CATransaction.begin();CATransaction.setDisableActions(true)
-        layer.frame=rect.isEmpty ? container : rect
+        let frame=rect.isEmpty ? container : rect
+        surface.frame=frame
         CATransaction.commit()
+        metal?.setDrawableSize(CGSize(width:frame.width*pixelsPerPoint,height:frame.height*pixelsPerPoint))
     }
     private let telemetry: VideoTelemetry?
     private let synchronizer=AVSampleBufferRenderSynchronizer()
@@ -60,18 +69,22 @@ public final class DisplayLayerPresenter {
     private let onFailure: @Sendable (String) -> Void
     var decoderFailure: (@Sendable (UInt64,String) -> Void)?
 
-    public convenience init(telemetry: VideoTelemetry? = nil,mode: FramePacingMode = .lowLatency,
+    public convenience init(telemetry: VideoTelemetry? = nil,mode: FramePacingMode = .lowLatency,renderer: VideoRendererKind = .displayLayer,
                             onFailure: @escaping @Sendable (String) -> Void = { _ in }) {
-        self.init(telemetry:telemetry,mode:mode,receiverOverride:nil,onFailure:onFailure)
+        self.init(telemetry:telemetry,mode:mode,renderer:renderer,receiverOverride:nil,onFailure:onFailure)
     }
-    init(telemetry: VideoTelemetry?,mode: FramePacingMode,receiverOverride: (any PresentationReceiver)?,
+    init(telemetry: VideoTelemetry?,mode: FramePacingMode,renderer: VideoRendererKind = .displayLayer,receiverOverride: (any PresentationReceiver)?,
          rendererClock: (@MainActor () -> CMTime)? = nil,
          onFailure: @escaping @Sendable (String) -> Void = { _ in }) {
         self.telemetry=telemetry;self.onFailure=onFailure;pacingMode=mode;pacer=FramePacer(mode:mode);self.rendererClock=rendererClock
         mailbox=PresentationMailbox(telemetry:telemetry)
         let layer=AVSampleBufferDisplayLayer();self.layer=layer
         let native=synchronizer.sampleBufferReceiver(adding:layer.sampleBufferRenderer)
-        receiver=receiverOverride ?? NativePresentationReceiver(native)
+        let timeline=metalClock
+        let metal=renderer == .metal && receiverOverride == nil
+            ? try? MetalPresentationReceiver(clock:{ timeline.now() }) : nil
+        self.metal=metal
+        receiver=receiverOverride ?? metal ?? NativePresentationReceiver(native)
         synchronizer.delaysRateChangeUntilHasSufficientMediaData=false
         // `videoRect` already holds the shape; the layer exactly covers it.
         layer.videoGravity = .resize
@@ -119,19 +132,19 @@ public final class DisplayLayerPresenter {
             if pacer.hasAcceptedFrame { telemetry?.presentationResynchronize(generation:work.generation) }
             displayedGeneration=work.generation;pacer.reset();anchored=false;videoSize = .zero
             videoOutput.reset();configureDynamicRange()
-            synchronizer.setRate(0,time:.zero)
+            synchronizer.setRate(0,time:.zero);metalClock.restart()
         }
         guard let frame=work.frame else { return }
         do {
             guard let sourcePTS=Self.micros(frame.presentationTime) else {
                 telemetry?.presentationDrop(generation:frame.generation,reason:.invalidTimestamp);return
             }
-            if !anchored { synchronizer.setRate(1,time:.zero);anchored=true }
+            if !anchored { synchronizer.setRate(1,time:.zero);metalClock.restart();anchored=true }
             while mailbox.isCurrent(frame.generation) {
                 if mailbox.hasNewerFrame(than:frame) {
                     telemetry?.presentationDrop(generation:frame.generation,reason:.superseded);return
                 }
-                guard let rendererNow=Self.micros(rendererClock?() ?? synchronizer.currentTime()) else {
+                guard let rendererNow=Self.micros(rendererClock?() ?? (metal == nil ? synchronizer.currentTime() : metalClock.now())) else {
                     throw VideoDecoderError.invalidSample("invalid renderer clock")
                 }
                 let now=VideoTelemetry.nowMicros()
@@ -185,6 +198,10 @@ public final class DisplayLayerPresenter {
     /// Renderer-reported drops are separate from Mystic's queue/policy drops; no scanout claim.
     public func refreshRendererMetrics() async {
         guard let generation=displayedGeneration,mailbox.isCurrent(generation) else { return }
+        if let metal {
+            telemetry?.rendererMetrics(generation:generation,dropped:metal.droppedFrames,corrupted:nil)
+            return
+        }
         let metrics: AVVideoPerformanceMetrics?=await withCheckedContinuation { continuation in
             layer.sampleBufferRenderer.loadVideoPerformanceMetrics { continuation.resume(returning:$0) }
         }

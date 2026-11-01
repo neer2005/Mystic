@@ -362,6 +362,7 @@ public final class ConnectionModel {
         var quality: AutomaticQuality = .off
         var qualityMinShortEdge: UInt32=720
         var qualityMinFps: UInt32=30
+        var renderer: VideoRendererKind = .displayLayer
     }
     @ObservationIgnored private(set) var plan: StreamPlan?
     /// The headroom of the screen the stream will open on, read when a plan is made.
@@ -657,7 +658,7 @@ public final class ConnectionModel {
                 hostID:host?.uniqueID ?? "",framePacing:video.framePacing,
                 tellWireless:tellHostWireless,tellLinkSpeed:tellHostLinkSpeed,
                 roaming:clientRoaming,roamingMetered:roamingOnMeteredNetworks,quality:video.automaticQuality,
-                qualityMinShortEdge:video.qualityMinShortEdge,qualityMinFps:video.qualityMinFps)
+                qualityMinShortEdge:video.qualityMinShortEdge,qualityMinFps:video.qualityMinFps,renderer:videoRenderer)
     }
     private func startPreparedPlan(_ plan: StreamPlan,connection: any HostService,capabilities: VideoCapabilities) {
         recovery=StreamRecovery();recovering=false;hadVideo=false;connectedAt=nil
@@ -757,11 +758,14 @@ public final class ConnectionModel {
                 })
                 let telemetry = VideoTelemetry()
                 self.telemetry = telemetry
-                let presenter = DisplayLayerPresenter(telemetry:telemetry,mode:plan.framePacing,onFailure: { [weak self] message in
+                let presenter = DisplayLayerPresenter(telemetry:telemetry,mode:plan.framePacing,renderer:plan.renderer,onFailure: { [weak self] message in
                     Task { @MainActor in self?.record(message, token: token) }
                 })
                 presenter.displayChanged = { [weak self] in self?.reportDisplay(token:token) }
                 presenter.setSizing(self.videoSizing,alignTop:self.alignVideoTop)
+                if plan.renderer == .metal {
+                    self.sessionLog?.write(presenter.renderer == .metal ? "Video renderer: Metal." : "Metal could not start; using the system video layer.")
+                }
                 let decoder = VideoToolboxDecoder(capabilities: capabilities, presenter: presenter, telemetry:telemetry,requestRecovery:{ [weak session] in session?.requestVideoRecovery() },log: { [weak self] message in
                     Task { @MainActor in self?.record(message, token: token) }
                 })

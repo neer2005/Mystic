@@ -346,7 +346,7 @@ final class ConnectionModelTests: XCTestCase {
         try vault.saveCertificate("existing pin",for:endpoint.id)
         let paired=MockHost(paired:true),unpinned=MockHost(paired:false);unpinned.oneTimeFailure="spent"
         nonisolated(unsafe) var pins:[String?]=[]
-        let model=ConnectionModel(vault:vault,rememberHost:true,preferences:preferences,settings:AppSettings(storage:MemorySettingsPreferences()),home:HomeLibrary(),makeHost:{ _,_,_,pin in pins.append(pin);return pin == nil ? unpinned : paired })
+        let model=ConnectionModel(vault:vault,rememberHost:true,preferences:preferences,settings:AppSettings(storage:MemorySettingsPreferences()),home:HomeLibrary(),writesLog:false,makeHost:{ _,_,_,pin in pins.append(pin);return pin == nil ? unpinned : paired })
         model.parseLink={ _ in PairingLinkTarget(host:"pc.local",port:47989,name:"",uniqueID:"") }
         model.connect(to:endpoint);try await settle(model)
         XCTAssertEqual(model.savedHosts.hosts.first?.uniqueID,"host1")
