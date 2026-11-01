@@ -301,6 +301,20 @@ final class StreamRecoveryTests: XCTestCase {
         XCTAssertEqual(sessions.all.count,1)
         model.disconnect()
     }
+    func testTheDisplayStaysAwakeFromLaunchThroughReconnectsUntilTheStreamEnds() async throws {
+        let sessions=RecoverySessions(),wake=WakeRecord()
+        let model=try await running(RecoveryHost(),sessions,RecoveryClock(),configure:{ model in
+            model.displayWake=DisplayWake(begin:wake.begin,end:wake.end)
+        })
+        XCTAssertTrue(model.displayWake.held);XCTAssertEqual(wake.begins,1)
+        model.processMediaSnapshot(picture())
+        sessions.all[0].emit(.terminated(code:-100))
+        try await wait { sessions.all.count == 2 && model.phase == .streaming }
+        XCTAssertEqual(wake.begins,1,"a reconnect keeps the same hold");XCTAssertEqual(wake.ends,0)
+        model.disconnect()
+        try await wait { model.phase == .idle }
+        XCTAssertFalse(model.displayWake.held);XCTAssertEqual(wake.ends,1)
+    }
     func testACommandLineFindsTheSavedPCAndAppAndQuitsWhenItsStreamEnds() async throws {
         let sessions=RecoverySessions()
         let model=try await shortcutModel(RecoveryHost(),sessions)
@@ -426,6 +440,11 @@ final class StreamRecoveryTests: XCTestCase {
         for _ in 0..<400 { if done() { return };try await Task.sleep(for:.milliseconds(5)) }
         XCTFail("Timed out waiting for stream state")
     }
+}
+@MainActor private final class WakeRecord {
+    var begins=0,ends=0
+    var begin: () -> any NSObjectProtocol { { [self] in begins+=1;return NSObject() } }
+    var end: (any NSObjectProtocol) -> Void { { [self] _ in ends+=1 } }
 }
 /// Stands in for the network watcher: keeps its event handler and starts no real watcher.
 /// A nil watcher would mean "no route", so it hands back a watcher on loopback.
