@@ -32,8 +32,10 @@ public struct HostLibraryView: View {
                 .navigationTitle(model.showingHome ? "Game Details" : "Stream Details")
                 .navigationSplitViewColumnWidth(min:300,ideal:340,max:420)
         }
+        // SwiftUI clears isPresented before a button's action runs, so clearing the pending choice
+        // there would cancel the confirmation. Cancel (also Esc) is what cancels.
         .confirmationDialog(model.pendingGameAction?.question ?? "Quit Game",
-                            isPresented:Binding(get:{ model.pendingGameAction != nil },set:{ if !$0 { model.cancelGameAction() } }),
+                            isPresented:Binding(get:{ model.pendingGameAction != nil },set:{ _ in }),
                             titleVisibility:.visible,presenting:model.pendingGameAction) { action in
             Button(action.title,role:.destructive) {
                 Task { await model.confirmGameAction(action);if model.hasSession { openWindow(id:"stream") } }
@@ -45,7 +47,7 @@ public struct HostLibraryView: View {
         .focusedSceneValue(\.hostSessionAction,canShowHostSession ? { showingHostSession=true } : nil)
         .fullScreenCommandTarget()
         .frame(minWidth:1000,minHeight:580)
-        .confirmationDialog(shortcutQuestion,isPresented:Binding(get:{ model.pendingShortcut != nil },set:{ if !$0 { model.cancelShortcut() } }),
+        .confirmationDialog(shortcutQuestion,isPresented:Binding(get:{ model.pendingShortcut != nil },set:{ _ in }),
                             titleVisibility:.visible) {
             Button("Start") { Task { await finish(model.confirmShortcut(),commandLine:false) } }
             Button("Cancel",role:.cancel) { model.cancelShortcut() }
