@@ -147,6 +147,22 @@ fixed 100 Mbps, on a 120 Hz panel. One run each, read at 60 s. Medians in ms, an
 - That full screen beat a window with HDR but not with SDR is unexplained, and full screen was requested, not checked.
 - One idle run each, with no game load. The display layer cannot report this, so it is not compared.
 
+### Display sync on a game
+
+Low Latency on Metal now turns `displaySyncEnabled` off. DRAGON BALL: Sparking! ZERO's title screen, HDR, 120 fps
+negotiated, fixed 100 Mbps, 2026-11-01: four 100-second runs of each, read at 30, 60 and 90 s. All eight were in full screen,
+including the ones meant to be windowed, because the window reopened that way, so a window is not covered on a game.
+
+| | Decoded to screen p50, ms | p95, ms | Renderer drops at 90 s | Uneven |
+| --- | --- | --- | --- | --- |
+| Sync off | 5.6-6.8 | 7-18 | 389-651 | 15-72% |
+| Sync on | 22-26 | 26-50 | 424-653 | 36-54% |
+
+- About 16 ms less by Metal's own report, with no more drops. Whether it all reaches the panel needs a camera.
+- **Tearing has not been looked at,** and this is a title screen with little motion.
+- With sync off, shown intervals stop falling on the 8.3 ms steps of the panel, and evenness is no better.
+- Stretches with gaps near 100 ms appear with sync on and off, so sync does not cause them. Their cause is not known.
+
 ## Open problems before Metal can be the default
 
 - **Automatic bitrate** still needs comparing, since these runs used a fixed one.
