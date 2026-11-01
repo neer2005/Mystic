@@ -16,7 +16,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | --- | --- | --- |
 | Discovery, manual host, PIN pairing, saved hosts | Implemented | Desktop pairing/restart verified on Big Dawg; broader host coverage pending |
 | Wake-on-LAN | Implemented | Nightjar's plan (every interface's broadcast, IPv6 `ff02::1`, its port set, three bursts) and wait (resend every 8 s, 90 s limit); see HOME.md. Real wake of a sleeping PC pending |
-| QR/one-time pairing | Pending | Mac pairing-link flow |
+| Pairing links and one-time PINs | Implemented, live validation pending | Nightjar's `rubylight://pair` link, typed or pasted, and a host's PIN and passphrase; see HOSTS.md. Refusals and a host's error seen on Big Dawg; a successful pairing not yet tried. QR scanning has no Mac flow, as on Nightjar's desktop |
 | Client identification | Implemented | Requests carry `Nightjar/4.0.1+mystic.<version>`: the engine release, marked as Mystic |
 | Native library, artwork, store/title search | Implemented for connected host | Big Dawg browsing/search/refresh verified |
 | Combined Home, favourites, recent games | Implemented | Multi-PC merge/routing tests and Big Dawg live Home verified; store filter present, separate store shelves pending |

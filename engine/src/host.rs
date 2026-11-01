@@ -1,4 +1,5 @@
 //! Additive host-control bridge: protocol and certificate verification remain in Nightjar.
+use rubylight_protocol::pairing_uri::PairingUri;
 use nightjar_core::http::{Availability, Feature, AppControl, ClientIdentity, HostClient, HostDisplay, LaunchRequest, PairResult, Reason};
 use rand_core::{OsRng, RngCore};
 use serde_json::{json, Value};
@@ -166,18 +167,17 @@ impl MysticHost {
                     return Err("PIN must be four digits".into());
                 }
                 let i = self.info()?;
-                match self.client.pair(&i, pin).map_err(HostError::from)? {
-                    PairResult::Paired {
-                        server_certificate_pem,
-                    } => Ok(json!({"certificate":server_certificate_pem,"uniqueID":i.unique_id})),
-                    PairResult::PinWrong => {
-                        Err("The PIN entered on the host did not match.".into())
-                    }
-                    PairResult::AlreadyInProgress => {
-                        Err("Another device is pairing. Try again when it finishes.".into())
-                    }
-                    PairResult::Failed(reason) => Err(format!("Pairing failed: {reason:?}").into()),
-                }
+                let result = match v["passphrase"].as_str() {
+                    Some(passphrase) if passphrase.chars().count() < 4 => return Err("The passphrase needs at least four characters.".into()),
+                    Some(passphrase) => self.client.pair_with_passphrase(&i, pin, passphrase),
+                    None => self.client.pair(&i, pin),
+                };
+                paired_value(result, &i.unique_id, v["passphrase"].is_string())
+            }
+            "pairLink" => {
+                let link = PairingUri::parse(field(&v, "link")?.trim()).ok_or(LINK_INVALID)?;
+                let i = self.info()?;
+                paired_value(self.client.pair_with_link(&i, &link), &i.unique_id, true)
             }
             "apps" => {
                 let i = self.client.server_info_https().map_err(HostError::from)?;
@@ -493,6 +493,34 @@ fn clipboard_permissions(i: &nightjar_core::http::ServerInfo) -> (bool,bool) {
     let permission=i.capabilities.evidence().map_or(0,|e|e.permission.max(0) as u32);
     (permission & PERMISSION_CLIPBOARD_READ != 0,permission & PERMISSION_CLIPBOARD_SET != 0)
 }
+const LINK_INVALID: &str = "That pairing link is not valid. Show a new QR code on the PC and copy its link again.";
+/// What a pairing attempt comes to. A one-time PIN or link is spent, so it asks for a new one.
+fn paired_value(result: Result<PairResult, nightjar_core::http::Error>, unique_id: &str, one_time: bool) -> Result<Value, HostError> {
+    match result {
+        Err(nightjar_core::http::Error::CertificateMismatch) => {
+            Err("This PC's certificate does not match the pairing link, so Mystic did not pair. Pair only with a link from your own PC.".into())
+        }
+        Err(error) => Err(error.into()),
+        Ok(PairResult::Paired { server_certificate_pem }) => Ok(json!({"certificate":server_certificate_pem,"uniqueID":unique_id})),
+        Ok(PairResult::PinWrong) if one_time => Err("PIN rejected. Generate a new one-time PIN in your host's web UI and check the passphrase.".into()),
+        Ok(PairResult::PinWrong) => Err("The PIN entered on the host did not match.".into()),
+        Ok(PairResult::AlreadyInProgress) => Err("Another device is pairing. Try again when it finishes.".into()),
+        Ok(PairResult::Failed(_)) if one_time => Err("The host declined. Generate a new one-time PIN or pairing link on the PC, then retry.".into()),
+        Ok(PairResult::Failed(reason)) => Err(format!("Pairing failed: {reason:?}").into()),
+    }
+}
+/// Where a pairing link points and what it names, without its secrets. IPv6 addresses lose
+/// their brackets, as typed ones do.
+fn pairing_link_value(text: &str) -> Result<Value, String> {
+    let link = PairingUri::parse(text.trim()).ok_or(LINK_INVALID)?;
+    let host = link.host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(&link.host);
+    Ok(json!({"host":host,"port":link.port,"name":link.name,"uniqueID":link.unique_id}))
+}
+#[no_mangle]
+pub unsafe extern "C" fn mystic_pairing_link_parse(link: *const c_char) -> *mut c_char {
+    if link.is_null() { return envelope(Err(LINK_INVALID.into())); }
+    envelope(text(link).map_err(|_| LINK_INVALID.to_owned()).and_then(pairing_link_value))
+}
 /// The launch's display arrangement; an unknown one is refused rather than ignored.
 fn host_display(v: &Value) -> Result<HostDisplay, String> {
     Ok(match v["hostDisplay"].as_str().unwrap_or("default") {
@@ -532,6 +560,7 @@ fn host_info_value(i: &nightjar_core::http::ServerInfo, has_local_pin: bool) -> 
     json!({"name":i.hostname,"uniqueID":i.unique_id,"paired":i.paired && has_local_pin,
         "appVersion":i.app_version,"codecSupport":i.server_codec_mode_support,"currentGame":i.current_game,"currentGameUUID":i.current_game_uuid,"quitAllowed":has_local_pin && quit_allowed(i),
         "clipboardRead":has_local_pin && clipboard_permissions(i).0,"clipboardWrite":has_local_pin && clipboard_permissions(i).1,
+        "otpPairing":availability_name(i.capabilities.availability(Feature::OtpPairing)),
         "display":{"virtualDisplay":availability_name(i.capabilities.availability(Feature::VirtualDisplay)),
             "modes":availability_name(i.capabilities.availability(Feature::HostDisplayModes)),
             "scale":availability_name(i.capabilities.availability(Feature::DisplayScale))}})
@@ -640,6 +669,29 @@ mod tests {
             assert_eq!(host_info_value(&info,false)["clipboardRead"],false);
             assert_eq!(host_info_value(&info,false)["clipboardWrite"],false);
         }
+    }
+    #[test]
+    fn pairing_links_give_their_place_but_never_their_secrets() {
+        let fp = "07".repeat(32);
+        let link = format!(" rubylight://pair?v=1&host=%5Bfe80%3A%3A1%5D&port=48123&otp=4821&pass=se%26cret&id=ABC&fp={fp}&name=Den%20PC\n");
+        let value = pairing_link_value(&link).unwrap();
+        assert_eq!((value["host"].as_str(), value["port"].as_u64(), value["name"].as_str(), value["uniqueID"].as_str()),
+            (Some("fe80::1"), Some(48123), Some("Den PC"), Some("ABC")));
+        let shown = value.to_string();
+        assert!(!shown.contains("4821") && !shown.contains("cret") && !shown.contains(&fp));
+        assert_eq!(pairing_link_value("rubylight://pair?v=2").unwrap_err(), LINK_INVALID);
+        assert_eq!(pairing_link_value(&link.replace(&fp, "07")).unwrap_err(), LINK_INVALID);
+        assert_eq!(pairing_link_value("192.168.1.2").unwrap_err(), LINK_INVALID, "never read as an address");
+    }
+    #[test]
+    fn a_spent_or_forged_link_says_what_to_do() {
+        let forged = paired_value(Err(nightjar_core::http::Error::CertificateMismatch), "h", true).err().unwrap();
+        assert!(forged.message.contains("does not match"));
+        let wrong = paired_value(Ok(PairResult::PinWrong), "h", true).err().unwrap();
+        assert!(wrong.message.contains("new one-time PIN"));
+        assert!(paired_value(Ok(PairResult::PinWrong), "h", false).err().unwrap().message.contains("on the host"));
+        let paired = paired_value(Ok(PairResult::Paired { server_certificate_pem: "cert".into() }), "h", true).ok().unwrap();
+        assert_eq!((paired["certificate"].as_str(), paired["uniqueID"].as_str()), (Some("cert"), Some("h")));
     }
     #[test]
     fn display_choices_are_read_within_nightjars_bounds() {

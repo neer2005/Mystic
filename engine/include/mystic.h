@@ -238,6 +238,8 @@ int32_t mystic_session_request_idr(MysticSession *handle);
  */
 typedef struct MysticHost MysticHost;
 char *mystic_identity_create(void);
+/* A rubylight://pair link's host, port, name and uniqueID, never its PIN or passphrase. */
+char *mystic_pairing_link_parse(const char *link);
 void mystic_string_free(char *value);
 MysticHost *mystic_host_new(const char *address, uint16_t http_port,
                           const char *identity_json, const char *server_certificate_pem,

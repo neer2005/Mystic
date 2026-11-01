@@ -18,6 +18,8 @@ public struct HostInfo: Codable, Sendable, Equatable {
     public var quitAllowed: Bool? = nil
     public var clipboardRead: Bool? = nil
     public var clipboardWrite: Bool? = nil
+    /// Whether the host takes a one-time PIN it made itself.
+    public var otpPairing: HostFeatureAvailability? = nil
     public var display: HostDisplaySupport? = nil
 }
 public struct HostApp: Codable, Identifiable, Sendable, Equatable {
@@ -25,6 +27,14 @@ public struct HostApp: Codable, Identifiable, Sendable, Equatable {
     public let name: String
     public let uuid: String
     public let hdrSupported: Bool
+}
+/// Where a pairing link points. Its PIN and passphrase stay in the link.
+public struct PairingLinkTarget: Codable, Sendable, Equatable {
+    public let host: String
+    public let port: UInt16
+    public let name: String
+    public let uniqueID: String
+    public init(host: String,port: UInt16,name: String,uniqueID: String) { self.host=host;self.port=port;self.name=name;self.uniqueID=uniqueID }
 }
 public struct PairedHost: Codable, Sendable {
     public let certificate: String
@@ -98,9 +108,15 @@ public struct HostConnectionError: Error, LocalizedError, Sendable {
     public var errorDescription: String? { message }
 }
 
+extension HostService {
+    public func pair(pin: String,passphrase: String) async throws -> PairedHost { throw HostConnectionError("This connection cannot pair with a one-time PIN.") }
+    public func pair(link: String) async throws -> PairedHost { throw HostConnectionError("This connection cannot pair with a link.") }
+}
 public protocol HostService: AnyObject, Sendable {
     func serverInfo() async throws -> HostInfo
     func pair(pin: String) async throws -> PairedHost
+    func pair(pin: String,passphrase: String) async throws -> PairedHost
+    func pair(link: String) async throws -> PairedHost
     func wakeTargets() async throws -> HostWakeTargets
     func quitApp(expected: HostInfo) async throws
     func apps() async throws -> [HostApp]
@@ -169,6 +185,9 @@ public final class HostConnection: HostService, @unchecked Sendable {
         self.handle = handle
     }
     deinit { mystic_host_free(handle) }
+    public static func parsePairingLink(_ link: String) throws -> PairingLinkTarget {
+        try decode(mystic_pairing_link_parse(link))
+    }
     public static func generateIdentity() throws -> ClientIdentity {
         try decode(mystic_identity_create())
     }
@@ -177,6 +196,14 @@ public final class HostConnection: HostService, @unchecked Sendable {
     public func pair(pin: String) async throws -> PairedHost {
         let json = String(decoding: try JSONEncoder().encode(["pin":pin]), as: UTF8.self)
         return try await request("pair", json: json)
+    }
+    public func pair(pin: String,passphrase: String) async throws -> PairedHost {
+        let json = String(decoding: try JSONEncoder().encode(["pin":pin,"passphrase":passphrase]), as: UTF8.self)
+        return try await request("pair", json: json)
+    }
+    public func pair(link: String) async throws -> PairedHost {
+        let json = String(decoding: try JSONEncoder().encode(["link":link]), as: UTF8.self)
+        return try await request("pairLink", json: json)
     }
     public func wakeTargets() async throws -> HostWakeTargets { try await request("wakeTargets",json:"{}") }
     public func quitApp(expected: HostInfo) async throws {
