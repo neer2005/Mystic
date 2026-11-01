@@ -1,5 +1,16 @@
 # Native host session controls
 
+## Display sleep during a stream
+
+From launch until the stream ends, including while it reconnects, Mystic keeps the Mac's
+display from dimming or sleeping and the Mac from idle sleep (a `ProcessInfo` activity, which
+`pmset -g assertions` lists as "Streaming a game"). Playing need not touch this Mac at all, as
+with a controller plugged into the PC, and macOS would otherwise dim the screen after a few
+minutes. Nightjar gets the same from SDL, which keeps the screen saver off while it runs.
+Closing the lid or choosing Sleep still sleeps the Mac.
+
+## Host session panel
+
 Session and Graphics is available from the library and stream toolbars and from
 Stream → Session and Graphics… (⌘I). While open, it reads
 Rubylight's native session state every two seconds and displays game, owner, state,

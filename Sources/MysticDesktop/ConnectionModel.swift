@@ -29,7 +29,9 @@ public final class ConnectionModel {
     @ObservationIgnored public private(set) lazy var health = StreamHealthModel(model:self)
     @ObservationIgnored public private(set) lazy var quality = StreamQualityModel(model:self)
 
-    public private(set) var phase: Phase = .idle { didSet { shortcutPhaseChanged(from:oldValue) } }
+    public private(set) var phase: Phase = .idle { didSet { displayWake.update(streaming:hasSession);shortcutPhaseChanged(from:oldValue) } }
+    /// Held from launch through reconnects until the stream ends.
+    @ObservationIgnored var displayWake=DisplayWake()
     /// A link's launch, waiting for the user to confirm it.
     public private(set) var pendingShortcut: ShortcutLaunch?
     public private(set) var status = "Enter your host’s LAN address to connect."

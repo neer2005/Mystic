@@ -98,6 +98,12 @@ are not part of these checks.
 4. Put the PC to sleep and press Wake in Home. The status should say "Waking…", then
    that the PC is awake once it answers, within 90 seconds.
 
+## Display sleep
+
+Stream with no input on the Mac, such as with a controller plugged into the PC, for longer
+than the Mac's display-off time in System Settings → Lock Screen. The display should neither
+dim nor sleep. After disconnecting, it should dim on schedule again.
+
 ## Automatic quality and launching
 
 1. Set Automatic Quality to Favor Smooth Motion and stream to a Rubylight PC at a resolution
