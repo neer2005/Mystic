@@ -7,6 +7,7 @@ import MysticStream
 public struct HostLibraryView: View {
     @Bindable private var model: ConnectionModel
     @State private var showingHostSession=false
+    @State private var showingHostDetails=false
     @FocusState private var searchFocused: Bool
     @Environment(\.openWindow) private var openWindow
     /// A stream asked for on the command line, started once the library appears.
@@ -43,6 +44,8 @@ public struct HostLibraryView: View {
             Button("Cancel",role:.cancel) { model.cancelGameAction() }
         } message: { action in Text(action.explanation) }
         .sheet(isPresented:$showingHostSession) { HostSessionView(model:model) }
+        .sheet(isPresented:$showingHostDetails) { HostDetailsView(model:model) }
+        .focusedSceneValue(\.hostDetailsAction,canShowHostDetails ? { showingHostDetails=true } : nil)
         .focusedSceneValue(\.libraryMenuActions,menuActions)
         .focusedSceneValue(\.hostSessionAction,canShowHostSession ? { showingHostSession=true } : nil)
         .fullScreenCommandTarget()
@@ -151,6 +154,9 @@ public struct HostLibraryView: View {
                 Text("Library").font(.headline)
                 Spacer()
                 HStack(spacing:8) {
+                    Button("Host Details",systemImage:"info.circle") { showingHostDetails=true }
+                        .disabled(!canShowHostDetails)
+                        .help("The host's software, permissions and web UI")
                     Button("Session and Graphics",systemImage:"rectangle.connected.to.line.below") { showingHostSession=true }
                         .disabled(!canShowHostSession)
                         .help("Session and graphics controls")
@@ -178,6 +184,7 @@ public struct HostLibraryView: View {
     private func setting<T>(_ key: WritableKeyPath<StreamPreferences,T>) -> Binding<T> {
         Binding(get:{ model.settings.value[keyPath:key] },set:{ value in model.settings.update { $0[keyPath:key]=value } })
     }
+    private var canShowHostDetails: Bool { !model.showingHome && model.host != nil && !model.hasSession }
     private var canShowHostSession: Bool { !model.showingHome && model.phase == .ready && model.host?.paired == true }
     private var menuActions: LibraryMenuActions {
         if model.showingHome {
@@ -217,6 +224,7 @@ public struct HostLibraryView: View {
             } else if model.pairingPIN == nil {
                 VStack(spacing:12) {
                     Button("Pair") { model.pair() }.buttonStyle(.borderedProminent).disabled(model.phase != .ready)
+                    if let link=host.webUI?.link { Link("Open Host Web UI",destination:link) }
                     if host.otpPairing != .never { OneTimePairingForm(model:model) }
                 }
             } else {
@@ -502,5 +510,44 @@ private struct OneTimePairingForm: View {
                 }.disabled(pin.isEmpty || passphrase.isEmpty)
             }.frame(width:280)
         }.frame(width:300)
+    }
+}
+
+/// A PC's details, as Nightjar's: its host software, what it lets this Mac do, and its web UI.
+struct HostDetailsView: View {
+    let model: ConnectionModel
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        VStack(spacing:0) {
+            Form {
+                if let host=model.host {
+                    Section(host.name) {
+                        LabeledContent("Software",value:host.software ?? "Moonlight-compatible host")
+                        if let version=host.appVersion { LabeledContent("Protocol Version",value:version) }
+                        LabeledContent("Address",value:model.hostAddressLabel)
+                        LabeledContent("Pairing",value:host.paired ? "Paired" : "Not paired")
+                    }
+                    if let web=host.webUI {
+                        Section("Web UI") {
+                            if let link=web.link {
+                                LabeledContent(link.absoluteString) { Link("Open in Browser",destination:link) }
+                                Text("Manage the host's applications, paired devices and settings. Your browser may warn about the host's own certificate.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            } else if let problem=web.problem {
+                                Text(problem).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    if let permissions=host.permissions {
+                        Section("Allowed for This Mac") {
+                            if permissions.isEmpty { Text("Nothing yet. Set this device's permissions in the host's web UI.").foregroundStyle(.secondary) }
+                            ForEach(permissions,id:\.self) { Label($0,systemImage:"checkmark") }
+                        }
+                    }
+                }
+            }.formStyle(.grouped)
+            Divider()
+            HStack { Spacer();Button("Done") { dismiss() }.keyboardShortcut(.defaultAction) }.padding()
+        }.frame(width:460,height:440)
     }
 }

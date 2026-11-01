@@ -20,6 +20,11 @@ public struct HostInfo: Codable, Sendable, Equatable {
     public var clipboardWrite: Bool? = nil
     /// Whether the host takes a one-time PIN it made itself.
     public var otpPairing: HostFeatureAvailability? = nil
+    /// The host software, such as "Rubylight 3.2.1".
+    public var software: String? = nil
+    /// What the host lets this device do; nil when paired hosts report no permissions.
+    public var permissions: [String]? = nil
+    public var webUI: HostWebUI? = nil
     public var display: HostDisplaySupport? = nil
 }
 public struct HostApp: Codable, Identifiable, Sendable, Equatable {
@@ -27,6 +32,17 @@ public struct HostApp: Codable, Identifiable, Sendable, Equatable {
     public let name: String
     public let uuid: String
     public let hdrSupported: Bool
+}
+/// A host's web UI: where it is, or why its saved address makes no link.
+public struct HostWebUI: Codable, Sendable, Equatable {
+    public var url: String? = nil
+    public var problem: String? = nil
+    public init(url: String? = nil,problem: String? = nil) { self.url=url;self.problem=problem }
+    /// Only ever a web address, whatever a host's reply holds.
+    public var link: URL? {
+        guard let url,let parsed=URL(string:url),parsed.scheme == "https",parsed.host != nil else { return nil }
+        return parsed
+    }
 }
 /// Where a pairing link points. Its PIN and passphrase stay in the link.
 public struct PairingLinkTarget: Codable, Sendable, Equatable {

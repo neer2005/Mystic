@@ -359,6 +359,16 @@ final class ConnectionModelTests: XCTestCase {
         model.connect(to:endpoint);try await settle(model)
         XCTAssertEqual(pins,["existing pin",nil,"existing pin"]);XCTAssertEqual(model.host?.paired,true)
     }
+    func testAHostsWebUILinkIsOnlyEverAWebAddress() throws {
+        XCTAssertEqual(HostWebUI(url:"https://100.66.0.33:47990").link?.absoluteString,"https://100.66.0.33:47990")
+        XCTAssertEqual(HostWebUI(url:"https://[::1]:47990").link?.port,47990)
+        for bad in ["file:///etc/passwd","javascript:alert(1)","mystic://stream","http://pc:47990","https://"] { XCTAssertNil(HostWebUI(url:bad).link,bad) }
+        XCTAssertNil(HostWebUI(problem:"no link").link)
+        let info:HostInfo=try decode("{\"name\":\"PC\",\"uniqueID\":\"a\",\"paired\":true,\"codecSupport\":0,\"currentGame\":0,\"software\":\"Rubylight 3.2.1\",\"permissions\":[\"View streams\"],\"webUI\":{\"url\":\"https://pc:47990\"}}")
+        XCTAssertEqual(info.software,"Rubylight 3.2.1");XCTAssertEqual(info.permissions,["View streams"]);XCTAssertNotNil(info.webUI?.link)
+        let old:HostInfo=try decode("{\"name\":\"PC\",\"uniqueID\":\"a\",\"paired\":true,\"codecSupport\":0,\"currentGame\":0}")
+        XCTAssertNil(old.software);XCTAssertNil(old.permissions);XCTAssertNil(old.webUI)
+    }
     func testOneTimePINPairsOnlyWithAValidEntry() async throws {
         let mock=MockHost(paired:false),vault=MemoryVault()
         let model=ConnectionModel(vault:vault,rememberHost:false,makeHost:{ _,_,_,_ in mock })

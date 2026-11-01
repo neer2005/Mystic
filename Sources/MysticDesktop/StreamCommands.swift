@@ -3,8 +3,14 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct HostSessionActionKey: FocusedValueKey { typealias Value = () -> Void }
+struct HostDetailsActionKey: FocusedValueKey { typealias Value = () -> Void }
 struct StreamHealthActionKey: FocusedValueKey { typealias Value = () -> Void }
 extension FocusedValues {
+    /// Opens the connected PC's details; nil without one.
+    var hostDetailsAction: (() -> Void)? {
+        get { self[HostDetailsActionKey.self] }
+        set { self[HostDetailsActionKey.self]=newValue }
+    }
     /// Opens the focused stream window's health report; nil without a running stream.
     var streamHealthAction: (() -> Void)? {
         get { self[StreamHealthActionKey.self] }
@@ -36,6 +42,7 @@ struct ShortcutMenuItems: View {
 public struct StreamCommands: Commands {
     let model: ConnectionModel
     @FocusedValue(\.hostSessionAction) private var showHostSession
+    @FocusedValue(\.hostDetailsAction) private var showHostDetails
     @FocusedValue(\.streamHealthAction) private var showHealth
     public init(model: ConnectionModel) { self.model=model }
     private var streaming: Bool { model.phase == .streaming }
@@ -88,6 +95,7 @@ public struct StreamCommands: Commands {
             Button("Copy Host Clipboard Text to Mac") { model.copyHostClipboard() }
                 .disabled(!model.canReadClipboard)
             Divider()
+            Button("Host Details…") { showHostDetails?() }.disabled(showHostDetails == nil)
             Button("Session and Graphics…") { showHostSession?() }
                 .keyboardShortcut("i",modifiers:.command)
                 .disabled(showHostSession == nil)
