@@ -118,3 +118,14 @@ Live check, 2026-11-01, Big Dawg Desktop: an existing 3024×1890/120/100 Mbps do
 unchanged; custom size and bitrate clamped; Native Pixels and a live change to Fit shown on a
 stream with HDR. Not exercised live: Recommended's launch value, Play Audio on the PC Too, mouse speed,
 Back and Forward, Fill, Stretch and the controller settings (no controller present).
+
+Video settings also hold Nightjar's display choices: Virtual Display, Display Arrangement, PC
+Render Resolution (50–200%) and PC Display Scaling. Global settings offer every row; a host's or
+game's settings hide what that host can never do and turn off, with the reason, what it could
+after a change on the PC. A launch and a resume both send them.
+
+Live check, 2026-11-01, Big Dawg (Rubylight 3.2.1), Extend: the host reports all four rows as
+supported, and its log shows `client_display=Some(Virtual(Extended))`, `virtual_display=true` and
+a 3024×1890 virtual display, on a fresh launch (`resume=false`) and on a resume. The other
+arrangements, render resolution and display scaling, and a host without these features have
+not been tried live.

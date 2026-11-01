@@ -14,6 +14,11 @@ public struct StreamVideoSettings: Codable, Equatable, Sendable {
     /// Missing in older documents; Nightjar's 720 lines and 30 fps.
     public var qualityMinShortEdge: UInt32
     public var qualityMinFps: UInt32
+    /// Missing in older documents; the PC's own displays, at Nightjar's defaults.
+    public var virtualDisplay: Bool
+    public var hostDisplay: HostDisplayMode
+    public var renderScalePercent: Int
+    public var displayScalePercent: Int
     public init(preferences: StreamPreferences = StreamPreferences()) {
         let value=preferences.validated()
         resolution=value.resolution;fps=value.fps;bitrateMbps=value.bitrateMbps
@@ -23,8 +28,12 @@ public struct StreamVideoSettings: Codable, Equatable, Sendable {
         automaticQuality=AutomaticQuality(rawValue:value.automaticQuality ?? "") ?? .off
         qualityMinShortEdge=value.qualityMinShortEdge ?? 720
         qualityMinFps=value.qualityMinFps ?? 30
+        virtualDisplay=value.virtualDisplay ?? false
+        hostDisplay=HostDisplayMode(rawValue:value.hostDisplay ?? "") ?? .hostDefault
+        renderScalePercent=value.renderScalePercent ?? 100
+        displayScalePercent=value.displayScalePercent ?? 0
     }
-    private enum CodingKeys: String, CodingKey { case resolution,fps,bitrateMbps,codec,hdr,framePacing,adaptiveBitrate,automaticQuality,qualityMinShortEdge,qualityMinFps }
+    private enum CodingKeys: String, CodingKey { case resolution,fps,bitrateMbps,codec,hdr,framePacing,adaptiveBitrate,automaticQuality,qualityMinShortEdge,qualityMinFps,virtualDisplay,hostDisplay,renderScalePercent,displayScalePercent }
     public init(from decoder: any Decoder) throws {
         let c=try decoder.container(keyedBy:CodingKeys.self)
         resolution=try c.decode(String.self,forKey:.resolution);fps=try c.decode(UInt32.self,forKey:.fps)
@@ -34,6 +43,10 @@ public struct StreamVideoSettings: Codable, Equatable, Sendable {
         automaticQuality=try c.decodeIfPresent(AutomaticQuality.self,forKey:.automaticQuality) ?? .off
         qualityMinShortEdge=try c.decodeIfPresent(UInt32.self,forKey:.qualityMinShortEdge) ?? 720
         qualityMinFps=try c.decodeIfPresent(UInt32.self,forKey:.qualityMinFps) ?? 30
+        virtualDisplay=try c.decodeIfPresent(Bool.self,forKey:.virtualDisplay) ?? false
+        hostDisplay=(try? c.decodeIfPresent(HostDisplayMode.self,forKey:.hostDisplay)) ?? .hostDefault
+        renderScalePercent=try c.decodeIfPresent(Int.self,forKey:.renderScalePercent) ?? 100
+        displayScalePercent=try c.decodeIfPresent(Int.self,forKey:.displayScalePercent) ?? 0
     }
     /// What a stream asks the host for: Native and Display from this Mac's screen, read once at
     /// launch, and the recommended bitrate from the size and rate.
@@ -84,6 +97,10 @@ extension StreamPreferences {
             automaticQuality=newValue.automaticQuality == .off ? nil : newValue.automaticQuality.rawValue
             qualityMinShortEdge=newValue.qualityMinShortEdge == 720 ? nil : newValue.qualityMinShortEdge
             qualityMinFps=newValue.qualityMinFps == 30 ? nil : newValue.qualityMinFps
+            virtualDisplay=newValue.virtualDisplay ? true : nil
+            hostDisplay=newValue.hostDisplay == .hostDefault ? nil : newValue.hostDisplay.rawValue
+            renderScalePercent=newValue.renderScalePercent == 100 ? nil : newValue.renderScalePercent
+            displayScalePercent=newValue.displayScalePercent == 0 ? nil : newValue.displayScalePercent
         }
     }
 }

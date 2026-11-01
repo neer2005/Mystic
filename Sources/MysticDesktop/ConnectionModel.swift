@@ -564,6 +564,8 @@ public final class ConnectionModel {
             }
             options.gamepadMask = inputPreferences.controllers ? UInt16((1 << min(StreamControllers.slots,GCController.controllers().filter { $0.extendedGamepad != nil }.count))-1) : 0
             options.playLocalAudio = playAudioOnHost
+            options.virtualDisplay = video.virtualDisplay; options.hostDisplay = video.hostDisplay
+            options.renderScalePercent = video.renderScalePercent; options.displayScalePercent = video.displayScalePercent
             options.displayHeadroom = launchHeadroom()
             options.clientRefreshRateX100 = DisplayRefresh.x100(launchRefreshRate())
             options.clipboardSync=clipboardSync

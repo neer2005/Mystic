@@ -586,6 +586,18 @@ final class StreamRecoveryTests: XCTestCase {
         XCTAssertEqual(configuration.bitrateKbps,StreamMode.recommendedKbps(width:2560,height:1440,fps:120))
         model.disconnect()
     }
+    func testPCDisplayChoicesGoToTheLaunch() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        let model=try await running(host,sessions,RecoveryClock(),configure:{
+            var video=$0.settings.value.videoSettings
+            video.virtualDisplay=true;video.hostDisplay = .exclusive;video.renderScalePercent=150;video.displayScalePercent=200
+            $0.settings.update { $0.videoSettings=video }
+        })
+        let launch=try XCTUnwrap(host.launches.last)
+        XCTAssertTrue(launch.virtualDisplay);XCTAssertEqual(launch.hostDisplay,.exclusive)
+        XCTAssertEqual(launch.renderScalePercent,150);XCTAssertEqual(launch.displayScalePercent,200)
+        model.disconnect()
+    }
     func testAutomaticQualityStartsAtTheChosenMinimums() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions()
         let model=try await running(host,sessions,RecoveryClock(),configure:{

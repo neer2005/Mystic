@@ -18,6 +18,7 @@ public struct HostInfo: Codable, Sendable, Equatable {
     public var quitAllowed: Bool? = nil
     public var clipboardRead: Bool? = nil
     public var clipboardWrite: Bool? = nil
+    public var display: HostDisplaySupport? = nil
 }
 public struct HostApp: Codable, Identifiable, Sendable, Equatable {
     public let id: Int32
@@ -43,6 +44,11 @@ public struct LaunchOptions: Codable, Sendable {
     public var clipboardSync = false
     /// The PC's speakers keep playing too.
     public var playLocalAudio = false
+    /// The PC's displays during this stream; the engine sends each only to hosts that read it.
+    public var virtualDisplay = false
+    public var hostDisplay = HostDisplayMode.hostDefault
+    public var renderScalePercent = 100
+    public var displayScalePercent = 0
     /// -1 the host's error correction, -2 automatic, otherwise a percentage; only hosts that
     /// offer client error correction receive it.
     public var fec: Int16 = -1

@@ -23,7 +23,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | Offline library/cache | Implemented | Versioned metadata and bounded artwork cache; persistence/invalidation tests; real offline-host validation pending |
 | Launch/resume and per-game video profiles | Implemented | Desktop live verification; extend profiles beyond video |
 | Native session status, resume, disconnect/end/close | Implemented | Live status checks and action validation described in SESSION.md |
-| Classic quit and quit-and-start-another | Implemented | Big Dawg confirmations/cancellation verified; real quit/switch validation pending; see GAME-SWITCHING.md |
+| Classic quit and quit-and-start-another | Implemented | Real quit verified on Big Dawg (2026-11-01, after fixing the dialog's dismissal cancelling it); real switch validation pending; see GAME-SWITCHING.md |
 | Quick resume / quit on leave | Implemented, live validation pending | Nightjar's policy: quick resume global and off by default; quit on leave per game, only on a leave the player chose; see SESSION.md |
 | Remote Monitor, input-only, co-op | Pending | Explicit roles and permissions |
 | Network profiles, launch shortcuts/CLI | Implemented, live validation pending | Nightjar's command line and `mystic://stream` links (LAUNCHING.md); settings profiles by hand or by network, told by the route rather than the Wi-Fi name (no Location permission); see PROFILES.md |
@@ -42,7 +42,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | Native pacing, HUD | Implemented, partial parity | Low Latency/Balanced; Balanced with FPS limit, Smoothest video, PTS Metal renderer, VRR/phase-lock remain |
 | Performance overlay modes and host telemetry | Implemented, live validation pending | Nightjar's Compact, Statistics and Debug with the shared health mark and hardware poll; see LATENCY.md |
 | Fractional refresh rate | Implemented, live validation pending | The screen's exact rate goes in `client_refresh_rate_x100` at launch and in the ANNOUNCE, as Nightjar's desktop client sends it; see FRAME-PACING.md |
-| Virtual display controls | Pending | Native settings and host capability negotiation |
+| Virtual display controls, display arrangement, PC render resolution and scaling | Implemented, partial live validation | Per host and game, each row following what the host reports. Extend confirmed in Big Dawg's log on launch and resume; other choices not yet tried; see SETTINGS.md |
 | Recovery, automatic bitrate | Implemented | Big Dawg reconnect passed; congestion testing pending. Startup stage allowlist matches Nightjar. A network back on an address the stream cannot continue over reconnects at once (NETWORK.md); a real network drop not yet tested |
 | Automatic bitrate on Foundation Sunshine hosts | Implemented, live validation pending | Nightjar's `host_abr.rs`: the host's controller on at stream start, a report every three seconds, off at the end over its own connection; see NETWORK.md |
 | Automatic quality (resolution/FPS) | Implemented, live validation pending | Nightjar's ladder over Reconfigure, per profile; see NETWORK.md |
