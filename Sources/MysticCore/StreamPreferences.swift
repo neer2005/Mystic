@@ -13,6 +13,7 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public var muted = false
     public var automaticReconnect: Bool? = nil // Missing in older documents; defaults on.
     public var adaptiveBitrate: Bool? = nil // Missing in older documents; defaults off.
+    public var automaticQuality: String? = nil // Missing in older documents; defaults off.
     public var clipboardSync: Bool? = nil // Missing in older documents; defaults off.
     public var microphoneEnabled: Bool? = nil // Missing in older documents; defaults off.
     public var networkGraceSeconds: Int? = nil // Missing in older documents; defaults off.
@@ -60,7 +61,31 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
         if !["general","video","audio","network"].contains(value.settingsPane) { value.settingsPane="general" }
         if let seconds=value.networkGraceSeconds,NetworkGrace(rawValue:seconds) == nil { value.networkGraceSeconds=nil }
         if let choice=value.errorCorrection,ErrorCorrection(rawValue:choice) == nil { value.errorCorrection=nil }
+        if let mode=value.automaticQuality,AutomaticQuality(rawValue:mode) == nil || mode == AutomaticQuality.off.rawValue { value.automaticQuality=nil }
         return value
+    }
+}
+
+/// Nightjar's automatic quality: which way the stream gives way when this Mac or the network
+/// cannot keep up. Each mode walks its own bounded resolution/frame-rate ladder.
+public enum AutomaticQuality: String, Codable, CaseIterable, Sendable {
+    case off,motion,detail,battery
+    public var label: String {
+        switch self {
+        case .off: "Off"
+        case .motion: "Favor Smooth Motion"
+        case .detail: "Favor Sharp Detail"
+        case .battery: "Favor Battery Life"
+        }
+    }
+    /// The engine's `mystic_session_quality_begin` mode; 0 for off.
+    public var engineValue: UInt8 {
+        switch self {
+        case .off: 0
+        case .motion: 1
+        case .detail: 2
+        case .battery: 3
+        }
     }
 }
 

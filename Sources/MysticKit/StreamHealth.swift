@@ -72,6 +72,20 @@ extension StreamingEngine {
     }
     public func trialClear() { mystic_session_trial_clear(clipboardHandle) }
 
+    /// Starts automatic quality at the negotiated size and rate. False when the host takes no
+    /// size changes; throws for an invalid mode or stream.
+    public func qualityBegin(mode: UInt8,minShortEdge: UInt32,minFps: UInt32,nowMillis: UInt64) throws -> Bool {
+        let result=mystic_session_quality_begin(clipboardHandle,mode,minShortEdge,minFps,nowMillis)
+        if result == MYSTIC_ERR_UNIMPLEMENTED { return false }
+        guard result == MYSTIC_OK else { throw HostConnectionError("Automatic quality could not start (\(result)).") }
+        return true
+    }
+    /// One tick after the health tick, with the latest decoded picture's size.
+    public func qualityTick(decodedWidth: UInt32,decodedHeight: UInt32,suspended: Bool,nowMillis: UInt64) throws -> QualityTick {
+        try Self.decode(mystic_session_quality_tick(clipboardHandle,decodedWidth,decodedHeight,suspended,nowMillis))
+    }
+    public func qualityEnd() { mystic_session_quality_end(clipboardHandle) }
+
     private static func decode<T: Decodable>(_ pointer: UnsafeMutablePointer<CChar>?) throws -> T {
         guard let pointer else { throw HostConnectionError("No stream health response.") }
         defer { mystic_string_free(pointer) }
@@ -82,3 +96,16 @@ extension StreamingEngine {
 }
 
 private struct HealthEnvelope<T: Decodable>: Decodable { let ok: Bool;let value: T?;let error: String? }
+
+/// What one automatic quality tick did.
+public struct QualityTick: Decodable, Sendable, Equatable {
+    public enum State: String, Decodable, Sendable { case off,hold,requested,confirmed,stopped }
+    public let state: State
+    public let width: UInt32?
+    public let height: UInt32?
+    public let fpsMilliHz: UInt32?
+    public let reason: String?
+    public init(state: State,width: UInt32? = nil,height: UInt32? = nil,fpsMilliHz: UInt32? = nil,reason: String? = nil) {
+        self.state=state;self.width=width;self.height=height;self.fpsMilliHz=fpsMilliHz;self.reason=reason
+    }
+}

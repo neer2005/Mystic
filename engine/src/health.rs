@@ -82,6 +82,7 @@ pub unsafe extern "C" fn mystic_session_health_tick(
             ..Stats::default()
         };
         doctor.health.add(&tick);
+        p.last_tick = Some(tick.clone());
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
         Ok(json!({
             "rttMs": stats.rtt.map(|(rtt, _)| ms(rtt)), "rttVarianceMs": stats.rtt.map(|(_, var)| ms(var)),

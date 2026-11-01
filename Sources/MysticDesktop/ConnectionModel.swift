@@ -27,8 +27,11 @@ public final class ConnectionModel {
     @ObservationIgnored public private(set) lazy var sessionControls = HostSessionModel(model:self)
     @ObservationIgnored public private(set) lazy var graphics = HostGraphicsModel(model:self)
     @ObservationIgnored public private(set) lazy var health = StreamHealthModel(model:self)
+    @ObservationIgnored public private(set) lazy var quality = StreamQualityModel(model:self)
 
-    public private(set) var phase: Phase = .idle
+    public private(set) var phase: Phase = .idle { didSet { shortcutPhaseChanged(from:oldValue) } }
+    /// A link's launch, waiting for the user to confirm it.
+    public private(set) var pendingShortcut: ShortcutLaunch?
     public private(set) var status = "Enter your host’s LAN address to connect."
     public private(set) var errorMessage: String?
     public private(set) var host: HostInfo?
@@ -84,6 +87,90 @@ public final class ConnectionModel {
         library.selectedID=current.id
         await requestGameAction(startSelected:true)
     }
+    // MARK: Launching from the command line or a link
+
+    /// Quits Mystic when the shortcut's stream ends, with the exit code: 0 after a stream ran,
+    /// 1 when a command line's stream never started (Nightjar's codes).
+    @ObservationIgnored public var exitApp: (Int32) -> Void = { code in
+        if code == 0 { NSApplication.shared.terminate(nil) } else { exit(code) }
+    }
+    @ObservationIgnored public var startupLaunchHandled=false
+    @ObservationIgnored private var quitWhenStreamEnds=false
+    @ObservationIgnored private var shortcutFromCommandLine=false
+    @ObservationIgnored private var shortcutStreamed=false
+
+    /// A link asks first; anything else starts at once.
+    public func offer(_ shortcut: ShortcutLaunch) async -> String? {
+        if shortcut.fromLink { pendingShortcut=shortcut;return nil }
+        return await launch(shortcut)
+    }
+    public func confirmShortcut() async -> String? {
+        guard let shortcut=pendingShortcut else { return nil }
+        pendingShortcut=nil
+        return await launch(shortcut)
+    }
+    public func cancelShortcut() { pendingShortcut=nil }
+    public func reportShortcutFailure(_ message: String) { errorMessage=message }
+
+    /// Connects to the saved PC named or identified by `host` and starts `app` on it. Nil when
+    /// it started or waits for the user (to confirm closing a running game); otherwise why not.
+    public func launch(_ shortcut: ShortcutLaunch) async -> String? {
+        guard !isBusy,!hasSession else { return "Mystic is busy with another stream. Disconnect it first." }
+        let saved: SavedHost
+        switch Self.match(shortcut.host,in:savedHosts.hosts) {
+        case .found(let host): saved=host
+        case .none: return "No saved PC is called \(shortcut.host). Connect to it in Mystic once to save it."
+        case .ambiguous: return "More than one saved PC is called \(shortcut.host). Use its address or ID instead."
+        }
+        showingHome=false
+        connect(to:saved.endpoint)
+        let token=generation
+        await operation?.value
+        guard generation == token else { return "Another connection replaced this one." }
+        guard phase == .ready,let host else { return errorMessage ?? "Could not reach \(saved.name)." }
+        guard host.paired else { return "Pair with \(host.name) in Mystic before starting games from outside it." }
+        if let id=saved.uniqueID,id.caseInsensitiveCompare(host.uniqueID) != .orderedSame {
+            return "The PC at \(saved.endpoint.id) is no longer \(saved.name). Connect to it in Mystic to check it."
+        }
+        guard let query=shortcut.app else { return nil }
+        let app: HostApp
+        switch Self.match(query,in:library.apps) {
+        case .found(let found): app=found
+        case .none: return "\(host.name) has no app called \(query)."
+        case .ambiguous: return "\(host.name) has more than one app called \(query). Use its ID instead."
+        }
+        library.selectedID=app.id
+        quitWhenStreamEnds=shortcut.quitOnExit;shortcutFromCommandLine = !shortcut.fromLink;shortcutStreamed=false
+        await requestGameAction(startSelected:true)
+        guard generation == token || hasSession else { return nil }
+        if !hasSession,pendingGameAction == nil,let errorMessage { quitWhenStreamEnds=false;return errorMessage }
+        return nil
+    }
+    enum Match<Value> { case found(Value),none,ambiguous }
+    /// By ID first (unique by construction), then by name, ignoring case.
+    static func match(_ query: String,in hosts: [SavedHost]) -> Match<SavedHost> {
+        let byID=hosts.filter { $0.uniqueID?.caseInsensitiveCompare(query) == .orderedSame || $0.endpoint.id.caseInsensitiveCompare(query) == .orderedSame
+            || $0.endpoint.address.caseInsensitiveCompare(query) == .orderedSame }
+        if byID.count == 1 { return .found(byID[0]) }
+        let byName=hosts.filter { $0.name.caseInsensitiveCompare(query) == .orderedSame }
+        return byName.count == 1 ? .found(byName[0]) : (byName.isEmpty && byID.isEmpty ? .none : .ambiguous)
+    }
+    static func match(_ query: String,in apps: [HostApp]) -> Match<HostApp> {
+        let byID=apps.filter { !$0.uuid.isEmpty && $0.uuid.caseInsensitiveCompare(query) == .orderedSame }
+        if byID.count == 1 { return .found(byID[0]) }
+        let byName=apps.filter { $0.name.caseInsensitiveCompare(query) == .orderedSame }
+        return byName.count == 1 ? .found(byName[0]) : (byName.isEmpty ? .none : .ambiguous)
+    }
+    private func shortcutPhaseChanged(from old: Phase) {
+        guard quitWhenStreamEnds else { return }
+        if phase == .streaming { shortcutStreamed=true }
+        // A dialog asking to close the running game is still the shortcut's start.
+        let live: Set<Phase>=[.streaming,.launching,.reconnecting,.disconnecting]
+        guard live.contains(old),!live.contains(phase) else { return }
+        quitWhenStreamEnds=false
+        exitApp(shortcutStreamed || !shortcutFromCommandLine ? 0 : 1)
+    }
+
     /// The Home entry for the connected host, where its artwork is cached.
     var connectedHomePC: HomePC? {
         guard let host,let target=HostEndpoint(address:connectedAddress,port:connectedPort) else { return nil }
@@ -224,6 +311,7 @@ public final class ConnectionModel {
         let tellLinkSpeed: Bool
         var roaming=true
         var roamingMetered=false
+        var quality: AutomaticQuality = .off
     }
     @ObservationIgnored private(set) var plan: StreamPlan?
     /// The headroom of the screen the stream will open on, read when a plan is made.
@@ -243,7 +331,7 @@ public final class ConnectionModel {
     }
     @ObservationIgnored private var recovery = StreamRecovery()
     @ObservationIgnored private var recovering = false
-    @ObservationIgnored private var hadVideo = false
+    @ObservationIgnored private(set) var hadVideo = false
     @ObservationIgnored private var connectedAt: UInt64?
     @ObservationIgnored var makeSession: (@escaping @Sendable () -> Void, @escaping @Sendable (String) -> Void) throws -> any StreamSessionService = {
         try StreamSession(inputFailure:$0,recoveryFailure:$1)
@@ -408,7 +496,7 @@ public final class ConnectionModel {
                 adaptive:video.adaptiveBitrate,reconnect:settings.value.automaticReconnect ?? true,
                 hostID:host?.uniqueID ?? "",framePacing:video.framePacing,
                 tellWireless:tellHostWireless,tellLinkSpeed:tellHostLinkSpeed,
-                roaming:clientRoaming,roamingMetered:roamingOnMeteredNetworks)
+                roaming:clientRoaming,roamingMetered:roamingOnMeteredNetworks,quality:video.automaticQuality)
     }
     private func startPreparedPlan(_ plan: StreamPlan,connection: any HostService,capabilities: VideoCapabilities) {
         recovery=StreamRecovery();recovering=false;hadVideo=false;connectedAt=nil
@@ -426,6 +514,7 @@ public final class ConnectionModel {
         options.resumeOnly = recovering
         let token = generation
         rates.prepareLaunch()
+        quality.prepare(plan.quality)
         let adaptive = plan.adaptive
         videoTelemetry = nil
         phase = .launching; status = "Launching \(app.name)…"; errorMessage = nil
@@ -523,7 +612,7 @@ public final class ConnectionModel {
         networkWatch?.stop();networkWatch=nil;networkLost=false
         plan=nil;streamingAppName=nil;recovering=false;hadVideo=false;connectedAt=nil;recovery=StreamRecovery()
         rates.stopAutomatic(status:"Fixed bitrate")
-        health.reset()
+        health.reset();quality.reset()
         inputCapture?.setAvailable(false);inputCapture = nil
         generation = UUID(); let token = generation
         microphoneStatus="Microphone off"
@@ -559,6 +648,8 @@ public final class ConnectionModel {
                 let snapshot = telemetry.snapshot()
                 self.processMediaSnapshot(snapshot)
                 await self.health.tick(snapshot)
+                guard self.generation == token else { return }
+                await self.quality.tick()
                 guard self.generation == token else { return }
                 await self.rates.refresh()
                 guard self.generation == token else { return }
@@ -660,7 +751,7 @@ public final class ConnectionModel {
         controllerFeedbackMonitor?.cancel();controllerFeedbackMonitor=nil
         statisticsMonitor?.cancel();statisticsMonitor=nil
         rates.stopAutomatic()
-        health.reset()
+        health.reset();quality.reset()
         let previous=session;session=nil
         decoder=nil;presenter=nil;audioPlayer=nil;telemetry=nil;videoTelemetry=nil;rates.clearDecodedCount()
         let address=connectedAddress, port=connectedPort, endpoint=endpoint
@@ -753,6 +844,8 @@ public final class ConnectionModel {
             self.record("Told host the display: \(screen), EDR headroom \(String(format:"%.1f",headroom))×.",token:token)
         }
     }
+    /// A line in the current stream's session log.
+    func recordStream(_ message: String) { record(message,token:generation) }
     private func record(_ message: String, token: UUID) {
         guard generation == token else { return }
         diagnostics.append(message)

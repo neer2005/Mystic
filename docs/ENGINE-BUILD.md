@@ -3,6 +3,14 @@
 Tracking whether Nightjar's `nightjar-core` builds and behaves on the Mac, which is the
 gate for Mystic Phase 1.
 
+## Automatic quality (additive to ABI 5, 2026-10-31)
+
+`mystic_session_quality_begin`, `mystic_session_quality_tick` and `mystic_session_quality_end`
+run nightjar-policy's quality ladder over the Reconfigure message; see `NETWORK.md`. 53 Rust
+tests and the C smoke test passed; `swift test --disable-sandbox`: 273 tests passed, four AV1
+hardware tests skipped. `.build/Mystic.app` rebuilt with the `mystic` URL scheme registered;
+see `LAUNCHING.md`.
+
 ## ABI 5: network changes and wake plan (2026-10-31)
 
 Same Nightjar revision. `MysticStreamConfig` gains `location`, `client_roaming`,

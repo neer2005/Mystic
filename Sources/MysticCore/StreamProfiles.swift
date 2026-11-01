@@ -9,12 +9,24 @@ public struct StreamVideoSettings: Codable, Equatable, Sendable {
     public var hdr: Bool
     public var framePacing: FramePacingMode
     public var adaptiveBitrate: Bool
+    /// Missing in older documents; off.
+    public var automaticQuality: AutomaticQuality
     public init(preferences: StreamPreferences = StreamPreferences()) {
         let value=preferences.validated()
         resolution=value.resolution;fps=value.fps;bitrateMbps=value.bitrateMbps
         codec=value.codec;hdr=value.hdr
         framePacing=FramePacingMode(rawValue:value.framePacing ?? "") ?? .lowLatency
         adaptiveBitrate=value.adaptiveBitrate ?? false
+        automaticQuality=AutomaticQuality(rawValue:value.automaticQuality ?? "") ?? .off
+    }
+    private enum CodingKeys: String, CodingKey { case resolution,fps,bitrateMbps,codec,hdr,framePacing,adaptiveBitrate,automaticQuality }
+    public init(from decoder: any Decoder) throws {
+        let c=try decoder.container(keyedBy:CodingKeys.self)
+        resolution=try c.decode(String.self,forKey:.resolution);fps=try c.decode(UInt32.self,forKey:.fps)
+        bitrateMbps=try c.decode(Int32.self,forKey:.bitrateMbps);codec=try c.decode(String.self,forKey:.codec)
+        hdr=try c.decode(Bool.self,forKey:.hdr);framePacing=try c.decode(FramePacingMode.self,forKey:.framePacing)
+        adaptiveBitrate=try c.decode(Bool.self,forKey:.adaptiveBitrate)
+        automaticQuality=try c.decodeIfPresent(AutomaticQuality.self,forKey:.automaticQuality) ?? .off
     }
     public func validated() -> Self {
         var preferences=StreamPreferences();preferences.videoSettings=self
@@ -29,6 +41,7 @@ extension StreamPreferences {
             resolution=newValue.resolution;fps=newValue.fps;bitrateMbps=newValue.bitrateMbps
             codec=newValue.codec;hdr=newValue.hdr;framePacing=newValue.framePacing.rawValue
             adaptiveBitrate=newValue.adaptiveBitrate
+            automaticQuality=newValue.automaticQuality == .off ? nil : newValue.automaticQuality.rawValue
         }
     }
 }

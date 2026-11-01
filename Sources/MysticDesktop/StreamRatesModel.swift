@@ -93,6 +93,7 @@ public final class StreamRatesModel {
                 if let error=state.error { throw HostConnectionError(error) }
                 guard let result=state.result else { throw HostConnectionError("The host returned no applied rates.") }
                 appliedKbps=result.kbps;appliedFPS=result.fpsMilliHz
+                if fpsMilliHz != 0 { model.quality.manualFrameRateChanged() }
                 model.decoder?.setLiveFrameRate((result.fpsMilliHz+999)/1000)
                 message=result.summary
             } else {

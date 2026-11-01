@@ -9,7 +9,9 @@ public struct HostLibraryView: View {
     @State private var showingHostSession=false
     @FocusState private var searchFocused: Bool
     @Environment(\.openWindow) private var openWindow
-    public init(model: ConnectionModel) { self.model=model }
+    /// A stream asked for on the command line, started once the library appears.
+    private let startup: ShortcutLaunch?
+    public init(model: ConnectionModel,startup: ShortcutLaunch? = nil) { self.model=model;self.startup=startup }
     public var body: some View {
         NavigationSplitView {
             HostSidebar(model:model)
@@ -43,7 +45,23 @@ public struct HostLibraryView: View {
         .focusedSceneValue(\.hostSessionAction,canShowHostSession ? { showingHostSession=true } : nil)
         .fullScreenCommandTarget()
         .frame(minWidth:1000,minHeight:580)
-        .task { model.libraryAppeared();await model.prepare() }
+        .confirmationDialog(shortcutQuestion,isPresented:Binding(get:{ model.pendingShortcut != nil },set:{ if !$0 { model.cancelShortcut() } }),
+                            titleVisibility:.visible) {
+            Button("Start") { Task { await finish(model.confirmShortcut(),commandLine:false) } }
+            Button("Cancel",role:.cancel) { model.cancelShortcut() }
+        } message: { Text("A link asked Mystic to start this. Only continue if you opened it yourself.") }
+        .onOpenURL { url in
+            guard let shortcut=ShortcutLaunch.parse(url:url) else { return }
+            Task { await finish(model.offer(shortcut),commandLine:false) }
+        }
+        .task {
+            model.libraryAppeared();await model.prepare()
+            // Once per process: reopening the library window must not start it again.
+            if let startup,!model.startupLaunchHandled {
+                model.startupLaunchHandled=true
+                await finish(model.offer(startup),commandLine:true)
+            }
+        }
         .onChange(of:model.showingHome) { if model.showingHome { Task { await model.homeSync.refresh() } } }
         .onDisappear { model.libraryDisappeared() }
         .onChange(of:model.settings.value) { model.applyLiveSettings() }
@@ -204,6 +222,26 @@ public struct HostLibraryView: View {
         return description
     }
     /// Context menus list only what can be done now, as the HIG asks; the menu bar keeps the full set.
+    private var shortcutQuestion: String {
+        guard let shortcut=model.pendingShortcut else { return "Start Stream" }
+        return shortcut.app.map { "Start \($0) on \(shortcut.host)?" } ?? "Open \(shortcut.host)'s library?"
+    }
+    /// What a command line or link led to: the stream window, or why it did not start. A
+    /// command line that cannot start ends Mystic with exit code 1, as Nightjar's does.
+    private func finish(_ failure: String?,commandLine: Bool) async {
+        if let failure {
+            if commandLine {
+                FileHandle.standardError.write(Data("Mystic: \(failure)\n".utf8))
+                model.exitApp(1)
+            }
+            model.reportShortcutFailure(failure)
+        } else if model.hasSession { openWindow(id:"stream") }
+    }
+    /// The same launch as a link or command line, for game frontends and shortcuts.
+    private func shortcut(for id: Int32) -> ShortcutLaunch? {
+        guard let host=model.host,let app=model.library.apps.first(where: { $0.id == id }) else { return nil }
+        return ShortcutLaunch(host:host.uniqueID,app:app.uuid.isEmpty ? app.name : app.uuid)
+    }
     @ViewBuilder private func appMenu(_ id: Int32) -> some View {
         let running=model.library.apps.first { $0.id == id }.map(model.library.isRunning) ?? false
         if model.phase == .ready,!model.isBusy,model.capabilities != nil {
@@ -214,6 +252,16 @@ public struct HostLibraryView: View {
                 Task { await model.requestGameAction(startSelected:false) }
             }
         }
+        if let shortcut=shortcut(for:id) {
+            Divider()
+            Button("Copy Launch Link",systemImage:"link") { copy(shortcut.link.absoluteString) }
+            Button("Copy Command Line",systemImage:"terminal") {
+                copy(shortcut.commandLine(executable:Bundle.main.executablePath ?? "Mystic.app/Contents/MacOS/MysticApp"))
+            }
+        }
+    }
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents();NSPasteboard.general.setString(text,forType:.string)
     }
     /// Selects `id` and starts it; does nothing while the library cannot play.
     private func start(_ id: Int32) {

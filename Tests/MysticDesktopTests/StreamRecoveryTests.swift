@@ -301,6 +301,87 @@ final class StreamRecoveryTests: XCTestCase {
         XCTAssertEqual(sessions.all.count,1)
         model.disconnect()
     }
+    func testACommandLineFindsTheSavedPCAndAppAndQuitsWhenItsStreamEnds() async throws {
+        let sessions=RecoverySessions()
+        let model=try await shortcutModel(RecoveryHost(),sessions)
+        var exits:[Int32]=[];model.exitApp={ exits.append($0) }
+        let missing=await model.launch(ShortcutLaunch(host:"Nowhere"))
+        XCTAssertEqual(missing,"No saved PC is called Nowhere. Connect to it in Mystic once to save it.")
+        let wrongApp=await model.launch(ShortcutLaunch(host:"big dawg",app:"Steam"))
+        XCTAssertEqual(wrongApp,"PC has no app called Steam.")
+        XCTAssertEqual(model.phase,.ready,"the library stays open on that PC")
+        let started=await model.launch(ShortcutLaunch(host:"HOST1",app:"desktop",quitOnExit:true))
+        XCTAssertNil(started)
+        try await wait { model.phase == .streaming }
+        XCTAssertEqual(exits,[])
+        model.disconnect()
+        try await wait { !exits.isEmpty }
+        XCTAssertEqual(exits,[0])
+    }
+    func testACommandLineStreamThatNeverStartsExitsWithOne() async throws {
+        let sessions=RecoverySessions()
+        let model=try await shortcutModel(RecoveryHost(),sessions)
+        var exits:[Int32]=[];model.exitApp={ exits.append($0) }
+        sessions.failNextStartup(stage:.videoStreamStart,code:-1)
+        _ = await model.launch(ShortcutLaunch(host:"Big Dawg",app:"Desktop",quitOnExit:true))
+        try await wait { !exits.isEmpty }
+        XCTAssertEqual(exits,[1])
+    }
+    func testALinkWaitsForConfirmationAndCancelLeavesEverythingAlone() async throws {
+        let model=try await shortcutModel(RecoveryHost(),RecoverySessions())
+        let link=try XCTUnwrap(ShortcutLaunch.parse(url:URL(string:"mystic://stream?host=Big%20Dawg&app=Desktop")!))
+        let offered=await model.offer(link)
+        XCTAssertNil(offered);XCTAssertEqual(model.pendingShortcut,link)
+        XCTAssertEqual(model.phase,.idle,"nothing connects before the user confirms")
+        model.cancelShortcut()
+        XCTAssertNil(model.pendingShortcut)
+        let none=await model.confirmShortcut()
+        XCTAssertNil(none);XCTAssertEqual(model.phase,.idle)
+    }
+    func testAutomaticQualityStartsAfterVideoReportsRequestsAndStopsOnAManualRateChange() async throws {
+        let sessions=RecoverySessions()
+        let model=try await running(RecoveryHost(),sessions,RecoveryClock(),configure:{ model in
+            model.settings.update { $0.automaticQuality="motion" }
+            model.quality.isFrontmost={ true }
+        })
+        let session=sessions.all[0]
+        XCTAssertTrue(model.quality.status.contains("waiting for video"),model.quality.status)
+        await model.quality.tick()
+        XCTAssertEqual(session.qualityModes,[],"nothing starts before the first picture")
+        model.processMediaSnapshot(picture())
+        await model.quality.tick()
+        XCTAssertEqual(session.qualityModes,[.motion])
+        session.queueQualityTick(QualityTick(state:.requested,width:1280,height:720,fpsMilliHz:60_000))
+        await model.quality.tick()
+        XCTAssertTrue(model.quality.status.contains("1280×720 at 60 fps"),model.quality.status)
+        session.queueQualityTick(QualityTick(state:.confirmed,width:1280,height:720,fpsMilliHz:60_000))
+        await model.quality.tick()
+        XCTAssertEqual(model.quality.current?.height,720)
+        model.quality.manualFrameRateChanged()
+        XCTAssertTrue(model.quality.status.contains("changed by hand"),model.quality.status)
+        let ticks=session.qualityTicks
+        await model.quality.tick()
+        XCTAssertEqual(session.qualityTicks,ticks,"a stopped ladder is not ticked")
+        model.disconnect()
+    }
+    func testAutomaticQualityExplainsAHostWithoutSizeChanges() async throws {
+        let sessions=RecoverySessions()
+        sessions.qualityUnsupported=true
+        let model=try await running(RecoveryHost(),sessions,RecoveryClock(),configure:{ $0.settings.update { $0.automaticQuality="detail" } })
+        model.processMediaSnapshot(picture())
+        await model.quality.tick()
+        XCTAssertTrue(model.quality.status.contains("does not accept size changes"),model.quality.status)
+        model.disconnect()
+    }
+    private func shortcutModel(_ host: RecoveryHost,_ sessions: RecoverySessions) async throws -> ConnectionModel {
+        let model=ConnectionModel(vault:RecoveryVault(),rememberHost:false,makeHost:{ _,_,_,_ in host })
+        model.makeSession={ _,_ in sessions.make() }
+        model.startNetworkWatch={ _,_,_ in nil }
+        await model.prepare()
+        guard model.capabilities?.supportedFormats ?? 0 != 0 else { throw XCTSkip("No hardware video decoder") }
+        model.savedHosts.remember(endpoint:try XCTUnwrap(HostEndpoint(address:"127.0.0.1",port:47989)),name:"Big Dawg",uniqueID:"host1")
+        return model
+    }
     func testDisplayHeadroomGoesToTheLaunchAndOncePerScreenToTheHost() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions()
         let model=try await running(host,sessions,RecoveryClock(),configure:{ $0.launchHeadroom={ 3.5 } })
@@ -369,11 +450,22 @@ private final class RecoverySessions: @unchecked Sendable {
     private let lock=NSLock();private var values:[RecoverySession]=[];private var failure:StreamStartFailure?
     func failNextStartup(stage:Stage,code:Int32) { lock.withLock { failure=StreamStartFailure(message:"Start failed",stage:stage,code:code) } }
     var all:[RecoverySession] { lock.withLock { values } }
-    func make() -> RecoverySession { lock.withLock { let s=RecoverySession(startup:failure);failure=nil;values.append(s);return s } }
+    var qualityUnsupported: Bool { get { lock.withLock { unsupported } } set { lock.withLock { unsupported=newValue } } }
+    private var unsupported=false
+    func make() -> RecoverySession { lock.withLock { let s=RecoverySession(startup:failure,qualityUnsupported:unsupported);failure=nil;values.append(s);return s } }
 }
 private final class RecoverySession: StreamSessionService, @unchecked Sendable {
     private let startup:StreamStartFailure?
-    init(startup:StreamStartFailure?) { self.startup=startup }
+    private let qualityUnsupported:Bool
+    init(startup:StreamStartFailure?,qualityUnsupported:Bool=false) { self.startup=startup;self.qualityUnsupported=qualityUnsupported }
+    private var modes:[AutomaticQuality]=[],tickCount=0,queuedTicks:[QualityTick]=[]
+    var qualityModes:[AutomaticQuality] { lock.withLock { modes } }
+    var qualityTicks:Int { lock.withLock { tickCount } }
+    func queueQualityTick(_ tick:QualityTick) { lock.withLock { queuedTicks.append(tick) } }
+    func qualityBegin(_ mode:AutomaticQuality) async -> Bool? { lock.withLock { modes.append(mode) };return !qualityUnsupported }
+    func qualityTick(decodedWidth:UInt32,decodedHeight:UInt32,suspended:Bool) async -> QualityTick? {
+        lock.withLock { tickCount+=1;return queuedTicks.isEmpty ? QualityTick(state:.hold) : queuedTicks.removeFirst() }
+    }
     private let lock=NSLock();private var event:(@Sendable (EngineEvent)->Void)?
     private var stopCount=0,beginCount=0;private var rate:UInt32?
     private var storedConfiguration:StreamConfiguration?

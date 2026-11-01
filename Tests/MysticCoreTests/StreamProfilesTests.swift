@@ -3,6 +3,20 @@ import Foundation
 import MysticCore
 
 struct StreamProfilesTests {
+    @Test func automaticQualitySurvivesProfilesAndOlderDocumentsReadAsOff() throws {
+        let old=Data(#"{"resolution":"1920x1080","fps":60,"bitrateMbps":20,"codec":"auto","hdr":false,"framePacing":"lowLatency","adaptiveBitrate":false}"#.utf8)
+        #expect(try JSONDecoder().decode(StreamVideoSettings.self,from:old).automaticQuality == .off)
+        var video=StreamVideoSettings();video.automaticQuality = .battery
+        let back=try JSONDecoder().decode(StreamVideoSettings.self,from:JSONEncoder().encode(video))
+        #expect(back.automaticQuality == .battery && back.validated().automaticQuality == .battery)
+        var preferences=StreamPreferences();preferences.videoSettings=video
+        #expect(preferences.automaticQuality == "battery")
+        video.automaticQuality = .off;preferences.videoSettings=video
+        #expect(preferences.automaticQuality == nil)
+        preferences.automaticQuality="turbo"
+        #expect(preferences.validated().automaticQuality == nil && preferences.videoSettings.automaticQuality == .off)
+        #expect(AutomaticQuality.allCases.map(\.engineValue) == [0,1,2,3])
+    }
     @Test func inheritanceTracksDefaultsWhileCustomSnapshotsStayFixed() throws {
         var catalog=StreamProfileCatalog(),defaults=StreamVideoSettings(),host=StreamVideoSettings(),game=StreamVideoSettings()
         host.resolution="3840x2160";host.hdr=true;game.resolution="2560x1440";game.fps=120
