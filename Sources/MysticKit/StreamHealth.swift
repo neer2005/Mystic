@@ -14,6 +14,8 @@ public struct NetworkMeasures: Decodable, Sendable, Equatable {
     /// This tick's frames the network completed and dropped.
     public var completedFrames: UInt64? = nil
     public var droppedFrames: UInt64? = nil
+    /// Video payload received, in Mbit/s.
+    public var videoMbps: Double? = nil
 }
 
 /// Nightjar's stream doctor report over the last 30 seconds (`nightjar_policy::health::Report`).

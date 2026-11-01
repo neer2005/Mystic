@@ -415,6 +415,23 @@ int32_t mystic_session_text_fields(const MysticSession *session);
 int32_t mystic_session_text_field(const MysticSession *session, MysticTextField *out);
 int32_t mystic_session_text(MysticSession *session, const char *utf8);
 
+/* Diagnostics (additive to ABI 5), Nightjar's shared rules. Overlay health: 0 unknown, 1 good,
+ * 2 fair, 3 poor; NaN for anything unmeasured. The hardware poll says when to ask the host for
+ * its readings ("hardwareMetrics" host request): due returns a generation or -1; answered takes
+ * kind 0 a sample, 1 failed, 2 the host offers none, and returns whether to show the sample.
+ * Owner-thread calls. Redaction removes PC names and addresses added as secrets, IDs, keys and
+ * PINs from a log line; free the result with mystic_string_free. */
+uint8_t mystic_overlay_health(float shown_fps, float received_fps, float network_ms, float loss_percent, float decode_ms);
+typedef struct MysticHardwarePoll MysticHardwarePoll;
+MysticHardwarePoll *mystic_hardware_poll_new(void);
+void mystic_hardware_poll_free(MysticHardwarePoll *poll);
+int64_t mystic_hardware_poll_due(MysticHardwarePoll *poll, uint64_t now_ms, bool wanted);
+bool mystic_hardware_poll_answered(MysticHardwarePoll *poll, uint32_t generation, uint64_t now_ms, uint8_t kind,
+                                   int64_t sampled_at_unix_ms, uint32_t interval_ms);
+bool mystic_hardware_poll_fresh(const MysticHardwarePoll *poll, uint64_t now_ms);
+void mystic_redact_add_secret(const char *secret);
+char *mystic_redact(const char *text);
+
 #ifdef __cplusplus
 }
 #endif

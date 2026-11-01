@@ -19,6 +19,8 @@ pub(crate) struct NetworkTiming {
     pub(crate) late: LateFrames,
     /// Frames received since the doctor's last tick.
     pub(crate) received: u64,
+    /// Their video payload in bytes, for the overlay's Mbit/s.
+    pub(crate) received_bytes: u64,
 }
 impl NetworkTiming {
     pub fn setup(&mut self, format: u32, width: u32, height: u32, fps: u32) {

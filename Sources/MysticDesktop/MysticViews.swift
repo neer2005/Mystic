@@ -55,8 +55,8 @@ public struct StreamingView: View {
                 .help("Why did my stream stutter?")
         }.defaultCustomization(.hidden)
         ToolbarItem(id:"latency") {
-            Toggle(isOn:$model.showLatencyHUD) { Label("Latency HUD",systemImage:"chart.bar.xaxis") }
-                .help("Show measured video timings and renderer enqueue rate")
+            Toggle(isOn:$model.showLatencyHUD) { Label("Performance Overlay",systemImage:"chart.bar.xaxis") }
+                .help("Show the stream's frame rate, round trip and loss; Settings → General chooses how much")
         }.defaultCustomization(.hidden)
         ToolbarItem(id:"session") {
             Button("Session and Graphics",systemImage:"rectangle.connected.to.line.below",action:showHostSession)
@@ -75,8 +75,12 @@ public struct StreamingView: View {
                 VideoSurface(presenter: presenter,capture:model.inputCapture)
                     .overlay(alignment:.topLeading) {
                         if model.showLatencyHUD {
-                            LatencyHUD(snapshot:model.videoTelemetry,mode:presenter.pacingMode,output:presenter.videoOutput,bitrate:model.rates.status,network:model.health.measures)
-                                .padding(12).allowsHitTesting(false)
+                            PerformanceOverlay(mode:model.overlayMode,stream:model.overlayStreamLine,
+                                               measures:OverlayMeasures(snapshot:model.videoTelemetry,network:model.health.measures),
+                                               hardware:model.hostHardware.reading) {
+                                LatencyHUD(snapshot:model.videoTelemetry,mode:presenter.pacingMode,output:presenter.videoOutput,bitrate:model.rates.status,network:model.health.measures)
+                            }
+                            .padding(12).allowsHitTesting(false)
                         }
                     }
             }
@@ -173,10 +177,5 @@ private struct LatencyHUD: View {
             Text("Enqueue ends at renderer acceptance.\nNetwork transit and screen latency unavailable.")
                 .foregroundStyle(.secondary)
         }
-        .font(.caption.monospacedDigit())
-        .foregroundStyle(.white)
-        .padding(12)
-        .background(.black.opacity(0.8),in:RoundedRectangle(cornerRadius:10))
-        .accessibilityElement(children:.combine)
     }
 }

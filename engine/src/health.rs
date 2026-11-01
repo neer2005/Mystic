@@ -63,6 +63,7 @@ pub unsafe extern "C" fn mystic_session_health_tick(
         doctor.drops = stats.video.frame_drops;
         let mut network = p.network.lock().unwrap_or_else(|e| e.into_inner());
         let received = std::mem::take(&mut network.received);
+        let received_bytes = std::mem::take(&mut network.received_bytes);
         let seconds = f64::from(interval_ms.max(1)) / 1000.0;
         let tick = Stats {
             now_ms,
@@ -90,6 +91,7 @@ pub unsafe extern "C" fn mystic_session_health_tick(
             "poorConnection": tick.poor_connection, "inputHeld": stats.input_contact_lost,
             // This tick's frames, for the report a Foundation host's bitrate controller takes.
             "completedFrames": completed, "droppedFrames": drops,
+            "videoMbps": received_bytes as f64 * 8.0 / seconds / 1_000_000.0,
         }))
     })())
 }

@@ -1,4 +1,6 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct HostSessionActionKey: FocusedValueKey { typealias Value = () -> Void }
 struct StreamHealthActionKey: FocusedValueKey { typealias Value = () -> Void }
@@ -38,9 +40,24 @@ public struct StreamCommands: Commands {
     public init(model: ConnectionModel) { self.model=model }
     private var streaming: Bool { model.phase == .streaming }
     private var capture: StreamInputCapture? { model.inputCapture }
+    /// The last stream's per-second figures as CSV, in Nightjar's columns; kept after it ends.
+    private func saveStatistics() {
+        let panel=NSSavePanel()
+        panel.allowedContentTypes=[.commaSeparatedText]
+        panel.nameFieldStringValue="mystic-\(Int(Date().timeIntervalSince1970)).csv"
+        guard panel.runModal() == .OK,let url=panel.url else { return }
+        if let error=model.saveStatistics(to:url) {
+            let alert=NSAlert();alert.messageText="Could not save statistics.";alert.informativeText=error;alert.runModal()
+        }
+    }
     public var body: some Commands {
+        CommandGroup(after:.help) {
+            Button("Show Session Log in Finder") {
+                if let file=model.sessionLogFile { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+            }.disabled(model.sessionLogFile == nil)
+        }
         CommandGroup(after:.toolbar) {
-            Button(model.showLatencyHUD ? "Hide Latency HUD" : "Show Latency HUD") { model.showLatencyHUD.toggle() }
+            Button(model.showLatencyHUD ? "Hide Performance Overlay" : "Show Performance Overlay") { model.showLatencyHUD.toggle() }
                 .keyboardShortcut("l",modifiers:[.option,.command])
         }
         CommandMenu("Stream") {
@@ -77,6 +94,8 @@ public struct StreamCommands: Commands {
             Button("Why Did My Stream Stutter?…") { showHealth?() }
                 .keyboardShortcut("h",modifiers:[.control,.command])
                 .disabled(showHealth == nil)
+            Button("Save Statistics…") { saveStatistics() }
+                .disabled(!model.canSaveStatistics)
             #if DEBUG
             Divider()
             Button("Test Video Recovery") { model.simulateVideoLoss() }

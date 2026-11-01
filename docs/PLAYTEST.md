@@ -4,6 +4,52 @@ Use the rebuilt `.build/Mystic.app`. Start with a familiar game at your usual
 resolution/frame rate. Record the controller model, USB or Bluetooth, host
 software/version, and whether the Mac uses Wi-Fi or Ethernet.
 
+## Recording a session
+
+Before starting, turn on Settings → General → Show Performance Overlay and choose
+Statistics (Debug for timing problems). Statistics shows the host's CPU and GPU where it
+reports them. After each session:
+
+- Stream → Save Statistics… writes the stream's per-second CSV (Nightjar's columns: frame
+  rates, loss, round trip, decode and render time, bitrate). It stays available after the
+  stream ends, until the next one starts.
+- Help → Show Session Log in Finder opens `~/Library/Logs/Mystic/mystic.log` (this run) and
+  `mystic.prev.log` (the run before). PC names, addresses, IDs, keys and PINs are replaced
+  before lines are written, so the file can be shared.
+- For a crash, macOS's report is in Console → Crash Reports (or
+  `~/Library/Logs/DiagnosticReports`), named MysticApp.
+
+## Features awaiting a live host
+
+Each was built and tested with fakes only. One pass covers them all; note host software and
+version for each.
+
+1. **Refresh rate.** On a 59.94 Hz display (many TVs), start a 60 fps stream. The host's
+   stream should run at 59.94 (Rubylight and hosts that read fractions); judge by the absence
+   of a repeated frame every ~16 seconds in a panning scene. See FRAME-PACING.md.
+2. **Host cursor.** With Local Cursor on, click the video for desktop control. The pointer
+   should be the PC's (I-beam over text, resize arrows on window edges), move without video
+   delay, and not appear twice. Capture Mouse and Release Input should hand the cursor back
+   to the video. Note which host sent shapes (session log). See INPUT.md.
+3. **Host-run automatic bitrate.** On a Foundation Sunshine host without live bitrate, turn
+   on Automatic Bitrate. The status should read “Automatic bitrate (host)”, change as the
+   network does, and the host's controller should be off after Disconnect. See NETWORK.md.
+4. **Keyboard layout.** With a non-US Mac layout, start a stream and type in a PC text
+   editor: letters and punctuation should match the Mac's keycaps (session log: “Told host
+   the keyboard layout”). Switch input sources mid-stream and type again.
+5. **Emoji and dictation.** Focus a PC text field, then insert from Edit → Emoji & Symbols and
+   dictate a sentence. The text should arrive once; with no field focused, nothing is typed
+   into a game (session log says why).
+6. **Shortcuts.** Save WIN + TAB and CTRL + SHIFT + ESC in Settings → Keyboard and send each
+   from Stream → Send Shortcut. Export the file and import it into Nightjar or Moonlight on
+   Android if available.
+7. **Host readings.** In Statistics, the host's CPU and GPU lines should match the host's own
+   monitor within a few seconds.
+8. **Remote access check.** Away from home (or over a VPN), right-click the connected PC →
+   Check Remote Access…. Record the outcome, round trip and route.
+9. **Updates.** Settings → General's update line should say no release has been published,
+   until the first one is.
+
 ## Audio output switching
 
 1. Play recognizable game audio using the Mac's current speakers. While streaming,
@@ -226,6 +272,7 @@ that adaptation is unavailable and continue at the fixed rate.
 
 For a failure, note the action that triggered it, the stream status/bitrate text,
 whether input or rumble remained active, and whether a manual reconnect fixed it.
+Attach the saved statistics CSV and both session log files; they are redacted.
 HDR appearance, discrete surround, AV1 hardware support and controller feedback
 still require their own physical checks; passing automated tests does not prove
 those device-specific outcomes.

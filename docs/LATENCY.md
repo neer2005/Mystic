@@ -1,8 +1,27 @@
-# Video latency HUD
+# Performance overlay and latency HUD
 
-Use View → Show Latency HUD (⌥⌘L) to show or hide the overlay; a Latency HUD toolbar
-item is available through Customize Toolbar. The HUD also shows the current bitrate
-status.
+Use View → Show Performance Overlay (⌥⌘L) to show or hide the overlay; a Performance
+Overlay toolbar item is available through Customize Toolbar. Settings → General → Overlay
+Detail picks Nightjar's three modes (`stream/overlay.rs`, after Android's
+`PerformanceOverlay`):
+
+- **Compact** (the default): one line, “119.9 FPS · 8 ms RTT · 0.1% loss”, behind a health
+  mark by Nightjar's shared thresholds (`nightjar_policy::overlay::health`): a green dot,
+  an amber triangle from 1 % loss, 40 ms or a tenth of the frames not shown, a red cross from
+  5 %, 80 ms or a quarter; grey until something is measured.
+- **Statistics**: Android's six lines (stream, frame rates, video payload and loss, round
+  trip, host processing, decode and render) plus the host's CPU and each GPU's usage,
+  temperature and power where the host reports them (`/api/hardware-metrics`).
+- **Debug**: every host GPU reading (clocks, temperatures, voltage, fan, power, VRAM) and the
+  latency HUD below.
+
+Host readings follow Nightjar's shared poll: asked only while Statistics or Debug shows, at
+once, then at the host's sample interval (at least 2 s), 10 s after a failure, never again
+that stream once the host says it has none; a reading shows for twice the interval (at
+least 5 s) and then clears. Video payload is the frames' bytes per second from the engine.
+Render is the renderer enqueue's p50. Stream → Save Statistics… writes the per-second
+figures; see PLAYTEST.md. The latency HUD (Debug) is described below; it also shows the
+current bitrate status.
 It updates once a second and lets pointer events through to the video. Hiding it
 keeps the bounded collectors active so reopening shows the current rolling window.
 The app creates a fresh collector on each stream and clears the snapshot on disconnect.

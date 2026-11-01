@@ -13,7 +13,11 @@ public struct MysticSettingsView: View {
                         Picker("Sort Apps",selection:setting(\.librarySort)) { Text("Name").tag("name");Text("Host Order").tag("host") }
                     }
                     Section("Streaming") {
-                        Toggle("Show Latency HUD",isOn:$model.showLatencyHUD)
+                        Toggle("Show Performance Overlay",isOn:$model.showLatencyHUD)
+                        Picker("Overlay Detail",selection:$model.overlayMode) {
+                            ForEach(OverlayMode.allCases,id:\.self) { Text($0.label).tag($0) }
+                        }
+                        Text("Compact shows frame rate, round trip and loss behind a health mark. Statistics adds the stream, video, host and decode lines, with the host's CPU and GPU where it reports them. Debug adds every timing.").font(.caption).foregroundStyle(.secondary)
                         Toggle("Sync Clipboard Text",isOn:$model.clipboardSync).disabled(model.hasSession || model.isBusy)
                         Text("Off by default. Shares new plain-text copies only while the stream window is active. Files and images stay on the Mac.").font(.caption).foregroundStyle(.secondary)
                         Toggle("Local Cursor",isOn:$model.localCursor)

@@ -40,6 +40,9 @@ fn host_envelope(result: Result<Value, HostError>) -> *mut c_char {
 
 pub struct MysticHost {
     client: HostClient,
+    /// The capabilities of the last launch's serverinfo, so the overlay's hardware poll does not
+    /// ask for serverinfo every time.
+    capabilities: std::sync::Mutex<Option<nightjar_core::http::HostCapabilities>>,
 }
 pub(crate) fn envelope(result: Result<Value, String>) -> *mut c_char {
     let value = match result {
@@ -106,7 +109,7 @@ pub unsafe extern "C" fn mystic_host_new(
                 .with_server_certificate_pem(text(certificate)?)
                 .map_err(|e| e.to_string())?;
         }
-        Ok(MysticHost { client })
+        Ok(MysticHost { client, capabilities: std::sync::Mutex::new(None) })
     })();
     match result {
         Ok(h) => Box::into_raw(Box::new(h)),
@@ -304,6 +307,29 @@ impl MysticHost {
                 let action = self.client.abr_feedback(&abr_feedback(&v)?).map_err(HostError::from)?;
                 Ok(json!({"newKbps":action.new_bitrate.filter(|kbps| *kbps > 0),"reason":action.reason}))
             }
+            // The overlay's host readings: {"available":false} where the host offers none, so the
+            // poll stops (Nightjar's `hardware_answer`); an error is a failed request.
+            "hardwareMetrics" => {
+                use nightjar_core::http::{Error, HostApiError};
+                let cached = self.capabilities.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let capabilities = match cached {
+                    Some(c) => c,
+                    None => self.client.server_info_https().map_err(HostError::from)?.capabilities,
+                };
+                match self.client.hardware_metrics(&capabilities) {
+                    Ok(m) => Ok(crate::diagnostics::hardware_value(&m)),
+                    Err(HostApiError::Unavailable { .. } | HostApiError::UnsupportedVersion)
+                    | Err(HostApiError::Host(Error::NotFound(_) | Error::Status { code: 403 | 404 | 409, .. } | Error::Api { status: 403 | 404 | 409, .. })) => {
+                        Ok(json!({"available":false}))
+                    }
+                    Err(HostApiError::Host(error)) => Err(HostError::from(error)),
+                }
+            }
+            // Android's remote access check: five pinned serverinfo probes, then the route.
+            "remoteCheck" => {
+                let id = v["uniqueID"].as_str().unwrap_or("");
+                Ok(crate::diagnostics::remote_value(self.client.remote_check(id)))
+            }
             "liveBitrate" => {
                 // The stream doctor's trial starts from the encoder's live rate, never the saved one.
                 let i = self.client.server_info_https().map_err(HostError::from)?;
@@ -379,6 +405,7 @@ impl MysticHost {
                     client_refresh_rate_x100: refresh_x100(&v),
                     ..Default::default()
                 };
+                *self.capabilities.lock().unwrap_or_else(|e| e.into_inner()) = Some(i.capabilities.clone());
                 let result = if i.current_game == app_id {
                     self.client.resume(&request, &i)
                 } else {
