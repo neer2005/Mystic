@@ -81,6 +81,14 @@ struct StreamPreferencesTests {
         #expect(HostFeatureAvailability.off.note != nil && !HostFeatureAvailability.off.usable)
         #expect(HostFeatureAvailability.unknown.usable && HostFeatureAvailability.never.note == nil)
     }
+    @Test func rendererDefaultsToTheSystemLayer() {
+        var preferences=StreamPreferences()
+        #expect(preferences.videoRenderer == nil)
+        preferences.videoRenderer="vulkan"
+        #expect(preferences.validated().videoRenderer == nil)
+        preferences.videoRenderer="metal"
+        #expect(preferences.validated().videoRenderer == "metal")
+    }
     @Test func inputPreferencesDefaultAndClamp() throws {
         var input=try JSONDecoder().decode(InputPreferences.self,from:Data("{}".utf8))
         #expect(input == InputPreferences() && input.mouseScale == 1 && input.stickDeadZone == 0.12)

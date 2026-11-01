@@ -98,6 +98,10 @@ extension ConnectionModel {
         get { settings.value.roamingOnMeteredNetworks ?? false }
         set { settings.update { $0.roamingOnMeteredNetworks=newValue } }
     }
+    public var videoRenderer: VideoRendererKind {
+        get { VideoRendererKind(rawValue:settings.value.videoRenderer ?? "") ?? .displayLayer }
+        set { settings.update { $0.videoRenderer=newValue == .displayLayer ? nil : newValue.rawValue } }
+    }
     public var videoSizing: VideoSizing {
         get { VideoSizing(rawValue:settings.value.videoSizing ?? "") ?? .fit }
         set { settings.update { $0.videoSizing=newValue == .fit ? nil : newValue.rawValue } }

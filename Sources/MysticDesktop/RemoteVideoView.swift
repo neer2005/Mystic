@@ -13,7 +13,7 @@ final class RemoteVideoView: NSView {
         self.presenter = presenter;self.capture = capture
         super.init(frame:.zero)
         wantsLayer = true;layer?.backgroundColor = NSColor.black.cgColor;layer?.masksToBounds = true
-        layer?.addSublayer(presenter.layer)
+        layer?.addSublayer(presenter.surface)
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
         setAccessibilityLabel("Remote Desktop video")
@@ -62,8 +62,8 @@ final class RemoteVideoView: NSView {
     func install(_ presenter: DisplayLayerPresenter,capture: StreamInputCapture?) {
         if self.presenter !== presenter {
             self.presenter.updateDisplay(name:nil,currentHeadroom:nil,potentialHeadroom:nil)
-            self.presenter.layer.removeFromSuperlayer()
-            self.presenter = presenter;layer?.addSublayer(presenter.layer);needsLayout = true
+            self.presenter.surface.removeFromSuperlayer()
+            self.presenter = presenter;layer?.addSublayer(presenter.surface);needsLayout = true
             updateDisplay()
         }
         if self.capture !== capture {
