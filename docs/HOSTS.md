@@ -68,3 +68,22 @@ After an app restart, the migrated saved address was still listed. Clicking it
 reconnected to Big Dawg using the existing endpoint pin, loaded the paired app
 library, and replaced the address-only saved label with "Big Dawg". The final
 app build and ad-hoc signature verification pass.
+
+## Pairing links and one-time PINs
+
+A host with QR pairing (Rubylight 3.0) offers a `rubylight://pair` link on its Devices page. Paste
+it with Add Host → Paste Pairing Link, or enter it in the address field: Mystic adds the PC at the
+link's address and pairs at once, refusing a PC whose certificate is not the one the link names.
+A malformed link is refused as a link, never read as an address. A host that offers one-time PINs
+also shows Use a One-Time PIN beside PIN pairing, for a four-digit PIN and a passphrase of at least
+four characters made in its web UI. A PC that is streaming is told apart first, since any attempt
+spends the secret. The link, PIN and passphrase are never shown back, saved or logged.
+
+A link attempt ignores a saved pin, which it replaces only on success; a failure leaves a saved
+PC's pairing and entry as they were, and the pairing view stays open with the reason. Mystic does
+not register `rubylight://` as a URL scheme, as Nightjar's desktop client does not.
+
+Live check, 2026-11-01, Big Dawg: a malformed link was refused without connecting, and a made-up
+link got the host's own "no one-time pairing code is live", with the saved pairing still working
+afterwards and nothing from the link in the session log. Not yet tried live: a successful link or
+one-time PIN pairing, and a real certificate mismatch, since the host refused the made-up PIN first.

@@ -210,9 +210,15 @@ public struct HostLibraryView: View {
             } else {
                 Text("Pairing lets Mystic list and start this PC's games. You will enter a PIN on the host.")
             }
+            if let error=model.pairingError { Text(error).foregroundStyle(.red) }
         } actions: {
-            if model.pairingPIN == nil {
-                Button("Pair") { model.pair() }.buttonStyle(.borderedProminent).disabled(model.phase != .ready)
+            if model.phase == .pairing,model.pairingPIN == nil {
+                ProgressView();Button("Cancel") { model.disconnect() }
+            } else if model.pairingPIN == nil {
+                VStack(spacing:12) {
+                    Button("Pair") { model.pair() }.buttonStyle(.borderedProminent).disabled(model.phase != .ready)
+                    if host.otpPairing != .never { OneTimePairingForm(model:model) }
+                }
             } else {
                 Button("Cancel") { model.disconnect() }
             }
@@ -383,10 +389,12 @@ private struct HostSidebar: View {
             }
             Section {
                 DisclosureGroup("Add Host",isExpanded:$addingHost) {
-                    TextField("Address",text:$model.address,prompt:Text("192.168.1.100"))
-                        .textFieldStyle(.roundedBorder).onSubmit { model.connect() }
+                    TextField("Address or Pairing Link",text:$model.address,prompt:Text("192.168.1.100"))
+                        .textFieldStyle(.roundedBorder).onSubmit { connectEntered() }
                     TextField("HTTP Port",text:$model.port).textFieldStyle(.roundedBorder)
-                    Button("Connect",systemImage:"network") { model.connect() }
+                    Button("Connect",systemImage:"network") { connectEntered() }
+                    Button("Paste Pairing Link",systemImage:"doc.on.clipboard") { model.connectFromClipboard() }
+                        .help("Pairs with the link from Copy pairing link on the PC's Devices page.")
                 }.disabled(locked)
             }
             if let error=model.savedHosts.error { Text(error).font(.caption).foregroundStyle(.secondary) }
@@ -396,12 +404,19 @@ private struct HostSidebar: View {
         .toolbar { ToolbarItem { Button("Add Host",systemImage:"plus") { addingHost=true }.disabled(locked) } }
         .sheet(isPresented:$checkingRemote) { RemoteCheckView(check:model.remoteCheck) }
     }
+    /// A pairing link typed or pasted in the address field holds secrets: it leaves the field.
+    private func connectEntered() {
+        guard ConnectionModel.isPairingLink(model.address) else { model.connect();return }
+        let link=model.address
+        model.address=""
+        model.connect(pairingLink:link)
+    }
     private func isActive(_ id: String) -> Bool { !model.showingHome && model.selectedHostEndpointID == id }
     /// The connected host's row carries its state and an eject button, as Finder does for servers.
     private var activeStatus: String {
         switch model.phase {
         case .connecting,.launching: "Connecting…"
-        case .pairing: "Waiting for PIN"
+        case .pairing: model.pairingPIN == nil ? "Pairing…" : "Waiting for PIN"
         case .reconnecting: "Reconnecting…"
         case .disconnecting: "Disconnecting…"
         case .streaming: "Streaming"
@@ -466,5 +481,26 @@ extension VideoFormat {
     var displayName: String {
         let codec=isH264 ? "H.264" : (isAV1 ? "AV1" : "HEVC")
         return "\(codec) · \(tenBit ? "10" : "8")-bit · \(chroma444 ? "4:4:4" : "4:2:0")"
+    }
+}
+
+/// Inline, as PIN pairing is: a PIN and passphrase made in the host's web UI, valid three minutes.
+private struct OneTimePairingForm: View {
+    let model: ConnectionModel
+    @State private var shown=false
+    @State private var pin=""
+    @State private var passphrase=""
+    var body: some View {
+        DisclosureGroup("Use a One-Time PIN",isExpanded:$shown) {
+            VStack(alignment:.leading,spacing:8) {
+                Text("Create a one-time PIN and passphrase in the host's web UI, then enter them here.").font(.caption).foregroundStyle(.secondary)
+                TextField("PIN",text:$pin).textFieldStyle(.roundedBorder)
+                SecureField("Passphrase",text:$passphrase).textFieldStyle(.roundedBorder)
+                Button("Pair with One-Time PIN") {
+                    model.pair(oneTimePIN:pin,passphrase:passphrase)
+                    passphrase=""
+                }.disabled(pin.isEmpty || passphrase.isEmpty)
+            }.frame(width:280)
+        }.frame(width:300)
     }
 }

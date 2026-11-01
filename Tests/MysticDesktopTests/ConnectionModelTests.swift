@@ -307,6 +307,78 @@ final class ConnectionModelTests: XCTestCase {
         model.disconnect()
         XCTAssertEqual(model.phase, .idle)
     }
+    func testAPairingLinkConnectsUnpinnedAndPairsAtOnceWithoutKeepingItsSecret() async throws {
+        let mock=MockHost(paired:false),vault=MemoryVault()
+        try vault.saveCertificate("old certificate",for:"192.168.4.2:48123")
+        nonisolated(unsafe) var pins:[String?]=[],places:[String]=[]
+        let model=ConnectionModel(vault:vault,rememberHost:false,makeHost:{ address,port,_,pin in pins.append(pin);places.append("\(address):\(port)");return mock })
+        model.parseLink={ XCTAssertEqual($0,"rubylight://pair?secret");return PairingLinkTarget(host:"192.168.4.2",port:48123,name:"Den",uniqueID:"host1") }
+        model.connect(pairingLink:"rubylight://pair?secret")
+        try await settle(model)
+        XCTAssertEqual(places,["192.168.4.2:48123"]);XCTAssertEqual(pins,[nil],"the link names the certificate; the old pin is not used")
+        XCTAssertEqual(mock.pairedLinks,["rubylight://pair?secret"])
+        XCTAssertEqual(model.address,"192.168.4.2");XCTAssertEqual(model.port,"48123")
+        XCTAssertEqual(try vault.certificate(for:"192.168.4.2:48123"),"pinned certificate")
+        XCTAssertEqual(model.phase,.ready);XCTAssertEqual(model.host?.paired,true);XCTAssertFalse(model.library.apps.isEmpty)
+        XCTAssertNil(model.pairingError)
+    }
+    func testABadLinkIsRefusedAsALinkAndNeverConnects() {
+        nonisolated(unsafe) var made=0
+        let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,makeHost:{ _,_,_,_ in made+=1;return MockHost(paired:false) })
+        model.connect(pairingLink:"rubylight://pair?v=2")
+        XCTAssertEqual(made,0);XCTAssertEqual(model.phase,.failed);XCTAssertFalse(model.showingHome,"Home shows no connection errors")
+        XCTAssertTrue(model.errorMessage?.contains("not valid") == true)
+        XCTAssertFalse(model.address.contains("rubylight"))
+        XCTAssertTrue(ConnectionModel.isPairingLink("  rubylight://pair?v=1\n"));XCTAssertFalse(ConnectionModel.isPairingLink("192.168.1.2"))
+    }
+    func testASpentLinkKeepsThePairingViewAndSaysWhy() async throws {
+        let mock=MockHost(paired:false);mock.oneTimeFailure="PIN rejected. Generate a new one-time PIN."
+        let vault=MemoryVault()
+        let model=ConnectionModel(vault:vault,rememberHost:false,makeHost:{ _,_,_,_ in mock })
+        model.parseLink={ _ in PairingLinkTarget(host:"den.local",port:47989,name:"",uniqueID:"") }
+        model.connect(pairingLink:"rubylight://pair?secret");try await settle(model)
+        XCTAssertEqual(model.phase,.ready);XCTAssertEqual(model.host?.paired,false)
+        XCTAssertEqual(model.pairingError,"PIN rejected. Generate a new one-time PIN.")
+        XCTAssertNil(try vault.certificate(for:"den.local:47989"),"a failure pins nothing")
+    }
+    func testAFailedLinkLeavesASavedPairedHostAsItWas() async throws {
+        let preferences=MemoryHostPreferences(),vault=MemoryVault(),endpoint=HostEndpoint(address:"pc.local",port:47989)!
+        try vault.saveCertificate("existing pin",for:endpoint.id)
+        let paired=MockHost(paired:true),unpinned=MockHost(paired:false);unpinned.oneTimeFailure="spent"
+        nonisolated(unsafe) var pins:[String?]=[]
+        let model=ConnectionModel(vault:vault,rememberHost:true,preferences:preferences,settings:AppSettings(storage:MemorySettingsPreferences()),home:HomeLibrary(),makeHost:{ _,_,_,pin in pins.append(pin);return pin == nil ? unpinned : paired })
+        model.parseLink={ _ in PairingLinkTarget(host:"pc.local",port:47989,name:"",uniqueID:"") }
+        model.connect(to:endpoint);try await settle(model)
+        XCTAssertEqual(model.savedHosts.hosts.first?.uniqueID,"host1")
+        model.disconnect()
+        model.connect(pairingLink:"rubylight://pair?secret");try await settle(model)
+        XCTAssertEqual(model.pairingError,"spent")
+        XCTAssertEqual(model.savedHosts.hosts.first?.uniqueID,"host1","the saved identity survives")
+        XCTAssertEqual(try vault.certificate(for:endpoint.id),"existing pin")
+        model.disconnect()
+        model.connect(to:endpoint);try await settle(model)
+        XCTAssertEqual(pins,["existing pin",nil,"existing pin"]);XCTAssertEqual(model.host?.paired,true)
+    }
+    func testOneTimePINPairsOnlyWithAValidEntry() async throws {
+        let mock=MockHost(paired:false),vault=MemoryVault()
+        let model=ConnectionModel(vault:vault,rememberHost:false,makeHost:{ _,_,_,_ in mock })
+        model.address="den.local";model.connect();try await settle(model)
+        for (pin,passphrase) in [("123","secret"),("12a4","secret"),("1234","abc")] {
+            model.pair(oneTimePIN:pin,passphrase:passphrase)
+            XCTAssertEqual(model.phase,.ready);XCTAssertNotNil(model.pairingError)
+        }
+        XCTAssertTrue(mock.pairedOneTime.isEmpty)
+        model.pair(oneTimePIN:"1234",passphrase:"secret");try await settle(model)
+        XCTAssertEqual(mock.pairedOneTime.map(\.0),["1234"]);XCTAssertEqual(mock.pairedOneTime.map(\.1),["secret"])
+        XCTAssertEqual(model.host?.paired,true);XCTAssertNil(model.pairingError)
+    }
+    func testABusyHostKeepsTheOneTimePINUnspent() async throws {
+        let mock=MockHost(paired:false);mock.runningGame=7
+        let model=ConnectionModel(vault:MemoryVault(),rememberHost:false,makeHost:{ _,_,_,_ in mock })
+        model.address="den.local";model.connect();try await settle(model)
+        model.pair(oneTimePIN:"1234",passphrase:"secret")
+        XCTAssertTrue(mock.pairedOneTime.isEmpty);XCTAssertEqual(model.pairingError,"Stop the host's stream, then pair again.")
+    }
     func testPairingPersistsPinAndLoadsApps() async throws {
         let mock = MockHost(paired: false), vault = MemoryVault()
         let model = ConnectionModel(vault: vault, rememberHost: false, makeHost: { _, _, _, _ in mock })
@@ -441,6 +513,9 @@ private final class MockHost: HostService, @unchecked Sendable {
     var graphicsWrites=0
     var graphicsRestores=0
     var runningGame: Int32=0
+    var pairedLinks:[String]=[]
+    var pairedOneTime:[(String,String)]=[]
+    var oneTimeFailure:String?
     var quitCalls=0
     var quitRefused=false
     var launchCalls=0
@@ -462,6 +537,16 @@ private final class MockHost: HostService, @unchecked Sendable {
         let isPaired = lock.withLock { paired }
         let running=lock.withLock { runningGame }
         return try decode("{\"name\":\"Test Host\",\"uniqueID\":\"\(uniqueID)\",\"paired\":\(isPaired),\"appVersion\":\"7.1.431.-1\",\"codecSupport\":1,\"currentGame\":\(running)}")
+    }
+    func pair(pin: String,passphrase: String) async throws -> PairedHost {
+        lock.withLock { pairedOneTime.append((pin,passphrase));paired = oneTimeFailure == nil }
+        if let oneTimeFailure { throw HostConnectionError(oneTimeFailure) }
+        return try decode("{\"certificate\":\"pinned certificate\",\"uniqueID\":\"host1\"}")
+    }
+    func pair(link: String) async throws -> PairedHost {
+        lock.withLock { pairedLinks.append(link);paired = oneTimeFailure == nil }
+        if let oneTimeFailure { throw HostConnectionError(oneTimeFailure) }
+        return try decode("{\"certificate\":\"pinned certificate\",\"uniqueID\":\"host1\"}")
     }
     func pair(pin: String) async throws -> PairedHost {
         lock.withLock { paired = true }

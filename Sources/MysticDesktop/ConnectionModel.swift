@@ -38,6 +38,10 @@ public final class ConnectionModel {
     public private(set) var errorMessage: String?
     public private(set) var host: HostInfo?
     public private(set) var pairingPIN: String?
+    /// Why the last one-time PIN or link did not pair; the pairing view stays open beside it.
+    public private(set) var pairingError: String?
+    /// A pairing link waiting for its connection. Secret: never shown, logged or saved.
+    @ObservationIgnored private var pendingPairingLink: String?
     public private(set) var capabilities: VideoCapabilities?
     public private(set) var presenter: DisplayLayerPresenter?
     public private(set) var inputCapture: StreamInputCapture?
@@ -363,6 +367,7 @@ public final class ConnectionModel {
     /// The headroom of the screen the stream will open on, read when a plan is made.
     @ObservationIgnored var launchHeadroom: () -> Double? = { NSScreen.main.map { Double($0.maximumPotentialExtendedDynamicRangeColorComponentValue) } }
     /// That screen's refresh rate in Hz, which may be fractional (59.94).
+    @ObservationIgnored var parseLink: (String) throws -> PairingLinkTarget = { try HostConnection.parsePairingLink($0) }
     @ObservationIgnored var launchRefreshRate: () -> Double? = { NSScreen.main.map(DisplayRefresh.hertz) }
     /// The size of that screen in pixels, for Native resolution.
     @ObservationIgnored var launchDisplayPixels: () -> (width: UInt32,height: UInt32)? = { NSScreen.main.map(DisplayRefresh.pixels) }
@@ -442,6 +447,9 @@ public final class ConnectionModel {
         self.endpoint = target.id
         connectedAddress = address;connectedPort=port
         let endpoint = self.endpoint, vault = vault, factory = makeHost
+        // A link names the certificate the PC must have, which may replace a saved pin.
+        let link=pendingPairingLink;pendingPairingLink=nil
+        pairingError=nil
         phase = .connecting; status = "Loading client identity from Keychain…"; errorMessage = nil
         SessionLog.addSecrets([address]);sessionLog?.write("Connecting to \(address):\(port).")
         networkKind=nil;quickResumePending=quickResume
@@ -455,7 +463,7 @@ public final class ConnectionModel {
         operation = Task { [weak self] in
             do {
                 let connection = try await Task.detached {
-                    try factory(address, port, vault.identity(), vault.certificate(for: endpoint))
+                    try factory(address, port, vault.identity(), link == nil ? vault.certificate(for: endpoint) : nil)
                 }.value
                 guard let self, self.generation == token else { connection.cancel(); return }
                 self.connection = connection
@@ -466,12 +474,39 @@ public final class ConnectionModel {
                 self.networkKindLookup=Task { [weak self] in await self?.findNetworkKind(token:token) }
                 SessionLog.addSecrets([info.name,info.uniqueID])
                 self.sessionLog?.write("Connected to \(info.name), \(info.paired ? "paired" : "not paired"), host version \(info.appVersion ?? "unknown").")
-                if info.paired { try await self.loadApps(connection, token: token) }
+                if let link {
+                    // Unpinned, every host reads as unpaired: a saved entry waits for the result.
+                    if !self.savedHosts.hosts.contains(where: { $0.endpoint.id == endpoint }) { self.rememberConnectedHost(info) }
+                    self.phase = .ready
+                    self.pairOneTime(info:info) { try await connection.pair(link:link) }
+                } else if info.paired { try await self.loadApps(connection, token: token) }
                 else {
                     self.rememberConnectedHost(info)
                     self.phase = .ready; self.status = "Pair with \(info.name) to view its apps." }
             } catch { self?.fail(error.localizedDescription, token: token) }
         }
+    }
+    /// Adds the PC a pairing link names and pairs with it at once. A link that does not parse is
+    /// refused as a link, never read as an address.
+    public func connect(pairingLink text: String) {
+        guard !isBusy,!hasSession else { return }
+        do {
+            let target=try parseLink(text)
+            address=target.host;port=String(target.port);pendingPairingLink=text;connect()
+            pendingPairingLink=nil
+        } catch { refuseLink(error.localizedDescription) }
+    }
+    /// Whatever is on the clipboard, as Nightjar's Paste Link.
+    public func connectFromClipboard() {
+        guard let text=NSPasteboard.general.string(forType:.string),Self.isPairingLink(text) else {
+            refuseLink("Copy the link under the QR code on the PC's Devices page, then paste it here.");return
+        }
+        connect(pairingLink:text)
+    }
+    /// Home shows no connection errors, so a refused link goes where they appear.
+    private func refuseLink(_ message: String) { showingHome=false;homeSync.cancel();fail(message) }
+    public static func isPairingLink(_ text: String) -> Bool {
+        text.trimmingCharacters(in:.whitespacesAndNewlines).hasPrefix("rubylight://pair?")
     }
     public func connect(to endpoint: HostEndpoint) {
         guard !isBusy,!hasSession else { return }
@@ -490,6 +525,7 @@ public final class ConnectionModel {
     public func pair() {
         guard phase == .ready, host?.paired == false, let connection else { return }
         let pin = String(format: "%04d", Int.random(in: 0...9999))
+        pairingError=nil
         pairingPIN = pin; phase = .pairing; status = "Enter this PIN in your host’s pairing page."
         errorMessage = nil
         let token = generation, vault = vault, endpoint = endpoint
@@ -505,6 +541,40 @@ public final class ConnectionModel {
                 guard self.host?.paired == true else { throw HostConnectionError("The host did not confirm pairing.") }
                 try await self.loadApps(connection, token: token)
             } catch { self?.fail(error.localizedDescription, token: token) }
+        }
+    }
+    /// Pairs with a PIN and passphrase made on the host.
+    public func pair(oneTimePIN pin: String,passphrase: String) {
+        guard phase == .ready,host?.paired == false,let connection,let info=host else { return }
+        guard pin.count == 4,pin.allSatisfy({ $0.isASCII && $0.isNumber }),passphrase.count >= 4 else {
+            pairingError="Enter four PIN digits and a passphrase of at least four characters.";return
+        }
+        pairOneTime(info:info) { try await connection.pair(pin:pin,passphrase:passphrase) }
+    }
+    /// A one-time secret is spent by any attempt, so a PC busy streaming, which would refuse it,
+    /// is told apart first. A failure keeps the connection and the pairing view.
+    private func pairOneTime(info: HostInfo,_ attempt: @escaping @Sendable () async throws -> PairedHost) {
+        guard let connection else { return }
+        guard info.currentGame == 0 else { pairingError="Stop the host's stream, then pair again.";status="Pair with \(info.name) to view its apps.";return }
+        pairingError=nil;errorMessage=nil;phase = .pairing;status="Pairing with \(info.name)…"
+        let token=generation,vault=vault,endpoint=endpoint
+        operation=Task { [weak self] in
+            do {
+                let paired=try await attempt()
+                guard let self,self.generation == token else { return }
+                try await Task.detached { try vault.saveCertificate(paired.certificate,for:endpoint) }.value
+                guard self.generation == token else { return }
+                self.sessionLog?.write("Paired with \(info.name) by one-time PIN.")
+                self.host=try await connection.serverInfo()
+                guard self.generation == token else { return }
+                guard self.host?.paired == true else { throw HostConnectionError("The host did not confirm pairing.") }
+                try await self.loadApps(connection,token:token)
+            } catch {
+                guard let self,self.generation == token else { return }
+                self.phase = .ready;self.status="Pair with \(info.name) to view its apps."
+                self.pairingError=error.localizedDescription
+                self.sessionLog?.write("One-time pairing with \(info.name) did not finish.")
+            }
         }
     }
     private func loadApps(_ connection: any HostService, token: UUID) async throws {
