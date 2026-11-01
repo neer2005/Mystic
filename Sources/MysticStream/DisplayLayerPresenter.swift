@@ -27,10 +27,25 @@ public final class DisplayLayerPresenter {
     public let layer: AVSampleBufferDisplayLayer
     public let pacingMode: FramePacingMode
     public let videoOutput = VideoOutputState()
-    public private(set) var videoSize: CGSize = .zero
-    public var videoRect: CGRect {
-        guard videoSize.width > 0,videoSize.height > 0 else { return .zero }
-        return AVMakeRect(aspectRatio:videoSize,insideRect:layer.bounds)
+    public private(set) var videoSize: CGSize = .zero { didSet { if videoSize != oldValue { applyLayout() } } }
+    /// Where the picture sits in the owning view, which may overhang it; empty before a frame.
+    public var videoRect: CGRect { sizing.rect(video:videoSize,in:container,pixelsPerPoint:pixelsPerPoint,alignTop:alignTop) }
+    private var container: CGRect = .zero
+    private var pixelsPerPoint: CGFloat=1
+    private var sizing: VideoSizing = .fit
+    private var alignTop=false
+    /// The owning view's bounds and screen scale.
+    public func layout(in bounds: CGRect,pixelsPerPoint: CGFloat) {
+        container=bounds;self.pixelsPerPoint=pixelsPerPoint;applyLayout()
+    }
+    public func setSizing(_ sizing: VideoSizing,alignTop: Bool) {
+        self.sizing=sizing;self.alignTop=alignTop;applyLayout()
+    }
+    private func applyLayout() {
+        let rect=videoRect
+        CATransaction.begin();CATransaction.setDisableActions(true)
+        layer.frame=rect.isEmpty ? container : rect
+        CATransaction.commit()
     }
     private let telemetry: VideoTelemetry?
     private let synchronizer=AVSampleBufferRenderSynchronizer()
@@ -58,7 +73,8 @@ public final class DisplayLayerPresenter {
         let native=synchronizer.sampleBufferReceiver(adding:layer.sampleBufferRenderer)
         receiver=receiverOverride ?? NativePresentationReceiver(native)
         synchronizer.delaysRateChangeUntilHasSufficientMediaData=false
-        layer.videoGravity = .resizeAspect
+        // `videoRect` already holds the shape; the layer exactly covers it.
+        layer.videoGravity = .resize
         layer.preferredDynamicRange = .standard
         layer.toneMapMode = .automatic
     }

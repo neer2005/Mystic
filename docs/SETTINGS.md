@@ -39,10 +39,10 @@ The versioned `streamPreferences.v1` UserDefaults document contains only stream
 and library defaults and the last-viewed Settings pane. Credentials remain in
 Keychain and saved hosts retain their separate catalog. Invalid or future-version
 settings fall back to defaults with a message in Settings. Reads are bounded to
-64 KiB. Supported resolutions are 720p, 1080p, 1440p, 2160p, and MacBook Pro native
-3024×1964 (14-inch) / 3456×2234 (16-inch), plus the 14-inch 16:10 option
-3024×1890 for fullscreen below the camera housing; frame rates are 60
-and 120; bitrate is clamped to 5–150 Mbps, volume to 0–1, and enum-like fields to
+64 KiB. Resolution is Native (this Mac's display, read at launch), one of Nightjar's sizes or a
+MacBook Pro panel, or Custom (320–7680 × 240–4320); anything else becomes Native. Frame rate is
+Display, one of 30–240 or Custom (10–500); bitrate is Recommended (Nightjar's curve for the
+size and rate, 2–150 Mbps) or 1–2000 whole Mbps, volume 0–1, and enum-like fields to
 supported options. Non-finite volume values return to 0.8. Codec/HDR preferences
 never bypass the decoder capability or host-app checks at launch.
 
@@ -103,3 +103,18 @@ Frame Pacing defaults to Low Latency; Balanced adds approximately one frame of
 buffering for steadier cadence. The setting applies to the next stream and is
 retained during automatic reconnect. See [FRAME-PACING.md](FRAME-PACING.md) for
 scheduling bounds and HUD counter definitions.
+
+New installs start at Native, Display and Recommended, as Nightjar; saved choices are kept.
+Nightjar's 0.5 Mbps lowest bitrate is not offered, since Mystic stores whole megabits.
+
+Video Size (Fit, Fill, Stretch, Native Pixels) and Align Video to Top apply at once, during a
+stream too, and input follows the picture. Settings → Audio → Play Audio on the PC Too applies
+to the next stream. Settings → Controls holds mouse speed (25–400%, the captured pointer only),
+Back and Forward buttons, and Use Controllers, Nintendo Button Layout, Motion Controls, Disable
+Vibration and the stick dead zone (0–50%, default 12%); these apply at once. Automatic Quality
+takes minimums of 256–2160 lines and 15–240 fps, per profile.
+
+Live check, 2026-11-01, Big Dawg Desktop: an existing 3024×1890/120/100 Mbps document migrated
+unchanged; custom size and bitrate clamped; Native Pixels and a live change to Fit shown on a
+stream with HDR. Not exercised live: Recommended's launch value, Play Audio on the PC Too, mouse speed,
+Back and Forward, Fill, Stretch and the controller settings (no controller present).

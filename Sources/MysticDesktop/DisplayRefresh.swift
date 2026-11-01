@@ -5,6 +5,10 @@ import CoreGraphics
 /// and drops or repeats a frame every 16 seconds; hosts that read fractional rates take the
 /// exact one when it rounds to the stream's frame rate, as Nightjar's desktop client sends it.
 enum DisplayRefresh {
+    /// The screen's size in pixels, for Native resolution.
+    static func pixels(_ screen: NSScreen) -> (width: UInt32,height: UInt32) {
+        (UInt32((screen.frame.width*screen.backingScaleFactor).rounded()),UInt32((screen.frame.height*screen.backingScaleFactor).rounded()))
+    }
     /// The screen's current mode rate, which CoreGraphics reports exactly (59.94). Some
     /// built-in panels report 0 there, so their nominal maximum stands in.
     static func hertz(_ screen: NSScreen) -> Double {

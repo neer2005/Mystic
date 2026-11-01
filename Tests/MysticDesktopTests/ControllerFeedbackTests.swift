@@ -79,6 +79,21 @@ final class ControllerFeedbackTests: XCTestCase {
         XCTAssertNotNil(controller.extendedGamepad?.valueChangedHandler)
         manager.setEnabled(false)
     }
+    func testDisablingVibrationSilencesMotorsAndIgnoresTheHost() {
+        let controller=GCController.withExtendedGamepad(),motor=FakeControllerHaptics(capabilities:[.rumble,.triggerRumble])
+        let manager=StreamControllers(connectedDevices:{ [controller] },makeHaptics:{ _ in motor },
+            send:{ _ in true },failure:{ XCTFail("Input failure") })
+        manager.setEnabled(true)
+        let feedback=ControllerFeedback(slot:0,kind:.rumble,first:1,second:2,epoch:manager.feedbackEpoch)
+        manager.applyFeedback([feedback],epoch:manager.feedbackEpoch)
+        XCTAssertEqual(motor.applied.count,1)
+        var settings=InputPreferences();settings.disableVibration=true;manager.settings=settings
+        XCTAssertEqual(motor.applied.suffix(2).map(\.first),[0,0],"both motors stop at once")
+        let count=motor.applied.count
+        manager.applyFeedback([feedback],epoch:manager.feedbackEpoch)
+        XCTAssertEqual(motor.applied.count,count)
+        manager.setEnabled(false)
+    }
     func testContinuousControllerPatternsAreAcceptedByCoreHaptics() throws {
         // Real framework validation catches invalid controller-duration or dynamic-parameter syntax.
         for intensity:Float in [0.001,0.5,1] {

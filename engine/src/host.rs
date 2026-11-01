@@ -364,7 +364,7 @@ impl MysticHost {
                     .ok_or("invalid app ID")?;
                 let width = dimension(&v, "width", 7680)?;
                 let height = dimension(&v, "height", 4320)?;
-                let fps = dimension(&v, "fps", 240)?;
+                let fps = dimension(&v, "fps", 500)?;
                 let hdr = v["hdr"].as_bool().unwrap_or(false);
                 if v["resumeOnly"].as_bool().unwrap_or(false) && i.current_game != app_id {
                     return Err("The original app is no longer running on the host.".into());
@@ -394,6 +394,7 @@ impl MysticHost {
                     fps,
                     hdr,
                     clipboard_sync: v["clipboardSync"].as_bool().unwrap_or(false),
+                    play_local_audio: v["playLocalAudio"].as_bool().unwrap_or(false),
                     audio,
                     ri_key: key,
                     ri_key_id: key_id,

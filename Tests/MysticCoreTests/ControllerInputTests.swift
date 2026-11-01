@@ -51,4 +51,14 @@ struct ControllerInputTests {
         for event in [gyro(1),arrival,gyro(2),gyro(3)] { let accepted=q.append(event);#expect(accepted) }
         #expect(q.take() == [gyro(1),arrival,gyro(3)])
     }
+    @Test func deadZoneAndFaceSwapFollowTheSettings() {
+        #expect(ControllerState.stick(x:0.2,y:0).0 > 0)
+        #expect(ControllerState.stick(x:0.2,y:0,deadZone:0.3).0 == 0)
+        #expect(ControllerState.stick(x:1,y:0,deadZone:0.3).0 == 32767)
+        #expect(ControllerState.stick(x:0.01,y:0,deadZone:0).0 > 0)
+        #expect(ControllerState.stick(x:0,y:0,deadZone:0) == (0,0))
+        #expect(ControllerButtons.swappingFace(0x1000) == 0x2000 && ControllerButtons.swappingFace(0x2000) == 0x1000)
+        #expect(ControllerButtons.swappingFace(0x4000) == 0x8000 && ControllerButtons.swappingFace(0x8000) == 0x4000)
+        #expect(ControllerButtons.swappingFace(0xF000) == 0xF000 && ControllerButtons.swappingFace(0x0101) == 0x0101)
+    }
 }

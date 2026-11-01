@@ -20,6 +20,22 @@ final class StreamControllers {
     private(set) var feedbackEpoch: UInt64 = 0
     private let send: (RemoteInputEvent) -> Bool
     private let failure: () -> Void
+    var settings=InputPreferences() {
+        didSet {
+            guard settings != oldValue,enabled else { return }
+            if settings.disableVibration,!oldValue.disableVibration { silenceMotors() }
+            if settings.controllerMotion != oldValue.controllerMotion {
+                if !settings.controllerMotion {
+                    for extra in extras.values { extra.setMotion(.accelerometer,rateHz:0);extra.setMotion(.gyroscope,rateHz:0) }
+                }
+                // The host learns what the pads can do from their arrivals.
+                for slot in devices.keys.sorted() {
+                    guard let device=devices[slot],emit(arrival(slot:slot,device:device)) else { return }
+                }
+            }
+            for slot in devices.keys.sorted() { submit(slot:slot) }
+        }
+    }
     init(connectedDevices: @escaping () -> [GCController] = { GCController.controllers() },
          makeHaptics: @escaping (GCController) -> (any ControllerHaptics)? = { NativeControllerHaptics(controller:$0) },
          makeExtras: @escaping (GCController) -> any ControllerExtras = { NativeControllerExtras(controller:$0) },
@@ -50,6 +66,16 @@ final class StreamControllers {
             for extra in extras.values { extra.stop() };extras.removeAll()
             devices.removeAll()
             // Capture's releaseAll neutralizes states actually accepted by the worker.
+        }
+    }
+    /// Controllers switched on or off in Settings during a stream; the host's pads go neutral.
+    func setActive(_ value: Bool) {
+        if !value { for slot in devices.keys.sorted() { guard emit(.controller(slot:UInt8(slot),activeMask:0,state:ControllerState())) else { return } } }
+        setEnabled(value)
+    }
+    private func silenceMotors() {
+        for (slot,feedback) in haptics {
+            for kind in [ControllerFeedback.Kind.rumble,.triggerRumble] { try? feedback.apply(ControllerFeedback(slot:UInt8(slot),kind:kind,first:0,second:0)) }
         }
     }
     private var mask: UInt16 { devices.keys.reduce(0) { $0 | (1 << $1) } }
@@ -86,7 +112,9 @@ final class StreamControllers {
         }
     }
     private func capabilities(slot: Int) -> ControllerCapabilities {
-        (haptics[slot]?.capabilities ?? []).union(extras[slot]?.capabilities ?? []).union(.analogTriggers)
+        var capabilities=(haptics[slot]?.capabilities ?? []).union(extras[slot]?.capabilities ?? []).union(.analogTriggers)
+        if !settings.controllerMotion { capabilities.subtract([.accelerometer,.gyroscope]) }
+        return capabilities
     }
     private func arrival(slot: Int,device: GCController) -> RemoteInputEvent {
         .controllerArrival(slot:UInt8(slot),activeMask:mask,capabilities:capabilities(slot:slot),feedbackEpoch:feedbackEpoch,
@@ -115,6 +143,7 @@ final class StreamControllers {
                 guard let extra=extras[slot],extra.capabilities.contains(.light) else { continue }
                 extra.setLight(red:UInt8(value.first >> 8),green:UInt8(value.first & 0xFF),blue:UInt8(clamping:value.second))
             case .accelerometerRate,.gyroscopeRate:
+                guard settings.controllerMotion else { continue }
                 let kind: ControllerMotionKind = value.kind == .accelerometerRate ? .accelerometer : .gyroscope
                 guard let extra=extras[slot],extra.capabilities.contains(kind == .accelerometer ? .accelerometer : .gyroscope) else { continue }
                 extra.setMotion(kind,rateHz:value.first)
@@ -123,7 +152,7 @@ final class StreamControllers {
         }
     }
     private func applyMotors(_ value: ControllerFeedback,slot: Int) {
-        guard let feedback=haptics[slot] else { return }
+        guard !settings.disableVibration,let feedback=haptics[slot] else { return }
         let required: ControllerCapabilities=value.kind == .rumble ? .rumble : .triggerRumble
         guard feedback.capabilities.contains(required) else { return }
         do { try feedback.apply(value) }
@@ -162,13 +191,13 @@ final class StreamControllers {
     }
     private func submit(slot: Int) {
         guard enabled,let pad=devices[slot]?.extendedGamepad else { return }
-        _=emit(.controller(slot:UInt8(slot),activeMask:mask,state:Self.snapshot(pad)))
+        _=emit(.controller(slot:UInt8(slot),activeMask:mask,state:Self.snapshot(pad,settings:settings)))
     }
     @discardableResult private func emit(_ event: RemoteInputEvent) -> Bool {
         if send(event) { return true }
         setEnabled(false);failure();return false
     }
-    static func snapshot(_ pad: GCExtendedGamepad) -> ControllerState {
+    static func snapshot(_ pad: GCExtendedGamepad,settings: InputPreferences = InputPreferences()) -> ControllerState {
         var buttons: UInt32=0
         let mapping: [(GCControllerButtonInput?,UInt32)] = [
             (pad.dpad.up,0x1),(pad.dpad.down,0x2),(pad.dpad.left,0x4),(pad.dpad.right,0x8),
@@ -178,8 +207,9 @@ final class StreamControllers {
             (pad.buttonA,0x1000),(pad.buttonB,0x2000),(pad.buttonX,0x4000),(pad.buttonY,0x8000),
         ]
         for (button,flag) in mapping+extraButtons(pad) where button?.isPressed == true { buttons |= flag }
-        let left=ControllerState.stick(x:pad.leftThumbstick.xAxis.value,y:pad.leftThumbstick.yAxis.value)
-        let right=ControllerState.stick(x:pad.rightThumbstick.xAxis.value,y:pad.rightThumbstick.yAxis.value)
+        if settings.swapFaceButtons { buttons=ControllerButtons.swappingFace(buttons) }
+        let left=ControllerState.stick(x:pad.leftThumbstick.xAxis.value,y:pad.leftThumbstick.yAxis.value,deadZone:settings.stickDeadZone)
+        let right=ControllerState.stick(x:pad.rightThumbstick.xAxis.value,y:pad.rightThumbstick.yAxis.value,deadZone:settings.stickDeadZone)
         return ControllerState(buttons:buttons,leftTrigger:ControllerState.trigger(pad.leftTrigger.value),
                                rightTrigger:ControllerState.trigger(pad.rightTrigger.value),
                                leftX:left.0,leftY:left.1,rightX:right.0,rightY:right.1)

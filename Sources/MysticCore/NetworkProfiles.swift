@@ -68,8 +68,8 @@ public struct VideoOverrides: Codable, Equatable, Sendable {
     public var summary: String {
         var parts: [String]=[]
         if let resolution { parts.append(StreamPreferences.resolutionLabel(resolution)) }
-        if let fps { parts.append("\(fps) fps") }
-        if let bitrateMbps { parts.append("\(bitrateMbps) Mbps") }
+        if let fps { parts.append(StreamPreferences.frameRateLabel(fps)) }
+        if let bitrateMbps { parts.append(StreamPreferences.bitrateLabel(bitrateMbps)) }
         if let codec { parts.append(codec == "auto" ? "automatic codec" : codec.uppercased()) }
         if let hdr { parts.append(hdr ? "HDR" : "SDR") }
         if let adaptiveBitrate { parts.append(adaptiveBitrate ? "automatic bitrate" : "fixed bitrate") }

@@ -225,7 +225,7 @@ final class ConnectionModelTests: XCTestCase {
         var video=model.effectiveVideoSettings;video.fps=120
         model.updateGameVideo(video);model.disconnect()
         model.address="other.local";model.connect();try await settle(model)
-        XCTAssertEqual(model.effectiveVideoSettings.fps,60,"Missing host ID must not share settings across endpoints")
+        XCTAssertEqual(model.effectiveVideoSettings.fps,StreamPreferences.displayFrameRate,"Missing host ID must not share settings across endpoints")
         model.disconnect()
     }
     func testHostAndGameProfilesFollowSelectionAndSurviveAddressChanges() async throws {
@@ -237,7 +237,7 @@ final class ConnectionModelTests: XCTestCase {
         var hostVideo=StreamVideoSettings();hostVideo.resolution="3840x2160";hostVideo.fps=120;hostVideo.bitrateMbps=70
         model.updateHostVideo(hostVideo,hostKey:host)
         XCTAssertEqual(model.effectiveVideoSettings,hostVideo)
-        XCTAssertEqual(settings.value.resolution,"1920x1080")
+        XCTAssertEqual(settings.value.resolution,StreamPreferences.nativeResolution)
         model.library.selectedID=1;model.gameVideoSource = .custom
         var gameVideo=model.effectiveVideoSettings;gameVideo.resolution="2560x1440";gameVideo.framePacing = .balanced
         model.updateGameVideo(gameVideo)
@@ -272,7 +272,7 @@ final class ConnectionModelTests: XCTestCase {
         model.disconnect()
         model.address="second.local";model.connect();try await settle(model)
         XCTAssertEqual(model.gameVideoSource,.host)
-        XCTAssertEqual(model.effectiveVideoSettings.fps,60)
+        XCTAssertEqual(model.effectiveVideoSettings.fps,StreamPreferences.displayFrameRate)
         model.disconnect()
     }
     func testSelectedGameProfileReachesLaunchAndStillChecksHostHDRSupport() async throws {
@@ -288,7 +288,7 @@ final class ConnectionModelTests: XCTestCase {
         model.play();try await settle(model)
         let options=try XCTUnwrap(mock.launchedOptions)
         XCTAssertEqual(options.width,2560);XCTAssertEqual(options.height,1440);XCTAssertEqual(options.fps,120)
-        XCTAssertEqual(model.settings.value.resolution,"1920x1080")
+        XCTAssertEqual(model.settings.value.resolution,StreamPreferences.nativeResolution)
         guard (model.capabilities?.supportedFormats ?? 0) & 0x200 != 0 else { model.disconnect();return }
         video.hdr=true;video.codec="hevc";model.updateGameVideo(video)
         model.play();try await settle(model)

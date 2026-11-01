@@ -73,13 +73,13 @@ private struct NetworkProfileEditor: View {
             Section("Changes") {
                 Toggle("Resolution",isOn:resolution.0)
                 if resolution.0.wrappedValue {
-                    Picker("Resolution",selection:resolution.1) { ForEach(StreamPreferences.resolutions,id:\.self) { Text(StreamPreferences.resolutionLabel($0)).tag($0) } }
+                    ResolutionField(resolution:resolution.1)
                 }
                 Toggle("Frame Rate",isOn:fps.0)
-                if fps.0.wrappedValue { Picker("Frame Rate",selection:fps.1) { Text("60 fps").tag(UInt32(60));Text("120 fps").tag(UInt32(120)) } }
+                if fps.0.wrappedValue { FrameRateField(fps:fps.1) }
                 Toggle("Bitrate",isOn:bitrate.0)
                 if bitrate.0.wrappedValue {
-                    Stepper("\(bitrate.1.wrappedValue) Mbps",value:bitrate.1,in:5...150,step:5)
+                    BitrateField(bitrateMbps:bitrate.1,recommended:nil)
                 }
                 Toggle("Automatic Bitrate",isOn:adaptive.0)
                 if adaptive.0.wrappedValue { Toggle("On",isOn:adaptive.1) }

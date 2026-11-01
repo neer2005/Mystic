@@ -58,7 +58,7 @@ protocol StreamSessionService: AnyObject, Sendable {
     /// The network toward the host changed; nil when no stream is running.
     func networkChanged(metered: Bool) async -> NetworkChange?
     /// Automatic quality: nil when it could not start, false when the host takes no size changes.
-    func qualityBegin(_ mode: AutomaticQuality) async -> Bool?
+    func qualityBegin(_ mode: AutomaticQuality,minShortEdge: UInt32,minFps: UInt32) async -> Bool?
     func qualityTick(decodedWidth: UInt32,decodedHeight: UInt32,suspended: Bool) async -> QualityTick?
     func qualityEnd() async
 }
@@ -82,7 +82,7 @@ extension StreamSessionService {
     func trialClear() async {}
     func reportDisplay(headroom: Float) async -> DisplayReport { .unsupported }
     func networkChanged(metered: Bool) async -> NetworkChange? { nil }
-    func qualityBegin(_ mode: AutomaticQuality) async -> Bool? { false }
+    func qualityBegin(_ mode: AutomaticQuality,minShortEdge: UInt32,minFps: UInt32) async -> Bool? { false }
     func qualityTick(decodedWidth: UInt32,decodedHeight: UInt32,suspended: Bool) async -> QualityTick? { nil }
     func qualityEnd() async {}
     func reportKeyboardLayout(_ layout: KeyboardLayoutReport) async -> Bool { false }
@@ -233,11 +233,10 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
             continuation.resume(returning:acceptingInput ? engine.takeCursorShapes() : [])
         } }
     }
-    /// Nightjar's floors: 720 lines and 30 fps.
-    func qualityBegin(_ mode: AutomaticQuality) async -> Bool? {
+    func qualityBegin(_ mode: AutomaticQuality,minShortEdge: UInt32,minFps: UInt32) async -> Bool? {
         await withCheckedContinuation { continuation in queue.async { [self] in
             guard acceptingInput else { continuation.resume(returning:nil);return }
-            continuation.resume(returning:try? engine.qualityBegin(mode:mode.engineValue,minShortEdge:720,minFps:30,nowMillis:Self.nowMillis()))
+            continuation.resume(returning:try? engine.qualityBegin(mode:mode.engineValue,minShortEdge:minShortEdge,minFps:minFps,nowMillis:Self.nowMillis()))
         } }
     }
     func qualityTick(decodedWidth: UInt32,decodedHeight: UInt32,suspended: Bool) async -> QualityTick? {

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import MysticCore
 
@@ -35,12 +36,34 @@ public struct MysticSettingsView: View {
                 }.tabItem { Label("General",systemImage:"gearshape") }.tag("general")
                 Form {
                     Section("Stream Defaults") { VideoPreferencesView(model:model) }
+                    Section("Picture") {
+                        Picker("Video Size",selection:$model.videoSizing) {
+                            ForEach(VideoSizing.allCases,id:\.self) { Text($0.label).tag($0) }
+                        }
+                        Toggle("Align Video to Top",isOn:$model.alignVideoTop).disabled(model.videoSizing == .fill || model.videoSizing == .stretch)
+                        Text("Applies at once, also during a stream. Fit keeps the whole picture, Fill crops to cover the window, Stretch changes its shape, and Native Pixels shows one video pixel on one display pixel.").font(.caption).foregroundStyle(.secondary)
+                    }
                     Section { Text("These are global defaults. Choose host or game settings in Stream Details to override them. Only hardware-verified formats can start a stream; HDR also requires support from the host app.").foregroundStyle(.secondary) }
                 }.tabItem { Label("Video",systemImage:"display") }.tag("video")
                 Form {
                     Section("Playback") { AudioPreferencesView(model:model) }
                     Section { Text("Volume and mute apply immediately. Surround plays on a configured multichannel output, with stereo fallback for other devices.").foregroundStyle(.secondary) }
                 }.tabItem { Label("Audio",systemImage:"speaker.wave.2") }.tag("audio")
+                Form {
+                    Section("Mouse") {
+                        Stepper("Mouse Speed: \(model.inputPreferences.mouseSpeedPercent)%",value:$model.inputPreferences.mouseSpeedPercent,in:25...400,step:25)
+                        Toggle("Send Back and Forward Buttons",isOn:$model.inputPreferences.mouseNavigationButtons)
+                        Text("Mouse speed is the captured pointer's sensitivity; desktop control follows the Mac's pointer.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Section("Controllers") {
+                        Toggle("Use Controllers",isOn:$model.inputPreferences.controllers)
+                        Toggle("Nintendo Button Layout",isOn:$model.inputPreferences.swapFaceButtons)
+                        Toggle("Motion Controls",isOn:$model.inputPreferences.controllerMotion)
+                        Toggle("Disable Vibration",isOn:$model.inputPreferences.disableVibration)
+                        Stepper("Stick Dead Zone: \(model.inputPreferences.stickDeadZonePercent)%",value:$model.inputPreferences.stickDeadZonePercent,in:0...50)
+                        Text("Every connected controller becomes a controller on the PC. The Nintendo layout swaps A with B and X with Y. Motion controls send the gyro and accelerometer when a game asks for them.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }.tabItem { Label("Controls",systemImage:"gamecontroller") }.tag("controls")
                 KeyboardSettingsView(model:model)
                     .tabItem { Label("Keyboard",systemImage:"keyboard") }.tag("keyboard")
                 Form {
@@ -111,18 +134,15 @@ struct VideoPreferencesView: View {
 struct VideoSettingsFields: View {
     @Binding var value: StreamVideoSettings
     var locked: Bool
+    /// What Recommended comes to for these settings on this Mac's screen.
+    private var recommended: StreamMode {
+        var video=value;video.bitrateMbps=StreamPreferences.recommendedBitrate
+        return video.mode(displayPixels:NSScreen.main.map(DisplayRefresh.pixels),displayHertz:NSScreen.main.map(DisplayRefresh.hertz))
+    }
     var body: some View {
         Group {
-            // The picker stays short so its indicator is never squeezed; the purpose follows below.
-            Picker("Resolution",selection:$value.resolution) {
-                ForEach(StreamPreferences.resolutions,id:\.self) { resolution in
-                    Text(StreamPreferences.resolutionLabel(resolution)).tag(resolution)
-                }
-            }
-            if let detail=StreamPreferences.resolutionDetail(value.resolution) {
-                Text(detail).font(.caption).foregroundStyle(.secondary)
-            }
-            Picker("Frame Rate",selection:$value.fps) { Text("60 fps").tag(UInt32(60));Text("120 fps").tag(UInt32(120)) }
+            ResolutionField(resolution:$value.resolution)
+            FrameRateField(fps:$value.fps)
             Picker("Frame Pacing",selection:$value.framePacing) {
                 ForEach(FramePacingMode.allCases,id:\.self) { mode in Text(mode.label).tag(mode) }
             }
@@ -131,7 +151,7 @@ struct VideoSettingsFields: View {
             Picker("Codec",selection:$value.codec) {
                 Text("Automatic").tag("auto");Text("H.264").tag("h264");Text("HEVC").tag("hevc");Text("AV1").tag("av1")
             }
-            Stepper("Bitrate: \(value.bitrateMbps) Mbps",value:$value.bitrateMbps,in:5...150,step:5)
+            BitrateField(bitrateMbps:$value.bitrateMbps,recommended:recommended)
             Toggle("Automatic Bitrate",isOn:$value.adaptiveBitrate)
             if value.adaptiveBitrate {
                 Text("Adjusts bitrate up to the selected limit when the host supports live changes.").font(.caption).foregroundStyle(.secondary)
@@ -140,7 +160,9 @@ struct VideoSettingsFields: View {
                 ForEach(AutomaticQuality.allCases,id:\.self) { Text($0.label).tag($0) }
             }
             if value.automaticQuality != .off {
-                Text("Lowers resolution or frame rate during a stream when this Mac or the network cannot keep up, and restores them when it can, never below 720p or 30 fps. Automatic bitrate answers network trouble first. Needs a host that accepts size changes, such as Rubylight.").font(.caption).foregroundStyle(.secondary)
+                Stepper("Minimum Resolution: \(value.qualityMinShortEdge)p",value:$value.qualityMinShortEdge,in:256...2160,step:60)
+                Stepper("Minimum Frame Rate: \(value.qualityMinFps) fps",value:$value.qualityMinFps,in:15...240,step:5)
+                Text("Lowers resolution or frame rate during a stream when this Mac or the network cannot keep up, and restores them when it can, never below these minimums or above the stream's own. Automatic bitrate answers network trouble first. Needs a host that accepts size changes, such as Rubylight.").font(.caption).foregroundStyle(.secondary)
             }
             Toggle("HDR",isOn:$value.hdr)
             Text("Requests 10-bit HDR from supported host apps. HDR video uses the stream window’s display; macOS maps it to SDR on displays without HDR headroom.")
@@ -157,6 +179,7 @@ struct AudioPreferencesView: View {
         }.disabled(model.hasSession || model.isBusy)
         Toggle("Mute",isOn:$model.muted)
         Slider(value:$model.volume,in:0...1) { Text("Volume") }
+        Toggle("Play Audio on the PC Too",isOn:$model.playAudioOnHost).disabled(model.hasSession || model.isBusy)
         Toggle("Use Mac Microphone",isOn:$model.microphoneEnabled).disabled(model.hasSession || model.isBusy)
         if model.microphoneEnabled {
             Toggle("Mute Microphone",isOn:$model.microphoneMuted)

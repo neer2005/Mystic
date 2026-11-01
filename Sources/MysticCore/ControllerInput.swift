@@ -11,13 +11,13 @@ public struct ControllerState: Sendable, Equatable {
     public static func trigger(_ value: Float) -> UInt8 {
         guard value.isFinite else { return 0 };return UInt8((min(1,max(0,value))*255).rounded())
     }
-    /// Radial 12% dead zone, rescaled to preserve full travel; clamps invalid device input.
-    public static func stick(x: Float,y: Float) -> (Int16,Int16) {
+    /// Radial dead zone, rescaled to preserve full travel; clamps invalid device input.
+    public static func stick(x: Float,y: Float,deadZone: Double = 0.12) -> (Int16,Int16) {
         guard x.isFinite,y.isFinite else { return (0,0) }
         let x=Double(min(1,max(-1,x))),y=Double(min(1,max(-1,y)))
         let magnitude=(x*x+y*y).squareRoot()
-        guard magnitude > 0.12 else { return (0,0) }
-        let scale=(min(1,magnitude)-0.12)/0.88/magnitude
+        guard magnitude > deadZone else { return (0,0) }
+        let scale=(min(1,magnitude)-deadZone)/(1-deadZone)/magnitude
         func axis(_ value: Double) -> Int16 { Int16((value * (value < 0 ? 32768 : 32767)).rounded()) }
         return (axis(x*scale),axis(y*scale))
     }
@@ -50,6 +50,11 @@ public enum ControllerButtons {
     public static let misc: UInt32=0x20_0000
     /// D-pad, Start/Back, stick clicks, shoulders and face buttons: every extended gamepad.
     public static let classic: UInt32=0xF3FF
+    /// Nightjar's Nintendo button layout: A with B, X with Y.
+    public static func swappingFace(_ buttons: UInt32) -> UInt32 {
+        let a=buttons & 0x1000,b=buttons & 0x2000,x=buttons & 0x4000,y=buttons & 0x8000
+        return (buttons & ~UInt32(0xF000)) | a << 1 | b >> 1 | x << 1 | y >> 1
+    }
 }
 
 /// Moonlight's motion sensor types (`LI_MOTION_TYPE_*`).

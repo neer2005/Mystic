@@ -356,12 +356,16 @@ public final class ConnectionModel {
         var roaming=true
         var roamingMetered=false
         var quality: AutomaticQuality = .off
+        var qualityMinShortEdge: UInt32=720
+        var qualityMinFps: UInt32=30
     }
     @ObservationIgnored private(set) var plan: StreamPlan?
     /// The headroom of the screen the stream will open on, read when a plan is made.
     @ObservationIgnored var launchHeadroom: () -> Double? = { NSScreen.main.map { Double($0.maximumPotentialExtendedDynamicRangeColorComponentValue) } }
     /// That screen's refresh rate in Hz, which may be fractional (59.94).
     @ObservationIgnored var launchRefreshRate: () -> Double? = { NSScreen.main.map(DisplayRefresh.hertz) }
+    /// The size of that screen in pixels, for Native resolution.
+    @ObservationIgnored var launchDisplayPixels: () -> (width: UInt32,height: UInt32)? = { NSScreen.main.map(DisplayRefresh.pixels) }
     /// The first headroom seen per screen this plan: macOS raises it as brightness falls, and
     /// a host that rewrote its HDR metadata for every change would restart its decoder.
     @ObservationIgnored private var reportedHeadroom: [String:Float] = [:]
@@ -416,6 +420,8 @@ public final class ConnectionModel {
     public func libraryDisappeared() { libraryVisible=false;discovery.stop();homeSync.cancel() }
     public func applyLiveSettings() {
         audioPlayer?.setVolume(volume,muted:muted)
+        presenter?.setSizing(videoSizing,alignTop:alignVideoTop)
+        inputCapture?.input=inputPreferences
         if libraryVisible && settings.value.discoveryEnabled { discovery.start() } else { discovery.stop() }
     }
     public func prepare() async {
@@ -539,8 +545,7 @@ public final class ConnectionModel {
 
     private func preparedPlan(app: HostApp,capabilities: VideoCapabilities) throws -> StreamPlan {
             let video=launchVideoSettings
-            let dims = video.resolution.split(separator: "x").compactMap { UInt32($0) }
-            guard dims.count == 2 else { throw HostConnectionError("Invalid stream resolution.") }
+            let mode = video.mode(displayPixels:launchDisplayPixels(),displayHertz:launchRefreshRate())
             var mask: UInt32 = capabilities.supportedFormats
             switch video.codec {
             case "h264": mask &= 0xF
@@ -557,14 +562,15 @@ public final class ConnectionModel {
             case "7.1": options.channelCount = 8; options.channelMask = 0x63F
             default: break
             }
-            options.gamepadMask = UInt16((1 << min(StreamControllers.slots,GCController.controllers().filter { $0.extendedGamepad != nil }.count))-1)
+            options.gamepadMask = inputPreferences.controllers ? UInt16((1 << min(StreamControllers.slots,GCController.controllers().filter { $0.extendedGamepad != nil }.count))-1) : 0
+            options.playLocalAudio = playAudioOnHost
             options.displayHeadroom = launchHeadroom()
             options.clientRefreshRateX100 = DisplayRefresh.x100(launchRefreshRate())
             options.clipboardSync=clipboardSync
-            options.width = dims[0]; options.height = dims[1]; options.fps = video.fps; options.hdr = video.hdr
+            options.width = mode.width; options.height = mode.height; options.fps = mode.fps; options.hdr = video.hdr
             var config = StreamConfiguration()
-            config.width = Int32(dims[0]); config.height = Int32(dims[1]); config.fps = Int32(video.fps)
-            config.bitrateKbps = video.bitrateMbps * 1000; config.supportedVideoFormats = mask
+            config.width = Int32(mode.width); config.height = Int32(mode.height); config.fps = Int32(mode.fps)
+            config.bitrateKbps = mode.bitrateKbps; config.supportedVideoFormats = mask
             config.colorSpace = video.hdr ? 2 : 1; config.colorRange = 0
             config.clientRefreshRateX100 = Int32(options.clientRefreshRateX100)
             config.microphone = microphoneEnabled
@@ -576,7 +582,8 @@ public final class ConnectionModel {
                 adaptive:video.adaptiveBitrate,reconnect:settings.value.automaticReconnect ?? true,
                 hostID:host?.uniqueID ?? "",framePacing:video.framePacing,
                 tellWireless:tellHostWireless,tellLinkSpeed:tellHostLinkSpeed,
-                roaming:clientRoaming,roamingMetered:roamingOnMeteredNetworks,quality:video.automaticQuality)
+                roaming:clientRoaming,roamingMetered:roamingOnMeteredNetworks,quality:video.automaticQuality,
+                qualityMinShortEdge:video.qualityMinShortEdge,qualityMinFps:video.qualityMinFps)
     }
     private func startPreparedPlan(_ plan: StreamPlan,connection: any HostService,capabilities: VideoCapabilities) {
         recovery=StreamRecovery();recovering=false;hadVideo=false;connectedAt=nil
@@ -632,7 +639,7 @@ public final class ConnectionModel {
         options.resumeOnly = recovering
         let token = generation
         rates.prepareLaunch()
-        quality.prepare(plan.quality)
+        quality.prepare(plan.quality,minShortEdge:plan.qualityMinShortEdge,minFps:plan.qualityMinFps)
         let adaptive = plan.adaptive
         videoTelemetry = nil
         phase = .launching; status = "Launching \(app.name)…"; errorMessage = nil
@@ -680,6 +687,7 @@ public final class ConnectionModel {
                     Task { @MainActor in self?.record(message, token: token) }
                 })
                 presenter.displayChanged = { [weak self] in self?.reportDisplay(token:token) }
+                presenter.setSizing(self.videoSizing,alignTop:self.alignVideoTop)
                 let decoder = VideoToolboxDecoder(capabilities: capabilities, presenter: presenter, telemetry:telemetry,requestRecovery:{ [weak session] in session?.requestVideoRecovery() },log: { [weak self] message in
                     Task { @MainActor in self?.record(message, token: token) }
                 })
@@ -689,6 +697,7 @@ public final class ConnectionModel {
                 audio.setVolume(self.volume, muted: self.muted)
                 self.audioPlayer = audio
                 self.inputCapture = StreamInputCapture(send: { [weak session] in session?.send($0) ?? false },failure: { [weak self] message in self?.record(message,token:token) })
+                self.inputCapture?.input = self.inputPreferences
                 self.presenter = presenter; self.decoder = decoder; self.session = session
                 self.status = "Starting video connection…"
                 session.start(host: address, launch: launch, configuration: config, decoder: decoder, audio: audio,

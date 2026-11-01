@@ -126,7 +126,7 @@ Thermal inputs and network queue-delay measurements remain separate work.
 Settings → Video → Automatic Quality (per host or game, like the other video settings) runs
 Nightjar's bounded resolution/frame-rate ladder: Favor Smooth Motion gives up resolution
 first, Favor Sharp Detail frame rate first, and Favor Battery Life caps the stream lower. It
-never goes below 720 lines or 30 fps (Nightjar's defaults), steps at most every 15 seconds,
+never goes below its minimums (720 lines and 30 fps unless changed, Nightjar's defaults), steps at most every 15 seconds,
 and climbs back after 30 healthy seconds.
 
 - It needs a host that takes the Reconfigure message (Rubylight). Otherwise the stream panel

@@ -23,6 +23,21 @@ final class ControllerExtrasTests: XCTestCase {
         manager.setEnabled(false)
         XCTAssertEqual(extras.stops,1)
     }
+    func testMotionOffStopsSensorsAndIsNoLongerAdvertised() {
+        let controller=GCController.withExtendedGamepad(),extras=FakeControllerExtras(capabilities:[.gyroscope,.accelerometer])
+        var events:[RemoteInputEvent]=[]
+        let manager=StreamControllers(connectedDevices:{ [controller] },makeHaptics:{ _ in nil },makeExtras:{ _ in extras },
+            send:{ events.append($0);return true },failure:{ XCTFail("Input failure") })
+        manager.setEnabled(true)
+        events.removeAll()
+        var settings=InputPreferences();settings.controllerMotion=false;manager.settings=settings
+        XCTAssertEqual(extras.rates.map(\.1),[0,0])
+        XCTAssertTrue(events.contains(.arrival(controller,slot:0,mask:1,capabilities:.analogTriggers,epoch:manager.feedbackEpoch,extras:false)))
+        extras.rates.removeAll()
+        manager.applyFeedback([.init(slot:0,kind:.gyroscopeRate,first:100,second:0,epoch:manager.feedbackEpoch)],epoch:manager.feedbackEpoch)
+        XCTAssertTrue(extras.rates.isEmpty)
+        manager.setEnabled(false)
+    }
     func testLightAndMotionRatesReachOnlyControllersThatHaveThem() {
         let lit=GCController.withExtendedGamepad(),plain=GCController.withExtendedGamepad()
         let light=FakeControllerExtras(capabilities:[.light,.gyroscope]),none=FakeControllerExtras(capabilities:[])
