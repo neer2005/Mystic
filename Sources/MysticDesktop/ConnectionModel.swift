@@ -876,13 +876,27 @@ public final class ConnectionModel {
             }
         }
     }
+    /// What reached the screen, for comparing pacings afterwards.
+    private func logPresentation(mode: FramePacingMode) {
+        guard let presentation=videoTelemetry?.presentation else { return }
+        var line="Presentation (\(mode.label)): queue peak \(presentation.peakQueueDepth), late \(presentation.lateFrames), drops \(presentation.droppedFrames), renderer drops \(presentation.rendererDroppedFrames.map(String.init) ?? "none reported"), shared refreshes \(presentation.sharedRefreshes)"
+        if let hold=presentation.holdMicros { line+=", held \(hold) us" }
+        if let shown=presentation.cadence.summary {
+            line+=", shown \(presentation.cadence.shown) every \(shown.p50)/\(shown.p95)/\(shown.p99) us, uneven \(Int((presentation.cadence.unevenShare ?? 0)*100))%"
+            if let delay=presentation.cadence.readyToShown { line+=", decoded to screen \(delay.p50)/\(delay.p95) us" }
+        }
+        sessionLog?.write(line)
+    }
     private func monitorRendererMetrics(_ presenter: DisplayLayerPresenter,token: UUID) {
         rendererMetricsMonitor?.cancel()
         rendererMetricsMonitor=Task { [weak self] in
+            var seconds=0
             while !Task.isCancelled {
                 guard self?.generation == token else { return }
                 await presenter.refreshRendererMetrics()
                 guard self?.generation == token,!Task.isCancelled else { return }
+                seconds+=1
+                if seconds%30 == 0 { self?.logPresentation(mode:presenter.pacingMode) }
                 do { try await Task.sleep(for:.seconds(1)) } catch { return }
             }
         }

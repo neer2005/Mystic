@@ -28,9 +28,10 @@ frame old and a newer one waits, or when the three-frame mailbox overflows.
   50 ms; the first 250 ms of PC time are shown when ready. The stream's timestamps come from RTP, so
   they are the PC's frame times. The HUD shows the latest frame's hold.
 
-  Nightjar offers this with VRR, and on Android also snaps frames to a fixed panel's refresh with a
-  lower percentile. Mystic has no refresh timeline yet, so `schedule_on_grid` is not ported: macOS
-  shows the frame at the first refresh it can, and the delay may be longer than a grid would need.
+  On a screen with a refresh timeline it also uses `schedule_on_grid`: the delay covers the 75th
+  percentile, each frame takes the nearest refresh it can make, and it is released a quarter refresh
+  ahead. The stream view's `CADisplayLink` supplies the timeline, at the screen's top rate and only
+  in this mode. A frame sharing the previous one's refresh is counted in the HUD.
 
 All modes work on both renderers. On Metal a frame's time becomes `present(_:atTime:)`, and
 the in-order modes draw from a first-in, first-out slot of three frames rather than the newest.
@@ -71,6 +72,31 @@ Reset/stop clear the displayed image and fence late decoder, wait, enqueue and
 metrics completions. A new generation starts with fresh source/renderer anchors.
 Settings changes elsewhere cannot change a recovering stream's captured mode.
 
+## Measurements on a game
+
+Big Dawg over the remote route, DRAGON BALL: Sparking! ZERO's title screen (about 56 fps shown), Metal,
+HEVC 10-bit HDR, 3024×1890 at 120 fps negotiated, fixed 100 Mbps, on a 120 Hz panel, 2026-11-01. One sitting of
+100-second runs, each read at 30, 60 and 90 s; figures cover the last 512 frames at each reading, and counters are totals at 90 s.
+
+| Pacing | Decoded to screen p50, ms | Shown every p95 / p99, ms | Uneven | Late | Shared | Renderer drops |
+| --- | --- | --- | --- | --- | --- | --- |
+| Low Latency | 21 | 25 / 25-33 | 32-53% | 13 | 0 | 205 |
+| Balanced | 32 (one reading) | 100 / 150 | 23% | 117 | 0 | 1 |
+| PC Frame Times, no grid, first | 22 | 25 / 25 | 33-36% | 325 | 0 | 79 |
+| PC Frame Times, no grid, second | 30-57 | 25-58 / 58-83 | 40-47% | 376 | 0 | 94 |
+| PC Frame Times, grid, first | 23-41 | 25-67 / 67-92 | 44-52% | 1,148 | 146 | 104 |
+| PC Frame Times, grid, second | 21-22 | 25 / 33 | 31-53% | 1,137 | 188 | 135 |
+
+- **Motion was not more even than Low Latency.** Frames alternated 16.7 and 25 ms on every pacing,
+  so about a third to a half of them miss the even two-refresh step. Why is not yet known; a quarter
+  refresh, 2 ms at 120 Hz, may be too short a lead for macOS.
+- **The grid may cost less delay,** with a median near 22 ms in four of six readings against 22-57 ms without, but
+  the spread between runs of the same pacing is as large as the difference. Neither is settled.
+- Decoded to screen uses the renderer's `presentedTime`, so it stops at the system's report, not the panel.
+- **Balanced reset the video timeline 12 times in 100 s** with "Presentation timestamp discontinuity" and lost 1,214
+  frames; an open bug, also seen once on Desktop. See `FramePacer.futureTimestamp`.
+- This is one title screen in one sitting, with no AWDL record for these runs and no camera.
+
 ## HUD measurements
 
 The latency HUD now shows:
@@ -80,6 +106,8 @@ The latency HUD now shows:
 - Late-to-presenter frames, including late images dropped by policy.
 - Presenter drops, with superseded, late and timestamp/order breakdowns.
 - Timeline resynchronizations.
+- On Metal, how far apart frames were shown and the share that were uneven, from `presentedTime`.
+- With PC Frame Times, the latest frame's hold and the refreshes shared with an earlier frame.
 - Renderer-reported dropped/corrupted frames, or an em dash when unavailable.
 
 Presenter queue depth does not measure AVFoundation's internal queues. Presenter
@@ -106,6 +134,6 @@ and reconnect tests cover migration, persistence and the captured mode.
 
 Low Latency and Balanced also run through the real hardware-decoder/display-layer fixture test,
 including renderer metrics and clearing on stop. The in-order modes have automated checks of the
-policy, mailbox and Metal slot only, and have not been seen on a stream. These checks do not establish
+policy, mailbox and Metal slot; only PC Frame Times has been seen on a stream. These checks do not establish
 smoothness on a visible panel, sustained gaming latency or HDR fidelity. See
 [PLAYTEST.md](PLAYTEST.md) for live checks.

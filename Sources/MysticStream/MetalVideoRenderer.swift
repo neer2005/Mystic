@@ -142,6 +142,8 @@ final class MetalPresentationReceiver: PresentationReceiver {
     private let clock: @Sendable () -> CMTime
     private nonisolated let slot: MetalFrameSlot<RenderFrame>
     private var lastFormat: VideoLayerFormat?
+    /// Seconds since the decoder finished the frame about to be enqueued.
+    var nextFrameAge: CFTimeInterval?
     init(clock: @escaping @Sendable () -> CMTime,capacity: Int = 1) throws {
         drawer=try MetalFrameDrawer();self.clock=clock;slot=MetalFrameSlot(capacity:capacity)
         layer.device=drawer.device
@@ -165,7 +167,8 @@ final class MetalPresentationReceiver: PresentationReceiver {
         guard let image=CMSampleBufferGetImageBuffer(sample) else { throw VideoDecoderError.invalidSample("sample has no image") }
         let format=VideoLayerFormat(image:image)
         if format != lastFormat { configure(format,image:image);lastFormat=format }
-        if slot.offer(RenderFrame(image:image,time:CMSampleBufferGetPresentationTimeStamp(sample))) {
+        if slot.offer(RenderFrame(image:image,time:CMSampleBufferGetPresentationTimeStamp(sample),
+                                  readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 })) {
             let target=UnsafeLayer(layer:layer),drawer=drawer,clock=clock,slot=slot
             renderQueue.async { Self.drain(target,drawer,clock,slot) }
         }
@@ -180,7 +183,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
             guard let commands=drawer.queue.makeCommandBuffer() else { slot.countMissed();continue }
             do {
                 try drawer.encode(frame.image,to:drawable.texture,commands:commands)
-                drawable.addPresentedHandler { if $0.presentedTime == 0 { slot.countMissed() } }
+                drawable.addPresentedHandler { if $0.presentedTime == 0 { slot.countMissed() } else { slot.recordShown(seconds:$0.presentedTime,ready:frame.readySeconds) } }
                 let wait=CMTimeGetSeconds(CMTimeSubtract(frame.time,clock()))
                 if wait.isFinite,wait > 0.001 { commands.present(drawable,atTime:CACurrentMediaTime()+wait) }
                 else { commands.present(drawable) }
@@ -190,6 +193,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
     }
     /// Frames replaced, timed out or never shown, like the display layer's own drop count.
     var droppedFrames: UInt64 { slot.missed }
+    var cadence: ShownCadence { slot.cadence }
     /// macOS tone maps from the metadata, as it does for the display layer.
     private func configure(_ format: VideoLayerFormat,image: CVPixelBuffer) {
         CATransaction.begin();CATransaction.setDisableActions(true)
@@ -237,7 +241,7 @@ final class MetalTimeline: @unchecked Sendable {
     func now() -> CMTime { lock.lock();defer { lock.unlock() };return CMTimeSubtract(clock(),origin) }
 }
 
-private struct RenderFrame: @unchecked Sendable { let image: CVPixelBuffer;let time: CMTime }
+private struct RenderFrame: @unchecked Sendable { let image: CVPixelBuffer;let time: CMTime;let readySeconds: CFTimeInterval? }
 /// CAMetalLayer's nextDrawable is meant to be called off the main thread.
 private struct UnsafeLayer: @unchecked Sendable { let layer: CAMetalLayer }
 
@@ -250,6 +254,7 @@ final class MetalFrameSlot<Frame>: @unchecked Sendable {
     private var draining=false
     private var failure: (any Error)?
     private var missedCount: UInt64=0
+    private var shown=ShownCadence()
     init(capacity: Int = 1) { self.capacity=max(1,capacity) }
     /// True when the caller must start draining.
     func offer(_ next: Frame) -> Bool {
@@ -269,6 +274,11 @@ final class MetalFrameSlot<Frame>: @unchecked Sendable {
     /// A flush: the waiting frame is no longer wanted, which is not a miss.
     func clear() { lock.lock();defer { lock.unlock() };frames=[] }
     func countMissed() { lock.lock();defer { lock.unlock() };missedCount += 1 }
+    func recordShown(seconds: CFTimeInterval,ready: CFTimeInterval? = nil) {
+        lock.lock();defer { lock.unlock() }
+        shown.record(presentedMicros:Int64(seconds*1_000_000),readyToShownMicros:ready.map { Int64((seconds-$0)*1_000_000) })
+    }
+    var cadence: ShownCadence { lock.lock();defer { lock.unlock() };return shown }
     var missed: UInt64 { lock.lock();defer { lock.unlock() };return missedCount }
     func fail(_ error: any Error) { lock.lock();defer { lock.unlock() };failure=error }
     /// Reported once, at the next frame, through the presenter's usual failure path.

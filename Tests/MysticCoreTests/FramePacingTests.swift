@@ -167,6 +167,84 @@ struct FramePacingTests {
         let settled=run(600,lateBy:20_000)
         #expect(clock.delayMicros == 20_500);#expect(settled.holdMicros == 500)
     }
+    /// Nightjar's `run_grid`: the grid as a display reports it, from the latest refresh with noise.
+    private func runGrid(fps:Int64,hz:Int64,frames:Int,slack:Int64,jitter:(Int)->Int64) -> [(ready:Int64,schedule:PresentClock.GridSchedule)] {
+        var clock=PresentClock()
+        let interval=1_000_000/hz,period=1_000_000/fps
+        return (0..<frames).map { index in
+            let host=Int64(index+1)*period
+            let ready=host+20_000+jitter(index)+5_000_000
+            let anchor=(ready-3333)/interval*interval+3333+Int64(index*7%21)-10
+            let grid=PresentClock.Grid(anchorMicros:anchor,intervalMicros:interval,leadMicros:interval/4,slackMicros:slack)
+            let schedule=clock.schedule(hostMicros:host,readyMicros:ready,grid:grid)
+            #expect(schedule.releaseMicros >= ready)
+            #expect(schedule.refreshMicros >= ready)
+            return (ready,schedule)
+        }
+    }
+    private func refreshSteps(_ shown:ArraySlice<(ready:Int64,schedule:PresentClock.GridSchedule)>,_ interval:Int64) -> [Int64] {
+        zip(shown,shown.dropFirst()).map { ($1.schedule.refreshMicros-$0.schedule.refreshMicros+interval/2)/interval }
+    }
+    @Test func anEvenGameLandsOneRefreshApartOnAMatchingPanel() {
+        let shown=runGrid(fps:60,hz:60,frames:1200,slack:8333) { Int64($0*2654435761%6000) }
+        let settled=shown[120...]
+        let steps=refreshSteps(settled,16666)
+        #expect(steps.filter { $0 == 1 }.count*100 >= steps.count*96)
+        #expect(settled.allSatisfy { !$0.schedule.sharesRefresh || $0.schedule.late })
+    }
+    @Test func ninetyOnA120PanelFollowsTheFourThreePattern() {
+        let steps=refreshSteps(runGrid(fps:90,hz:120,frames:900,slack:0) { _ in 0 }[200...],8333)
+        #expect(steps.allSatisfy { (1...2).contains($0) })
+        #expect(abs(steps.filter { $0 == 2 }.count-steps.count/3) <= 2)
+    }
+    @Test func contentFasterThanThePanelSharesRefreshesWithoutRunningBehind() {
+        let settled=runGrid(fps:90,hz:60,frames:900,slack:0) { _ in 0 }[200...]
+        #expect(abs(settled.filter { $0.schedule.sharesRefresh }.count-settled.count/3) <= settled.count/20)
+        #expect(settled.allSatisfy { $0.schedule.refreshMicros-$0.ready <= 2*16667 })
+    }
+    @Test func aFrameIsNeverHeldMoreThanOneRefreshPastItsFirst() {
+        for (fps,hz):(Int64,Int64) in [(60,60),(90,90),(90,120),(72,120),(120,120),(45,90),(30,60)] {
+            let interval=1_000_000/hz
+            for (ready,schedule) in runGrid(fps:fps,hz:hz,frames:1500,slack:interval/2,jitter:{ Int64($0*2654435761%8000) })[150...] {
+                #expect(schedule.refreshMicros-ready < interval*2+30,"\(fps) on \(hz)")
+            }
+        }
+    }
+    @Test func aFrameInsideTheLeadIsReleasedAtOnce() {
+        var clock=PresentClock()
+        let grid=PresentClock.Grid(anchorMicros:1_000_000,intervalMicros:16667,leadMicros:4000,slackMicros:0)
+        let first=clock.schedule(hostMicros:0,readyMicros:1_015_667,grid:grid)
+        #expect(first.refreshMicros == 1_016_667 && first.releaseMicros == 1_015_667 && first.holdMicros == 0)
+        let second=clock.schedule(hostMicros:11,readyMicros:1_023_000,grid:.init(anchorMicros:1_016_667,intervalMicros:16667,leadMicros:4000,slackMicros:0))
+        #expect(second.refreshMicros == 1_033_334 && second.releaseMicros == 1_029_334)
+    }
+    @Test func aGridLearnsTheDelayOfALowerPercentile() {
+        var plain=PresentClock(),gridded=PresentClock()
+        for index in 0..<1500 {
+            let host=Int64(index)*11111,ready=host+20_000+Int64(index*2654435761%8000)+7_000_000
+            _=plain.schedule(hostMicros:host,readyMicros:ready)
+            _=gridded.schedule(hostMicros:host,readyMicros:ready,grid:.init(anchorMicros:1000,intervalMicros:16667))
+        }
+        #expect((plain.delayMicros ?? 0)-(gridded.delayMicros ?? 0) > 1000)
+    }
+    @Test func thePacerGoesOnTheGridOnceGivenOne() {
+        var pacer=FramePacer(mode:.pcFrameTimes)
+        pacer.refreshGrid = .init(anchorMicros:0,intervalMicros:16000)
+        #expect(pacer.plan(sourcePTS:0,rendererNow:1000,ageMicros:0,frameRate:60).action == .enqueue(timeMicros:12000,late:false,resynchronize:false))
+        #expect(pacer.holdMicros == 11000)
+        pacer.reset();#expect(pacer.refreshGrid != nil,"a new generation keeps the display")
+    }
+    @Test func theShownCadenceMeasuresRealPresents() {
+        var cadence=ShownCadence()
+        #expect(cadence.summary == nil)
+        for present in [0,8333,16666,33333,41666,50000] as [Int64] { cadence.record(presentedMicros:present) }
+        #expect(cadence.shown == 6)
+        #expect(cadence.summary?.p50 == 8333 && cadence.summary?.p99 == 8334)
+        #expect(cadence.unevenShare == 0.2)
+        #expect(cadence.readyToShown?.p50 == nil)
+        cadence.record(presentedMicros:58333,readyToShownMicros:9000)
+        #expect(cadence.readyToShown?.p50 == 9000)
+    }
     @Test func aRestartedVideoClockStartsTheClockAgain() {
         var clock=PresentClock()
         for frame in 0..<60 { _=clock.schedule(hostMicros:Int64(frame)*16667,readyMicros:Int64(frame)*16667+5000) }
