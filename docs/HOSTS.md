@@ -87,3 +87,14 @@ Live check, 2026-11-01, Big Dawg: a malformed link was refused without connectin
 link got the host's own "no one-time pairing code is live", with the saved pairing still working
 afterwards and nothing from the link in the session log. Not yet tried live: a successful link or
 one-time PIN pairing, and a real certificate mismatch, since the host refused the made-up PIN first.
+
+## Host details
+
+Stream → Host Details and the library toolbar show the connected PC's software, protocol version,
+address, pairing, what it allows this Mac, and its web UI. The link follows Nightjar's rule (the
+HTTPS port + 6, else the HTTP port + 1) and is offered only for hosts known to have a web UI and
+addresses a browser can open; an IPv6 address with a zone ID says why it has none. The pairing view
+also links to it, since one-time codes are made there. Only `https` links open.
+
+Live check, 2026-11-01, Big Dawg (Rubylight 3.2.1): software, address and link shown, and the link's
+address answered. Clicking through to a browser and a host without a web UI were not tried live.

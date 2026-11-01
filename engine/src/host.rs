@@ -44,6 +44,8 @@ pub struct MysticHost {
     /// The capabilities of the last launch's serverinfo, so the overlay's hardware poll does not
     /// ask for serverinfo every time.
     capabilities: std::sync::Mutex<Option<nightjar_core::http::HostCapabilities>>,
+    address: String,
+    http_port: u16,
 }
 pub(crate) fn envelope(result: Result<Value, String>) -> *mut c_char {
     let value = match result {
@@ -110,7 +112,7 @@ pub unsafe extern "C" fn mystic_host_new(
                 .with_server_certificate_pem(text(certificate)?)
                 .map_err(|e| e.to_string())?;
         }
-        Ok(MysticHost { client, capabilities: std::sync::Mutex::new(None) })
+        Ok(MysticHost { client, capabilities: std::sync::Mutex::new(None), address: text(address)?.to_owned(), http_port: port })
     })();
     match result {
         Ok(h) => Box::into_raw(Box::new(h)),
@@ -159,7 +161,11 @@ impl MysticHost {
         match operation {
             "info" => {
                 let i = self.info()?;
-                Ok(host_info_value(&i, self.client.server_certificate_pem().is_some()))
+                let mut value = host_info_value(&i, self.client.server_certificate_pem().is_some());
+                if i.capabilities.has(Feature::WebUi) {
+                    value["webUI"] = web_ui_value(web_ui_at(&self.address, self.http_port, i.https_port));
+                }
+                Ok(value)
             }
             "pair" => {
                 let pin = field(&v, "pin")?;
@@ -521,6 +527,67 @@ pub unsafe extern "C" fn mystic_pairing_link_parse(link: *const c_char) -> *mut 
     if link.is_null() { return envelope(Err(LINK_INVALID.into())); }
     envelope(text(link).map_err(|_| LINK_INVALID.to_owned()).and_then(pairing_link_value))
 }
+/// The host software as Nightjar's `software_label` names it.
+fn software_label(capabilities: &nightjar_core::http::HostCapabilities) -> String {
+    use nightjar_core::http::Family;
+    match capabilities.family() {
+        Family::Rubylight => format!("Rubylight {}", capabilities.host_version().unwrap_or_default()).trim_end().to_owned(),
+        Family::Vibepollo => "Vibepollo-compatible host".into(),
+        Family::Apollo => "Apollo-compatible host".into(),
+        Family::Sunshine => "Sunshine-compatible host".into(),
+        Family::GameStream => "NVIDIA GameStream".into(),
+        Family::Unknown => "Moonlight-compatible host".into(),
+    }
+}
+/// What the host lets this device do, by name; nil when it reports no permissions.
+fn permission_names(permission: i64) -> Option<Vec<&'static str>> {
+    use nightjar_core::http::{PERMISSION_CLIPBOARD_READ, PERMISSION_CLIPBOARD_SET, PERMISSION_INPUT, PERMISSION_LAUNCH, PERMISSION_LIST, PERMISSION_SERVER_COMMAND, PERMISSION_VIEW};
+    if permission == -1 { return None; }
+    let bits = permission.max(0) as u32;
+    Some([(PERMISSION_LIST, "List applications"), (PERMISSION_VIEW, "View streams"), (PERMISSION_LAUNCH, "Launch and quit applications"),
+        (PERMISSION_INPUT, "Send input"), (PERMISSION_CLIPBOARD_SET, "Send clipboard"), (PERMISSION_CLIPBOARD_READ, "Read clipboard"),
+        (PERMISSION_SERVER_COMMAND, "Run server commands")]
+        .into_iter().filter(|(bit, _)| bits & bit != 0).map(|(_, name)| name).collect())
+}
+fn web_ui_value(place: Option<Result<String, String>>) -> Value {
+    match place {
+        Some(Ok(url)) => json!({"url":url}),
+        Some(Err(problem)) => json!({"problem":problem}),
+        None => Value::Null,
+    }
+}
+/// Nightjar's rule: the HTTPS port + 6 (47990 by default), else the HTTP port + 1.
+fn web_ui_at(address: &str, http_port: u16, https_port: u16) -> Option<Result<String, String>> {
+    let port = if https_port != 0 { https_port.checked_add(6)? } else { http_port.checked_add(1)? };
+    Some(url_host(address).map(|host| format!("https://{host}:{port}")))
+}
+/// The saved address as a URL's host: an IP address or a host name, nothing else.
+fn url_host(address: &str) -> Result<String, String> {
+    use std::net::{Ipv4Addr, Ipv6Addr};
+    let (bare, bracketed) = match address.strip_prefix('[').and_then(|a| a.strip_suffix(']')) {
+        Some(inner) => (inner, true),
+        None => (address, false),
+    };
+    if bare.split_once('%').is_some_and(|(ip, _)| ip.parse::<Ipv6Addr>().is_ok()) {
+        return Err(format!("Browsers cannot open an address with a zone ID ({address}). Open the web UI from another address of this PC."));
+    }
+    if let Ok(ip) = bare.parse::<Ipv6Addr>() {
+        return Ok(ip.to_ipv4_mapped().map_or_else(|| format!("[{ip}]"), |v4| v4.to_string()));
+    }
+    if !bracketed {
+        if let Ok(ip) = bare.parse::<Ipv4Addr>() { return Ok(ip.to_string()); }
+        if is_host_name(bare) { return Ok(bare.to_owned()); }
+    }
+    Err(format!("The saved address {address} is not an IP address or host name, so it makes no web UI link."))
+}
+/// ASCII labels of letters, digits, '-' and '_'; a last label of digits alone reads as broken IPv4.
+fn is_host_name(name: &str) -> bool {
+    let name = name.strip_suffix('.').unwrap_or(name);
+    let label = |l: &str| (1..=63).contains(&l.len()) && !l.starts_with('-') && !l.ends_with('-')
+        && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    name.len() <= 253 && name.split('.').all(label)
+        && !name.rsplit('.').next().is_some_and(|last| last.bytes().all(|b| b.is_ascii_digit()))
+}
 /// The launch's display arrangement; an unknown one is refused rather than ignored.
 fn host_display(v: &Value) -> Result<HostDisplay, String> {
     Ok(match v["hostDisplay"].as_str().unwrap_or("default") {
@@ -560,6 +627,8 @@ fn host_info_value(i: &nightjar_core::http::ServerInfo, has_local_pin: bool) -> 
     json!({"name":i.hostname,"uniqueID":i.unique_id,"paired":i.paired && has_local_pin,
         "appVersion":i.app_version,"codecSupport":i.server_codec_mode_support,"currentGame":i.current_game,"currentGameUUID":i.current_game_uuid,"quitAllowed":has_local_pin && quit_allowed(i),
         "clipboardRead":has_local_pin && clipboard_permissions(i).0,"clipboardWrite":has_local_pin && clipboard_permissions(i).1,
+        "software":software_label(&i.capabilities),
+        "permissions":i.capabilities.evidence().filter(|_| has_local_pin).and_then(|e| permission_names(i64::from(e.permission))),
         "otpPairing":availability_name(i.capabilities.availability(Feature::OtpPairing)),
         "display":{"virtualDisplay":availability_name(i.capabilities.availability(Feature::VirtualDisplay)),
             "modes":availability_name(i.capabilities.availability(Feature::HostDisplayModes)),
@@ -669,6 +738,28 @@ mod tests {
             assert_eq!(host_info_value(&info,false)["clipboardRead"],false);
             assert_eq!(host_info_value(&info,false)["clipboardWrite"],false);
         }
+    }
+    #[test]
+    fn the_web_ui_follows_nightjars_ports_and_addresses() {
+        assert_eq!(web_ui_at("pc", 47989, 47984), Some(Ok("https://pc:47990".into())));
+        assert_eq!(web_ui_at("pc", 47989, 0), Some(Ok("https://pc:47990".into())));
+        assert_eq!(web_ui_at("pc", 47989, 65533), None, "past the last port");
+        let url = |address: &str| web_ui_at(address, 47989, 47984).unwrap();
+        assert_eq!(url("100.66.0.33"), Ok("https://100.66.0.33:47990".into()));
+        assert_eq!(url("::1"), Ok("https://[::1]:47990".into()));
+        assert_eq!(url("::ffff:192.168.1.2"), Ok("https://192.168.1.2:47990".into()));
+        assert!(url("fe80::1%en0").unwrap_err().contains("zone ID"));
+        for bad in ["a b", "x/y", "pc@evil", "1.2.3", "-pc", "[pc]"] { assert!(url(bad).is_err(), "{bad}"); }
+        assert_eq!(web_ui_value(None), Value::Null);
+        assert_eq!(web_ui_value(Some(Ok("https://pc:1".into())))["url"], "https://pc:1");
+    }
+    #[test]
+    fn permissions_are_named_and_absent_when_unreported() {
+        use nightjar_core::http::{PERMISSION_CLIPBOARD_READ, PERMISSION_CONTROLLER, PERMISSION_VIEW};
+        assert_eq!(permission_names(-1), None);
+        assert_eq!(permission_names(0), Some(vec![]));
+        assert_eq!(permission_names(i64::from(PERMISSION_VIEW | PERMISSION_CONTROLLER | PERMISSION_CLIPBOARD_READ)),
+            Some(vec!["View streams", "Send input", "Read clipboard"]));
     }
     #[test]
     fn pairing_links_give_their_place_but_never_their_secrets() {

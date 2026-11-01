@@ -30,7 +30,8 @@ must be investigated and documented before a feature is marked inapplicable.
 | Resolution, frame rate and bitrate choices | Implemented | Native, Display, Recommended, custom sizes and rates, up to 2000 Mbps; 0.5 Mbps not offered; see SETTINGS.md |
 | Video size, play audio on the PC, automatic quality minimums | Implemented, partial live validation | Fit and Native Pixels seen live; see SETTINGS.md |
 | Mouse speed and buttons; controller on/off, Nintendo layout, motion, vibration, dead zone | Implemented, physical validation pending | Nightjar's Controls settings the Mac can apply; automated checks only |
-| Host details/web UI, PIN lock, languages | Partial / pending | Host sidebar exists; full controls and localization pending |
+| Host details and web UI | Implemented | Nightjar's `host_page.rs`: software, permissions and the web UI link (Stream → Host Details, the library toolbar, and the pairing view). Details and URL checked on Big Dawg; see HOSTS.md |
+| PIN lock, languages | Pending | |
 | Window position memory | Implemented by macOS | AppKit saves each window's frame by scene (`NSWindow Frame stream`, `… library`) and reopens it on the same display, position and size, constrained to the screens present; Nightjar's `window_place.rs` does this by hand |
 | Controller menu navigation | Pending | Nightjar (`console.rs`, `nav_repeat.rs`) drives every screen from a controller |
 | H.264/HEVC decoding | Implemented | Big Dawg HEVC verified |

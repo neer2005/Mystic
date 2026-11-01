@@ -508,6 +508,8 @@ public final class ConnectionModel {
     public static func isPairingLink(_ text: String) -> Bool {
         text.trimmingCharacters(in:.whitespacesAndNewlines).hasPrefix("rubylight://pair?")
     }
+    /// The connected PC's address for reading, as saved.
+    public var hostAddressLabel: String { connectedAddress.contains(":") ? "[\(connectedAddress)]:\(connectedPort)" : "\(connectedAddress):\(connectedPort)" }
     public func connect(to endpoint: HostEndpoint) {
         guard !isBusy,!hasSession else { return }
         address=endpoint.address;port=String(endpoint.port);connect()
