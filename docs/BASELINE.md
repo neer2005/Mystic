@@ -36,7 +36,7 @@ Same setup, two 68-second runs each, in reversed order the second round, figures
 | Metal, Smoothest Video | 1 | 7,053 | 31 | 25 | 6,911 | 8.3 / 8.3 / 8.3 | 0% | 30 |
 | | 2 | 7,048 | 37 | 53 | 6,877 | 8.3 / 8.3 / 8.3 | 0% | 32 |
 
-All six stayed in the good state. Waiting for a drawable marked the bad state: about 8.5 ms median against 0.04 ms. Skipping a frame that waited over 4 ms
+By eye, the user found Metal with V-Sync on smooth on TestUFO, 2026-11-02. All six stayed in the good state. Waiting for a drawable marked the bad state: about 8.5 ms median against 0.04 ms. Skipping a frame that waited over 4 ms
 lets the queue drain. Six short runs are not proof it can never return. FPS Limit shares this path and was not rerun.
 
 ## Notes on the first table
