@@ -254,6 +254,11 @@ typedef struct MysticFiles MysticFiles;
 MysticFiles *mystic_files_new(const MysticHost *host, const char *downloads);
 char *mystic_files_request(const MysticFiles *files, const char *operation, const char *request_json);
 void mystic_files_free(MysticFiles *files);
+/* A host's shared folders: operations and the JSON snapshot are in engine/src/folders.rs. Requests never block on the PC. Freeing cancels a running transfer. */
+typedef struct MysticFolders MysticFolders;
+MysticFolders *mystic_folders_new(const MysticHost *host);
+char *mystic_folders_request(const MysticFolders *folders, const char *operation, const char *request_json);
+void mystic_folders_free(MysticFolders *folders);
 void mystic_host_cancel(const MysticHost *host);
 void mystic_host_free(MysticHost *host);
 

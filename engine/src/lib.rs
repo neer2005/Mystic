@@ -21,6 +21,7 @@
 
 mod host;
 mod files;
+mod folders;
 mod wake;
 mod audio;
 mod microphone;

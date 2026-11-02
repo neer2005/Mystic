@@ -80,7 +80,8 @@ must be investigated and documented before a feature is marked inapplicable.
 | Clipboard text | Implemented, live validation deferred | Manual and opt-in foreground sync |
 | Clipboard images | Implemented, live validation pending | Stream menu, as PNG both ways, only when the host offers it through its native API; a TIFF copy also goes on the Mac clipboard |
 | Files | Implemented, live validation pending | Library header → Files on a host with the native API: Nightjar's page and shared transfer list, with drag and drop. Closing cancels what has not finished. Big Dawg answers that it takes no files and offers none, so no file has moved on a real host |
-| Shared folders, USB | Pending | Capability/permission-aware native flows |
+| Shared folders | Implemented, live validation pending | Library header → Shared Folders: Nightjar's browser, one transfer at a time, downloads into a folder you choose, uploads with a write grant, with drag and drop. Closing cancels the transfer. Big Dawg answers that it shares no folders, so nothing has been browsed or moved on a real host |
+| USB | Pending | Capability/permission-aware native flows |
 | Session graphics / Radeon controls | Implemented | Big Dawg GPU/settings and permission gating verified; live writes/restore pending Host control permission; see GRAPHICS.md |
 | Accessibility and system appearance | Partial | SwiftUI/accessibility labels present; systematic audit pending |
 | Release packaging, CI, notarization | Pending | Signed local app exists; distribution and release checks remain |
