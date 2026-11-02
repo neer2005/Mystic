@@ -145,6 +145,10 @@ final class MetalPresentationReceiver: PresentationReceiver {
     private let waitsForRefresh: Bool
     private var lastFormat: VideoLayerFormat?
     var phaseReport: (@Sendable (UInt64,UInt64,Int64,Int64) -> Void)?
+    var nextFrameTiming: VideoFrameTiming?
+    func setClockOffset(_ offset: Int64,engineNow: UInt64) {
+        slot.setClock(hostToEngine:offset,engineToMedia:Int64(CACurrentMediaTime()*1_000_000)-Int64(engineNow))
+    }
     func setRefresh(hertz: Double) { slot.setRefresh(hertz:hertz) }
     /// Seconds since the decoder finished the frame about to be enqueued.
     var nextFrameAge: CFTimeInterval?
@@ -175,7 +179,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
         if format != lastFormat { configure(format,image:image);lastFormat=format }
         if waitsForRefresh {
             let frame=RenderFrame(image:image,time:CMSampleBufferGetPresentationTimeStamp(sample),
-                                  readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime())
+                                  readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime(),timing:nextFrameTiming)
             let target=UnsafeLayer(layer:layer),drawer=drawer,clock=clock,slot=slot,phaseReport=phaseReport
             await withCheckedContinuation { (done: CheckedContinuation<Void,Never>) in
                 renderQueue.async {
@@ -195,7 +199,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
             return .enqueued
         }
         if slot.offer(RenderFrame(image:image,time:CMSampleBufferGetPresentationTimeStamp(sample),
-                                  readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime())) {
+                                  readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime(),timing:nextFrameTiming)) {
             let target=UnsafeLayer(layer:layer),drawer=drawer,clock=clock,slot=slot
             renderQueue.async { Self.drain(target,drawer,clock,slot) }
         }
@@ -221,6 +225,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
             drawable.addPresentedHandler { [committed=CACurrentMediaTime()] in
                 if $0.presentedTime == 0 { slot.countMissed();return }
                 slot.recordShown(seconds:$0.presentedTime,ready:frame.readySeconds)
+                if let host=frame.timing?.hostMicros,let received=frame.timing?.receiveMicros { slot.recordFromPC(host:host,received:received,shownSeconds:$0.presentedTime) }
                 guard let ready=frame.readySeconds,let completed=times.get() else { return }
                 func micros(_ from: CFTimeInterval,_ to: CFTimeInterval) -> Int64 { Int64((to-from)*1_000_000) }
                 slot.recordStages(PresentationStages(toEnqueue:micros(ready,frame.enqueuedSeconds),forDrawable:micros(frame.enqueuedSeconds,picked),
@@ -280,7 +285,7 @@ final class MetalTimeline: @unchecked Sendable {
     func now() -> CMTime { lock.lock();defer { lock.unlock() };return CMTimeSubtract(clock(),origin) }
 }
 
-private struct RenderFrame: @unchecked Sendable { let image: CVPixelBuffer;let time: CMTime;let readySeconds: CFTimeInterval?;let enqueuedSeconds: CFTimeInterval }
+private struct RenderFrame: @unchecked Sendable { let image: CVPixelBuffer;let time: CMTime;let readySeconds: CFTimeInterval?;let enqueuedSeconds: CFTimeInterval;let timing: VideoFrameTiming? }
 /// When the GPU finished, from one Metal callback to the next.
 private final class FrameTimes: @unchecked Sendable {
     private let lock=NSLock();private var completed: CFTimeInterval?
@@ -331,6 +336,16 @@ final class MetalFrameSlot<Frame>: @unchecked Sendable {
     var lastShownSeconds: CFTimeInterval? { lock.lock();defer { lock.unlock() };return lastShown }
     var refreshNanos: Int64? { lock.lock();defer { lock.unlock() };return refresh }
     func setRefresh(hertz: Double) { lock.lock();defer { lock.unlock() };refresh=hertz > 0 ? Int64(1_000_000_000/hertz) : nil }
+    private var hostToEngine: Int64?,engineToMedia: Int64=0
+    func setClock(hostToEngine: Int64,engineToMedia: Int64) {
+        lock.lock();defer { lock.unlock() };self.hostToEngine=hostToEngine;self.engineToMedia=engineToMedia
+    }
+    func recordFromPC(host: Int64,received: UInt64,shownSeconds: CFTimeInterval) {
+        lock.lock();defer { lock.unlock() }
+        guard let hostToEngine else { return }
+        let onEngine=host+hostToEngine
+        shown.record(pcToReceivedMicros:Int64(received)-onEngine,pcToShownMicros:Int64(shownSeconds*1_000_000)-(onEngine+engineToMedia))
+    }
     var cadence: ShownCadence { lock.lock();defer { lock.unlock() };return shown }
     var missed: UInt64 { lock.lock();defer { lock.unlock() };return missedCount }
     func fail(_ error: any Error) { lock.lock();defer { lock.unlock() };failure=error }

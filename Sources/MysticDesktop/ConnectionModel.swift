@@ -32,6 +32,8 @@ public final class ConnectionModel {
     public private(set) var phase: Phase = .idle { didSet { displayWake.update(streaming:hasSession);awdl.update(streaming:hasSession);shortcutPhaseChanged(from:oldValue) } }
     /// Held from launch through reconnects until the stream ends.
     @ObservationIgnored var displayWake=DisplayWake()
+    @ObservationIgnored private var clockSyncMonitor: Task<Void,Never>?
+    @ObservationIgnored private var clockRoundTripMicros: Int64?
     public let awdl=AWDLControl()
     /// A link's launch, waiting for the user to confirm it.
     public private(set) var pendingShortcut: ShortcutLaunch?
@@ -766,6 +768,7 @@ public final class ConnectionModel {
                     Task { @MainActor in self?.record(message, token: token) }
                 })
                 presenter.displayChanged = { [weak self] in self?.reportDisplay(token:token) }
+                self.monitorClockSync(session,presenter,token:token)
                 presenter.reportPhase { ready,now,latch,period in
                     Task {
                         if let lead=await session.phaseSample(readyMicros:ready,nowMicros:now,latchMicros:latch,periodNanos:period) {
@@ -887,6 +890,20 @@ public final class ConnectionModel {
             }
         }
     }
+    /// Nightjar's probes, four a second, which give frames their time on the PC.
+    private func monitorClockSync(_ session: any StreamSessionService,_ presenter: DisplayLayerPresenter,token: UUID) {
+        clockSyncMonitor?.cancel()
+        clockSyncMonitor=Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self,self.generation == token else { return }
+                if let clock=await session.clockSync() {
+                    presenter.setClockOffset(clock.offsetMicros,engineNow:clock.clockNowMicros)
+                    self.clockRoundTripMicros=clock.roundTripMicros
+                }
+                do { try await Task.sleep(for:.milliseconds(250)) } catch { return }
+            }
+        }
+    }
     /// What reached the screen, for comparing pacings afterwards.
     private func logPresentation(mode: FramePacingMode) {
         guard let snapshot=videoTelemetry else { return }
@@ -897,6 +914,9 @@ public final class ConnectionModel {
             line+=", shown \(presentation.cadence.shown) every \(shown.p50)/\(shown.p95)/\(shown.p99) us, uneven \(Int((presentation.cadence.unevenShare ?? 0)*100))%"
             if let delay=presentation.cadence.readyToShown { line+=", decoded to screen \(delay.p50)/\(delay.p95) us" }
             if let lead=presentation.phaseLeadMicros { line+=", phase lead \(lead) us" }
+            if let received=presentation.cadence.pcToReceivedSummary,let shown=presentation.cadence.pcToShownSummary {
+                line+=", PC to received \(received.p50)/\(received.p95), PC to screen \(shown.p50)/\(shown.p95), clock round trip \(clockRoundTripMicros ?? 0)"
+            }
             for stage in presentation.cadence.stageSummary { line+=", \(stage.name) \(stage.p50)/\(stage.p95)" }
         }
         sessionLog?.write(line)

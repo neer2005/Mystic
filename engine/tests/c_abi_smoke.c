@@ -83,6 +83,7 @@ int main(void) {
           "motion before start");
     CHECK(mystic_session_controller_battery(handle, 0, 3, 80) == MYSTIC_ERR_NOT_STARTED,
           "battery before start");
+    CHECK(mystic_session_clock_sync(handle, NULL, NULL) == MYSTIC_ERR_NOT_STARTED, "clock sync before start");
     CHECK(mystic_session_phase_sample(handle, 0, 0, 0, 8333333, NULL) == MYSTIC_ERR_NOT_STARTED,
           "phase sample before start");
     CHECK(mystic_session_display_caps(handle, 4.0f) == MYSTIC_ERR_NOT_STARTED,

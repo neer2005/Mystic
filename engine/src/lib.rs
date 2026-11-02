@@ -28,6 +28,7 @@ mod controller_feedback;
 mod clipboard;
 mod rates;
 mod health;
+mod clock;
 mod display;
 mod phase;
 mod quality;
@@ -492,6 +493,7 @@ struct ListenerAdapter {
     rates: Arc<Mutex<rates::Rates>>,
     display: Arc<Mutex<display::DisplayReports>>,
     phase: Arc<Mutex<phase::PhaseReports>>,
+    clock: Arc<Mutex<clock::ClockSync>>,
     cursor: Arc<Mutex<cursor::CursorQueue>>,
     text_fields: Arc<Mutex<keyboard::TextFields>>,
     reconfigure: Arc<std::sync::atomic::AtomicBool>,
@@ -519,11 +521,16 @@ impl Listener for ListenerAdapter {
         self.rates.lock().unwrap_or_else(|e|e.into_inner()).announce(messages);
         self.display.lock().unwrap_or_else(|e| e.into_inner()).announce(messages);
         self.phase.lock().unwrap_or_else(|e| e.into_inner()).announce(messages);
+        self.clock.lock().unwrap_or_else(|e| e.into_inner()).announce(messages);
         self.reconfigure.store(messages.contains(&rubylight_protocol::control::RECONFIGURE_MESSAGE_TYPE), std::sync::atomic::Ordering::Release);
     }
     fn control_event(&self, event: nightjar_core::control::ControlEvent) {
         if matches!(event,nightjar_core::control::ControlEvent::RateChange(_)) {
             self.rates.lock().unwrap_or_else(|e|e.into_inner()).receive(event);return;
+        }
+        if matches!(event, nightjar_core::control::ControlEvent::ClockSync { .. }) {
+            self.clock.lock().unwrap_or_else(|e| e.into_inner()).receive(event);
+            return;
         }
         if matches!(event, nightjar_core::control::ControlEvent::ClipboardSync(_)) {
             self.clipboard.lock().unwrap_or_else(|e| e.into_inner()).receive(event);
@@ -592,6 +599,7 @@ pub struct MysticSession {
     rates: Arc<Mutex<rates::Rates>>,
     display: Arc<Mutex<display::DisplayReports>>,
     phase: Arc<Mutex<phase::PhaseReports>>,
+    clock: Arc<Mutex<clock::ClockSync>>,
     cursor: Arc<Mutex<cursor::CursorQueue>>,
     text_fields: Arc<Mutex<keyboard::TextFields>>,
     doctor: health::Doctor,
@@ -659,6 +667,7 @@ pub extern "C" fn mystic_session_new() -> *mut MysticSession {
         rates: Arc::new(Mutex::new(rates::Rates::default())),
         display: Arc::new(Mutex::new(display::DisplayReports::default())),
         phase: Arc::new(Mutex::new(phase::PhaseReports::default())),
+        clock: Arc::new(Mutex::new(clock::ClockSync::default())),
         cursor: Arc::new(Mutex::new(cursor::CursorQueue::default())),
         text_fields: Arc::new(Mutex::new(keyboard::TextFields::default())),
         reconfigure: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -768,7 +777,7 @@ pub unsafe extern "C" fn mystic_session_start(
         network: handle.network.clone(),
     });
     let audio: Box<dyn AudioRenderer> = Box::new(AudioAdapter { callbacks });
-    let listener = Arc::new(ListenerAdapter { callbacks, feedback: handle.feedback.clone(), clipboard: handle.clipboard.clone(), rates:handle.rates.clone(), display: handle.display.clone(), phase: handle.phase.clone(), cursor: handle.cursor.clone(), text_fields: handle.text_fields.clone(), reconfigure: handle.reconfigure.clone() });
+    let listener = Arc::new(ListenerAdapter { callbacks, feedback: handle.feedback.clone(), clipboard: handle.clipboard.clone(), rates:handle.rates.clone(), display: handle.display.clone(), phase: handle.phase.clone(), clock: handle.clock.clone(), cursor: handle.cursor.clone(), text_fields: handle.text_fields.clone(), reconfigure: handle.reconfigure.clone() });
 
     match Session::start(
         &host_info,

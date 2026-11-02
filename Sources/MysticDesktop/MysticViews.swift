@@ -174,6 +174,9 @@ private struct LatencyHUD: View {
                     Text("Shown every \(String(format:"%.1f / %.1f / %.1f",Double(shown.p50)/1000,Double(shown.p95)/1000,Double(shown.p99)/1000)) ms (p50/p95/p99) · Uneven \(Int((presentation.cadence.unevenShare ?? 0)*100))%")
                 }
                 if let lead=presentation.phaseLeadMicros { Text("Phase lock lead \(String(format:"%.1f",Double(lead)/1000)) ms") }
+                if let shown=presentation.cadence.pcToShownSummary,let received=presentation.cadence.pcToReceivedSummary {
+                    Text("PC to screen \(String(format:"%.1f / %.1f",Double(shown.p50)/1000,Double(shown.p95)/1000)) ms · to here \(String(format:"%.1f",Double(received.p50)/1000)) ms")
+                }
                 Text("Presenter drops \(presentation.droppedFrames) · Superseded \(presentation.drops[.superseded,default:0]) · Late \(presentation.drops[.late,default:0])")
                 Text("Order/time \(presentation.drops[.outOfOrder,default:0] + presentation.drops[.invalidTimestamp,default:0]) · Reset discards \(presentation.drops[.reset,default:0]) · Enqueue errors \(presentation.drops[.enqueueFailure,default:0])")
                 Text("Timeline resets \(presentation.resynchronizations) · Renderer drops \(presentation.rendererDroppedFrames.map(String.init) ?? "—") · Corrupt \(presentation.rendererCorruptedFrames.map(String.init) ?? "—")")

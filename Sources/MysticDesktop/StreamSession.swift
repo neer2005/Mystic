@@ -55,6 +55,8 @@ protocol StreamSessionService: AnyObject, Sendable {
     func trialClear() async
     /// The display's EDR headroom; whether the host took it (unchanged values count).
     func reportDisplay(headroom: Float) async -> DisplayReport
+    /// Sends a clock sync probe; the offset, round trip and the offset's clock now, once known.
+    func clockSync() async -> (offsetMicros: Int64,roundTripMicros: Int64,clockNowMicros: UInt64)?
     /// One frame about to be shown, for phase lock; the lead when a report went to the host.
     func phaseSample(readyMicros: UInt64,nowMicros: UInt64,latchMicros: Int64,periodNanos: Int64) async -> Int32?
     /// The network toward the host changed; nil when no stream is running.
@@ -84,6 +86,7 @@ extension StreamSessionService {
     func trialClear() async {}
     func reportDisplay(headroom: Float) async -> DisplayReport { .unsupported }
     func phaseSample(readyMicros: UInt64,nowMicros: UInt64,latchMicros: Int64,periodNanos: Int64) async -> Int32? { nil }
+    func clockSync() async -> (offsetMicros: Int64,roundTripMicros: Int64,clockNowMicros: UInt64)? { nil }
     func networkChanged(metered: Bool) async -> NetworkChange? { nil }
     func qualityBegin(_ mode: AutomaticQuality,minShortEdge: UInt32,minFps: UInt32) async -> Bool? { false }
     func qualityTick(decodedWidth: UInt32,decodedHeight: UInt32,suspended: Bool) async -> QualityTick? { nil }
@@ -257,6 +260,11 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
     func networkChanged(metered: Bool) async -> NetworkChange? {
         await withCheckedContinuation { continuation in queue.async { [self] in
             continuation.resume(returning:acceptingInput ? try? engine.networkChanged(metered:metered) : nil)
+        } }
+    }
+    func clockSync() async -> (offsetMicros: Int64,roundTripMicros: Int64,clockNowMicros: UInt64)? {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            continuation.resume(returning:acceptingInput ? engine.clockSync() : nil)
         } }
     }
     func phaseSample(readyMicros: UInt64,nowMicros: UInt64,latchMicros: Int64,periodNanos: Int64) async -> Int32? {

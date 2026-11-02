@@ -95,7 +95,11 @@ public struct VideoTelemetryAccumulator: Sendable {
 public struct VideoFrameTiming: Sendable {
     public let submitMicros: UInt64
     public let decodedMicros: UInt64
-    public init(submitMicros: UInt64,decodedMicros: UInt64) {
-        self.submitMicros=submitMicros;self.decodedMicros=decodedMicros
+    /// The frame's RTP time in microseconds of the host's video clock, and when it arrived on the
+    /// engine's clock, for clock sync.
+    public let hostMicros: Int64?
+    public let receiveMicros: UInt64?
+    public init(submitMicros: UInt64,decodedMicros: UInt64,hostMicros: Int64? = nil,receiveMicros: UInt64? = nil) {
+        self.submitMicros=submitMicros;self.decodedMicros=decodedMicros;self.hostMicros=hostMicros;self.receiveMicros=receiveMicros
     }
 }

@@ -183,6 +183,7 @@ mod tests {
             (*handle).feedback.lock().unwrap().clear_slot(3, 123456789);
             let listener = ListenerAdapter {
                 phase: Default::default(),
+                clock: Default::default(),
                 callbacks: MysticCallbacks::default(),
                 feedback: (*handle).feedback.clone(),
                 clipboard: (*handle).clipboard.clone(),
