@@ -134,6 +134,12 @@ struct FramePacingTests {
     @Test func anOldStoredChoiceBecomesTheDefault() throws {
         #expect(try JSONDecoder().decode([FramePacingMode].self,from:Data(#"["pcFrameTimes","balanced"]"#.utf8)) == [.lowLatency,.balanced])
     }
+    @Test func theCadenceKeepsPCToScreenTimes() {
+        var cadence=ShownCadence()
+        #expect(cadence.pcToShownSummary == nil)
+        for value in [10,20,30] as [Int64] { cadence.record(pcToReceivedMicros:value,pcToShownMicros:value*10) }
+        #expect(cadence.pcToReceivedSummary?.p50 == 20 && cadence.pcToShownSummary?.p95 == 200)
+    }
     @Test func theShownCadenceSummarisesEachStage() {
         var cadence=ShownCadence()
         #expect(cadence.stageSummary.isEmpty)

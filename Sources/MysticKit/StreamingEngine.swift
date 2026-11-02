@@ -455,6 +455,12 @@ public final class StreamingEngine {
         try check(result);return false
     }
 
+    /// Sends a clock sync probe; the host-to-Mac offset and its round trip once replies have come.
+    public func clockSync() -> (offsetMicros: Int64,roundTripMicros: Int64,clockNowMicros: UInt64)? {
+        var offset: Int64=0,roundTrip: Int64=0
+        guard mystic_session_clock_sync(requireHandle(),&offset,&roundTrip) == 1 else { return nil }
+        return (offset,roundTrip,mystic_clock_now_us())
+    }
     /// One frame about to be shown, for phase lock: the lead when a report went to the host.
     public func phaseSample(readyMicros: UInt64,nowMicros: UInt64,latchMicros: Int64,periodNanos: Int64) -> Int32? {
         var lead: Int32=0

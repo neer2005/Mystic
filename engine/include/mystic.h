@@ -363,6 +363,12 @@ char *mystic_session_rates(const MysticSession *session, uint32_t kbps, uint32_t
  * values, MYSTIC_ERR_UNIMPLEMENTED when the host does not take display reports. */
 int32_t mystic_session_display_caps(const MysticSession *session, float headroom);
 
+/* Clock sync (additive to ABI 5). mystic_clock_now_us is the clock of receive_time_us and the offset.
+ * mystic_session_clock_sync sends a probe, about four a second: 1 with the offset (client = host +
+ * offset) and round trip, 0 while no reply has come, MYSTIC_ERR_UNIMPLEMENTED when the host takes none. */
+uint64_t mystic_clock_now_us(void);
+int32_t mystic_session_clock_sync(const MysticSession *session, int64_t *offset_us, int64_t *rtt_us);
+
 /* Phase lock (additive to ABI 5): one frame about to be shown, on one microsecond clock, with the
  * display's last latch and refresh period. Returns 1 when a report went to the host, with its lead in
  * lead_us; 0 when none is due; MYSTIC_ERR_UNIMPLEMENTED when the host takes none. */

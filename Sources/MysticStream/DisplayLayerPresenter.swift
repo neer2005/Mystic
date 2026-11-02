@@ -187,6 +187,7 @@ public final class DisplayLayerPresenter {
         videoOutput.update(image:frame.pixelBuffer);configureDynamicRange()
         let enqueueStarted=VideoTelemetry.nowMicros()
         metal?.nextFrameAge=Double(max(0,Int64(enqueueStarted)-due.readyMicros))/1_000_000
+        metal?.nextFrameTiming=frame.timing
         let result=try await receiver.enqueue(sample)
         guard mailbox.isCurrent(frame.generation) else { return }
         try checkEnqueue(result)
@@ -203,6 +204,8 @@ public final class DisplayLayerPresenter {
     public func reportPhase(_ report: @escaping @Sendable (UInt64,UInt64,Int64,Int64) -> Void) {
         if pacing == .vsync { metal?.phaseReport=report }
     }
+    /// Clock sync: `offset` from the host's clock to the engine's, whose time is now `engineNow`.
+    public func setClockOffset(_ offset: Int64,engineNow: UInt64) { metal?.setClockOffset(offset,engineNow:engineNow) }
     /// The screen's refresh rate, which phase lock reports to the host.
     public func setRefresh(hertz: Double) { metal?.setRefresh(hertz:hertz) }
     /// Renderer-reported drops are separate from Mystic's queue/policy drops; no scanout claim.

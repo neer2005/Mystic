@@ -69,6 +69,23 @@ it, as Nightjar does. Nightjar reads the system's latch; the Mac uses Metal's la
 
 **No measurable gain.** The ranges overlap, with slightly more drops on. The lead did not settle at the host's 1.5 ms margin, so whether the host is locking is not known. All of this session ran about 3 ms faster than the two-drawable table above, on the same settings, so compare within one sitting.
 
+## The whole chain, by clock sync
+
+Clock sync (0x5537) gives each frame's time on the PC on this Mac's clock. Metal, Lowest Latency, same setup, two 68-second runs each, alternating, medians in ms at 30 and 60 s.
+The offset is good to about half the round trip, here about 1 ms.
+
+| V-Sync | Run | PC to received | Decoded to screen | PC to screen, p50 | p95 | Clock round trip | Renderer drops at 60 s | Uneven |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Off | 1 | 8.6 | 8.1-8.4 | 21-22 | 25-26 | 2.2 | 810 | 66-72% |
+| | 2 | 8.5-8.6 | 7.8-7.9 | 20 | 25 | 2.2-2.4 | 731 | 59-64% |
+| On | 1 | 9.1-9.3 | 21-24 | 34-38 | 42-46 | 2.3-2.5 | 316 | 6-9% |
+| | 2 | 8.8-9.0 | 24-25 | 39 | 44-48 | 2.5-2.6 | 1,945 | 39-41% |
+
+- **Where the time goes, with V-Sync off:** about 8.6 ms from the PC's present to arrival, about 4 ms to decode, about 8 ms to the screen.
+- **PC to received is about 3.5 times half the round trip,** so most of it is on the PC or in pacing, not the network. The host's own timing would split it further; Mystic does not read those records yet.
+- The second V-Sync run dropped 28% of frames and was uneven, in a state like the old bad one but without its extra delay. Cause not known; the 4 ms skip limit is one suspect, since two drawables wait close to it.
+- Phase lock's lead read 0.8-1.3 ms in three of four readings here, closer to the host's 1.5 ms target than before, and -2.7 ms in the other.
+
 ## Notes on the first table
 
 - **Metal with V-Sync settles into one of two states for a whole run.** Good: every refresh shows a frame, about 99% shown, about 29-36 ms.

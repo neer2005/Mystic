@@ -137,6 +137,7 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
                     if state.fail(generation:token) { resetOutput(token &+ 1);requestRecovery();log("\(reason); requesting IDR immediately") }
                 }
                 let expectedPixel = format.pixelFormat(fullRange: fullRange)
+                let hostMicros=Int64(frame.rtpTimestamp)*100/9,receiveMicros=frame.receiveTimeMicros
                 let nominalFrameRate=liveFrameRate ?? UInt32(setupInfo?.fps ?? 60)
                 let hdr = frame.hdrActive
                 let hdrMetadata = next.hdrMetadata
@@ -162,7 +163,7 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
                     if announceRecovery { log("Video keyframe decoded: \(format), generation \(token)") }
                     telemetry?.decode(generation:token,startMicros:decodeStartedAt,endMicros:decodedAt)
                     output(DecodedVideoFrame(pixelBuffer: image, presentationTime: pts, generation: token,
-                                             timing:VideoFrameTiming(submitMicros:submittedAt,decodedMicros:decodedAt),frameRate:nominalFrameRate))
+                                             timing:VideoFrameTiming(submitMicros:submittedAt,decodedMicros:decodedAt,hostMicros:hostMicros,receiveMicros:receiveMicros),frameRate:nominalFrameRate))
                 }
                 if status != noErr {
                     _ = completion.complete(generation: token)

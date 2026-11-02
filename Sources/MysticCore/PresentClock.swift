@@ -82,6 +82,20 @@ public struct PresentationStages: Sendable, Equatable {
     }
 }
 
+private struct DelayWindow: Sendable, Equatable {
+    private var values: [Int64]=[]
+    private var next=0
+    mutating func add(_ value: Int64) {
+        if values.count < 512 { values.append(value) } else { values[next]=value }
+        next=(next+1)%512
+    }
+    var summary: (p50: Int64,p95: Int64)? {
+        guard !values.isEmpty else { return nil }
+        let sorted=values.sorted()
+        return (sorted[(sorted.count-1)/2],sorted[(sorted.count-1)*95/100])
+    }
+}
+
 /// How far apart frames really reached the screen, from the renderer's own present times.
 public struct ShownCadence: Sendable, Equatable {
     private var intervals: [Int64]=[]
@@ -90,6 +104,7 @@ public struct ShownCadence: Sendable, Equatable {
     private var delays: [Int64]=[]
     private var nextDelay=0
     private var stages: [PresentationStages]=[]
+    private var pcToReceived=DelayWindow(),pcToShown=DelayWindow()
     private var nextStages=0
     public private(set) var shown: UInt64=0
     public init() {}
@@ -118,6 +133,12 @@ public struct ShownCadence: Sendable, Equatable {
         if stages.count < 512 { stages.append(value) } else { stages[nextStages]=value }
         nextStages=(nextStages+1)%512
     }
+    /// From the PC presenting a frame to it arriving here and to it being shown, by clock sync.
+    public mutating func record(pcToReceivedMicros received: Int64,pcToShownMicros shown: Int64) {
+        pcToReceived.add(received);pcToShown.add(shown)
+    }
+    public var pcToReceivedSummary: (p50: Int64,p95: Int64)? { pcToReceived.summary }
+    public var pcToShownSummary: (p50: Int64,p95: Int64)? { pcToShown.summary }
     /// Each stage's median and 95th percentile, by name, in order.
     public var stageSummary: [(name: String,p50: Int64,p95: Int64)] {
         guard !stages.isEmpty else { return [] }
