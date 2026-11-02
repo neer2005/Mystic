@@ -92,6 +92,13 @@ Launch with `NIGHTJAR_TIMING_CSV` naming a file or folder, for example
 `open .build/Mystic.app --env NIGHTJAR_TIMING_CSV=/path/to/folder`. Each picture shown gets a row in Nightjar's format, with the host's stamps
 joined through clock sync. On System, `render_ns` is when the picture was handed over, not shown.
 
+## Input latency test
+
+Stream menu → Measure Input Latency, Nightjar's Android probe unchanged. No figure yet. On Big Dawg, on a still desktop with
+TestUFO closed, 0 nudges were sent in 20 seconds: frames kept arriving, typically 50 ms apart and at most 64 ms apart, and the
+test needs 150 ms without one. This looks like the host's minimum frame rate, not confirmed. Taking any frame as the answer would
+read falsely low, so the test keeps Nightjar's rule. On System it would end at handover, not on screen.
+
 ## Notes on the first table
 
 - **Metal with V-Sync settles into one of two states for a whole run.** Good: every refresh shows a frame, about 99% shown, about 29-36 ms.

@@ -59,7 +59,8 @@ must be investigated and documented before a feature is marked inapplicable.
 | Remote access check | Implemented, live validation pending | Android's and Nightjar's check (`host_page.rs`): five pinned probes, then the host's route; the PC's context menu |
 | Statistics CSV | Implemented | Nightjar's Save statistics columns, per second, last hour; Stream → Save Statistics… |
 | Per-frame timing CSV | Implemented | Nightjar's `timing_csv.rs` and its columns, joined with host records; `NIGHTJAR_TIMING_CSV` names a file or folder, as on Nightjar's desktop. Checked on Big Dawg |
-| Bandwidth test, input latency test | Pending | Nightjar's `network_test.rs` (Rubylight and Foundation probes) |
+| Bandwidth test | Pending | Nightjar's `network_test.rs` (Rubylight and Foundation probes) |
+| Input latency test | Implemented | Stream menu → Measure Input Latency, Nightjar's Android `LatencyProbe` (its desktop has none). Input is released first so the host's pointer is in the video. Not yet measured: Big Dawg (host 7.1.431) sends about 20 frames a second on a still desktop, so the screen never counts as still and the test reports it couldn't measure |
 | Stereo playback, mute, output changes | Implemented | User verified on Big Dawg. Late packets are filled with Opus concealment and skipped on arrival, Nightjar's playout rule run on the decode side; see AUDIO.md |
 | 5.1/7.1 discrete PCM | Implemented, physical validation pending | Speaker identity and downmix checks |
 | 7.1.4/passthrough | Pending | Mac output capability investigation |

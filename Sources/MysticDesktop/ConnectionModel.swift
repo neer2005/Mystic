@@ -1197,6 +1197,54 @@ public final class ConnectionModel {
             decodeMs:ms(.decode),renderMs:ms(.rendererEnqueue),bitrateKbps:rates.currentKbps))
         if !canSaveStatistics { canSaveStatistics=true }
     }
+    public private(set) var latencyTestRunning=false
+    public var latencyTestResult: String?
+    public var canMeasureInputLatency: Bool { phase == .streaming && !latencyTestRunning }
+    /// Nightjar's Measure input latency: nudges the host mouse back and forth on a still screen and
+    /// times each nudge until its frame is shown. Input is released first: with the local cursor
+    /// the host leaves its pointer out of the video, and a nudge would change nothing.
+    public func measureInputLatency() {
+        guard canMeasureInputLatency,let session,let presenter else { return }
+        let token=generation,probe=presenter.latencyProbe,shown=presenter.reportsShownFrames
+        latencyTestRunning=true
+        inputCapture?.release()
+        Task.detached(priority:.userInitiated) { [weak self] in
+            let samples=await Self.nudges(session,probe)
+            await self?.finishLatencyTest(samples,shown:shown,token:token)
+        }
+    }
+    private nonisolated static func nudges(_ session: any StreamSessionService,_ probe: LatencyProbe) async -> [Int64] {
+        var samples: [Int64]=[],step: Int16=8
+        func now() -> Int64 { Int64(StreamingEngine.clockNowMicros) }
+        let giveUp=now()+20_000_000
+        while samples.count < 15,now() < giveUp {
+            guard probe.isIdle(now:now()) else { try? await Task.sleep(for:.milliseconds(10));continue }
+            probe.arm(now:now())
+            guard session.send(.motion(dx:step,dy:0)) else { break }
+            step = -step
+            let deadline=now()+500_000
+            while probe.answer == nil,now() < deadline { try? await Task.sleep(for:.milliseconds(2)) }
+            if let answer=probe.answer { samples.append(answer) }
+            probe.disarm()
+        }
+        probe.disarm()
+        return samples
+    }
+    private func finishLatencyTest(_ samples: [Int64],shown: Bool,token: UUID) {
+        latencyTestRunning=false
+        guard generation == token,phase == .streaming else { return }
+        func ms(_ micros: Int64) -> String { String(format:"%.1f",Double(micros)/1000) }
+        guard samples.count >= 5,let summary=LatencyProbe.summarize(samples) else {
+            record("Input latency test: \(samples.count) samples, not enough.",token:token)
+            latencyTestResult="Couldn't measure. The host kept sending frames or didn't answer the nudge. Show a still desktop with a visible mouse pointer, close games and videos, and try again."
+            return
+        }
+        let figures="\(ms(summary.typicalMicros)) ms typical, \(ms(summary.bestMicros)) ms best, \(ms(summary.slowestMicros)) ms slowest 10% (\(samples.count) samples)"
+        record("Input latency test: \(figures)\(shown ? "" : ", to handover").",token:token)
+        latencyTestResult="Input to screen: \(figures).\n\n"+(shown
+            ? "Timed from the moment Mystic sends a mouse nudge until macOS reports the host's answering frame on the display. It covers the network, host capture and encoding, decoding and display. Your hand and the panel's own lag are not included."
+            : "Timed from the moment Mystic sends a mouse nudge until the host's answering frame is handed to macOS. The System renderer doesn't report when a frame is shown, so the wait for the display is not included, nor are your hand and the panel's own lag.")
+    }
     /// A line in the current stream's session log.
     func recordStream(_ message: String) { record(message,token:generation) }
     private func record(_ message: String, token: UUID) {

@@ -27,6 +27,7 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
     private var running = false
     private var generation: UInt64 = 0
     private var fullRange = false
+    private var latencyProbe: LatencyProbe?
     #if DEBUG
     private var dropNextFrame = false
     #endif
@@ -48,6 +49,7 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
                             log: @escaping @Sendable (String) -> Void = { _ in }) {
         self.init(capabilities: capabilities, telemetry: telemetry, output: { [weak presenter] in presenter?.offer($0) },
                   requestRecovery:requestRecovery,resetOutput: { [weak presenter] in presenter?.reset(generation: $0) }, log: log)
+        latencyProbe=presenter.latencyProbe
         presenter.decoderFailure = { [weak self] generation, reason in
             if self?.completion.fail(generation:generation) == true {
                 self?.resetOutput(generation &+ 1);requestRecovery();log("Presentation failed: \(reason); requesting IDR immediately")
@@ -89,6 +91,7 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
 
     public func submit(_ frame: VideoFrameInfo) -> FrameDisposition {
         let submittedAt = VideoTelemetry.nowMicros()
+        latencyProbe?.frameReceived(Int64(frame.receiveTimeMicros))
         return queue.sync { () -> FrameDisposition in
             guard running, let format, setupInfo != nil else { return .needIDR }
             #if DEBUG
