@@ -124,10 +124,52 @@ final class ClipboardTests: XCTestCase {
         privateBoard.clearContents();XCTAssertTrue(privateBoard.writeObjects([document]))
         XCTAssertTrue(board.protectsContent);XCTAssertNil(try board.text(limit:ClipboardText.manualLimit))
     }
+    func testImagesMoveBothWaysOnlyWhenOffered() async throws {
+        let host=ClipboardHost(),board=TestPasteboard("x"),steps=ClipboardSteps()
+        let png=Data([0x89,0x50,0x4E,0x47,1,2])
+        board.picture=png
+        make(host,board,steps,sync:false).sendImageToHost()
+        try await Task.sleep(for:.milliseconds(30))
+        XCTAssertTrue(host.images.isEmpty)
+        let clipboard=make(host,board,steps,sync:false,images:true)
+        clipboard.sendImageToHost()
+        try await wait { host.images == [png] }
+        try await Task.sleep(for:.milliseconds(10))
+        host.remoteImage=Data([0x89,0x50,0x4E,0x47,3])
+        clipboard.copyImageFromHost()
+        try await wait { board.written == host.remoteImage }
+    }
+    func testAnEmptyClipboardOrAnEmptyHostSaysSo() async throws {
+        let host=ClipboardHost(),board=TestPasteboard("x"),steps=ClipboardSteps()
+        var messages:[String]=[]
+        let clipboard=make(host,board,steps,sync:false,images:true,report:{ text,_ in messages.append(text) })
+        clipboard.sendImageToHost()
+        XCTAssertEqual(messages.last,"The clipboard on this Mac holds no image.")
+        clipboard.copyImageFromHost()
+        try await wait { messages.last == "The PC's clipboard holds no image." }
+        XCTAssertNil(board.written)
+    }
+    func testAHostImageDoesNotReplaceANewerCopy() async throws {
+        let host=ClipboardHost(),board=TestPasteboard("x"),steps=ClipboardSteps()
+        host.remoteImage=Data([0x89,0x50,0x4E,0x47,3])
+        var messages:[String]=[]
+        let clipboard=make(host,board,steps,sync:false,images:true,report:{ text,_ in messages.append(text) })
+        clipboard.copyImageFromHost()
+        board.copy("newer")
+        try await wait { messages.last?.contains("was not copied") == true }
+        XCTAssertNil(board.written)
+    }
+    func testAClipboardTIFFBecomesAPNG() throws {
+        let rep=try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes:nil,pixelsWide:2,pixelsHigh:2,bitsPerSample:8,samplesPerPixel:4,hasAlpha:true,isPlanar:false,colorSpaceName:.deviceRGB,bytesPerRow:0,bitsPerPixel:0))
+        let png=try XCTUnwrap(ClipboardImage.png(from:try XCTUnwrap(rep.tiffRepresentation)))
+        XCTAssertTrue(png.starts(with:[0x89,0x50,0x4E,0x47]))
+        XCTAssertNotNil(ClipboardImage.tiff(from:png))
+        XCTAssertNil(ClipboardImage.png(from:Data([1,2,3])))
+    }
     private func make(_ host:ClipboardHost,_ board:TestPasteboard,_ steps:ClipboardSteps,sync:Bool = true,
-                      canRead:Bool = true,canSend:Bool = true,active:@escaping ()->Bool = { true },
+                      canRead:Bool = true,canSend:Bool = true,images:Bool = false,active:@escaping ()->Bool = { true },
                       report:@escaping (String,Bool)->Void = { _,_ in }) -> StreamClipboard {
-        StreamClipboard(host:host,pasteboard:board,canRead:canRead,canSend:canSend,syncEnabled:sync,isActive:active,
+        StreamClipboard(host:host,pasteboard:board,canRead:canRead,canSend:canSend,imagesOffered:images,syncEnabled:sync,isActive:active,
             step:{ try await steps.step($0,$1,$2) },report:report,observeFocus:false)
     }
     private func wait(_ done:()->Bool) async throws {
@@ -144,6 +186,9 @@ private final class TestPasteboard: StreamPasteboard {
     func text(limit:Int) throws -> String? { reads+=1;guard !protected else { return nil };try ClipboardText.validate(value,limit:limit);return value }
     func write(_ text:String) throws { value=text;changeCount+=1;writes+=1 }
     func copy(_ text:String) { value=text;changeCount+=1 }
+    var picture:Data?,written:Data?
+    func image() -> Data? { picture }
+    func write(image png:Data,tiff:Data?) throws { written=png;changeCount+=1 }
 }
 private actor ClipboardGate {
     private var open=false
@@ -175,6 +220,11 @@ private final class ClipboardHost: HostService,@unchecked Sendable {
     var reads:Int { lock.withLock { readCount } }
     func clipboardText() async throws -> String { lock.withLock { readCount+=1 };if holdRead { await readGate.wait() };return "from host 🌙" }
     func sendClipboardText(_ text:String) async throws { lock.withLock { sentValues.append(text) } }
+    private var sentImages:[Data]=[],remote:Data?
+    var images:[Data] { lock.withLock { sentImages } }
+    var remoteImage:Data? { get { lock.withLock { remote } } set { lock.withLock { remote=newValue } } }
+    func clipboardImage() async throws -> Data? { remoteImage }
+    func sendClipboardImage(_ png:Data) async throws { lock.withLock { sentImages.append(png) } }
     func serverInfo() async throws -> HostInfo { throw HostConnectionError("unused") }
     func pair(pin:String) async throws -> PairedHost { throw HostConnectionError("unused") }
     func apps() async throws -> [HostApp] { [] }

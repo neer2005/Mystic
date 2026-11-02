@@ -134,6 +134,54 @@ pub unsafe extern "C" fn mystic_host_cancel(host: *const MysticHost) {
         h.client.cancel_pending_requests();
     }
 }
+/// Puts a PNG on the PC's clipboard, `{"sent":true}` or the reason it could not.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_host_clipboard_image_send(host: *const MysticHost, png: *const u8, length: usize) -> *mut c_char {
+    host_envelope((|| {
+        let host = host.as_ref().ok_or("null host")?;
+        if png.is_null() { return Err("null image".into()); }
+        let png = std::slice::from_raw_parts(png, length);
+        host.client.send_clipboard_image(png).map_err(|e| image_error(e, true))?;
+        Ok(json!({"sent":true}))
+    })())
+}
+/// The PNG on the PC's clipboard: `{"image":true}` with the bytes in `png`, freed with
+/// `mystic_bytes_free`; `{"image":false}` while it holds no image.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_host_clipboard_image_read(host: *const MysticHost, png: *mut *mut u8, length: *mut usize) -> *mut c_char {
+    host_envelope((|| {
+        let host = host.as_ref().ok_or("null host")?;
+        if png.is_null() || length.is_null() { return Err("null output".into()); }
+        *png = std::ptr::null_mut();
+        *length = 0;
+        let Some(image) = host.client.clipboard_image().map_err(|e| image_error(e, false))? else {
+            return Ok(json!({"image":false}));
+        };
+        let image = image.into_boxed_slice();
+        *length = image.len();
+        *png = Box::into_raw(image).cast();
+        Ok(json!({"image":true}))
+    })())
+}
+#[no_mangle]
+pub unsafe extern "C" fn mystic_bytes_free(bytes: *mut u8, length: usize) {
+    if !bytes.is_null() {
+        drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(bytes, length)));
+    }
+}
+/// Nightjar's wording for each refusal; the host's own errors keep their retry advice.
+fn image_error(error: nightjar_core::http::ImageClipboardError, send: bool) -> HostError {
+    use nightjar_core::http::ImageClipboardError as E;
+    match error {
+        E::TooLarge(why) => format!("The image is too large for the PC's clipboard: {why}").into(),
+        E::NotPng(why) if send => format!("The image on the Mac's clipboard is no valid PNG: {why}").into(),
+        E::NotPng(why) => format!("The PC sent no valid PNG image: {why}").into(),
+        E::Unsupported if send => "The PC could not read this image.".into(),
+        E::Unsupported => "The PC could not convert the image on its clipboard.".into(),
+        E::Forbidden => "The PC refused its image clipboard to this device. Check the device's clipboard permissions on the PC; images move only during a stream of this device.".into(),
+        E::Host(e) => HostError::from(e),
+    }
+}
 #[no_mangle]
 pub unsafe extern "C" fn mystic_host_request(
     host: *const MysticHost,
@@ -156,6 +204,13 @@ impl MysticHost {
             self.client.server_info_http(true)
         }
         .map_err(HostError::from)
+    }
+    /// Whether the PC offers its image clipboard to this device, which only its native API says.
+    /// A failed read offers nothing, as on Nightjar.
+    fn image_clipboard(&self, info: &nightjar_core::http::ServerInfo) -> bool {
+        info.capabilities.has(Feature::NativeApi)
+            && self.client.native_capabilities_with_files()
+                .is_ok_and(|native| info.capabilities.clone().with_native(&native).has(Feature::ImageClipboard))
     }
     fn request(&self, operation: &str, v: Value) -> Result<Value, HostError> {
         match operation {
@@ -437,7 +492,8 @@ impl MysticHost {
                     // As Nightjar's desktop client: only a Rubylight host is told the route is wireless.
                     "clientWireless":v["clientWireless"].as_bool().unwrap_or(false)
                         && i.capabilities.family() == nightjar_core::http::Family::Rubylight,
-                    "clipboardRead":clipboard_permissions(&i).0,"clipboardWrite":clipboard_permissions(&i).1}),
+                    "clipboardRead":clipboard_permissions(&i).0,"clipboardWrite":clipboard_permissions(&i).1,
+                    "imageClipboard":self.image_clipboard(&i)}),
                 )
             }
             _ => Err("unknown host operation".into()),

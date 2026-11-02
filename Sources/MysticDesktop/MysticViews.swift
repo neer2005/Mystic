@@ -38,6 +38,10 @@ public struct StreamingView: View {
             Menu {
                 Button("Send Clipboard Text to Host") { model.sendClipboardToHost() }.disabled(!model.canSendClipboard)
                 Button("Copy Host Clipboard Text to Mac") { model.copyHostClipboard() }.disabled(!model.canReadClipboard)
+                if model.offersClipboardImages {
+                    Button("Send Clipboard Image to Host") { model.sendClipboardImageToHost() }.disabled(!model.canMoveClipboardImage)
+                    Button("Copy Host Clipboard Image to Mac") { model.copyHostClipboardImage() }.disabled(!model.canMoveClipboardImage)
+                }
                 Divider()
                 Text(model.clipboardStatus)
             } label: { Label("Clipboard",systemImage:"doc.on.clipboard") }

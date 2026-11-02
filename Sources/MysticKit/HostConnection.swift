@@ -96,6 +96,7 @@ public struct LaunchedStream: Codable, Sendable {
     public var runtimeBitrate: Bool? = nil
     public var clipboardRead: Bool? = nil
     public var clipboardWrite: Bool? = nil
+    public var imageClipboard: Bool? = nil
     /// The host is told the route is wireless (Rubylight hosts only).
     public var clientWireless: Bool? = nil
     /// The host can send its cursor shapes, if the stream also offers them.
@@ -159,6 +160,9 @@ public protocol HostService: AnyObject, Sendable {
     func remoteCheck(uniqueID: String) async throws -> RemoteCheckResult
     func clipboardText() async throws -> String
     func sendClipboardText(_ text: String) async throws
+    /// The PNG on the PC's clipboard; nil while it holds no image.
+    func clipboardImage() async throws -> Data?
+    func sendClipboardImage(_ png: Data) async throws
     /// Permanently cancels this connection, including in-flight pairing and launch requests.
     func cancel()
 }
@@ -182,6 +186,8 @@ public extension HostService {
     func remoteCheck(uniqueID: String) async throws -> RemoteCheckResult { RemoteCheckResult(outcome:.unreachable,error:"Unavailable.") }
     func clipboardText() async throws -> String { throw HostConnectionError("This host does not support clipboard text transfer.") }
     func sendClipboardText(_ text: String) async throws { throw HostConnectionError("This host does not support clipboard text transfer.") }
+    func clipboardImage() async throws -> Data? { throw HostConnectionError("This host does not support clipboard images.") }
+    func sendClipboardImage(_ png: Data) async throws { throw HostConnectionError("This host does not support clipboard images.") }
 }
 
 /// A worker queue owns blocking Nightjar calls. Cancellation is the sole concurrent operation.
@@ -315,6 +321,29 @@ public final class HostConnection: HostService, @unchecked Sendable {
         struct Sent: Decodable, Sendable { let sent: Bool }
         let result: Sent = try await request("clipboardWrite",json:String(decoding:JSONEncoder().encode(["text":text]),as:UTF8.self))
         guard result.sent else { throw HostConnectionError("The host did not accept clipboard text.") }
+    }
+    public func clipboardImage() async throws -> Data? {
+        struct Answer: Decodable, Sendable { let image: Bool }
+        return try await withCheckedThrowingContinuation { continuation in
+            queue.async { [self] in
+                var bytes: UnsafeMutablePointer<UInt8>?,length=0
+                defer { mystic_bytes_free(bytes,length) }
+                do {
+                    let answer: Answer=try Self.decode(mystic_host_clipboard_image_read(handle,&bytes,&length))
+                    continuation.resume(returning:answer.image ? bytes.map { Data(bytes:$0,count:length) } : nil)
+                } catch { continuation.resume(throwing:error) }
+            }
+        }
+    }
+    public func sendClipboardImage(_ png: Data) async throws {
+        struct Sent: Decodable, Sendable { let sent: Bool }
+        let _: Sent=try await withCheckedThrowingContinuation { continuation in
+            queue.async { [self] in
+                let answer=png.withUnsafeBytes { mystic_host_clipboard_image_send(handle,$0.bindMemory(to:UInt8.self).baseAddress,$0.count) }
+                do { continuation.resume(returning:try Self.decode(answer)) }
+                catch { continuation.resume(throwing:error) }
+            }
+        }
     }
     private func request<T: Decodable & Sendable>(_ operation: String, json: String) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in

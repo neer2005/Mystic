@@ -94,6 +94,10 @@ public struct StreamCommands: Commands {
                 .disabled(!model.canSendClipboard)
             Button("Copy Host Clipboard Text to Mac") { model.copyHostClipboard() }
                 .disabled(!model.canReadClipboard)
+            if model.offersClipboardImages {
+                Button("Send Clipboard Image to Host") { model.sendClipboardImageToHost() }.disabled(!model.canMoveClipboardImage)
+                Button("Copy Host Clipboard Image to Mac") { model.copyHostClipboardImage() }.disabled(!model.canMoveClipboardImage)
+            }
             Divider()
             Button("Host Details…") { showHostDetails?() }.disabled(showHostDetails == nil)
             Button("Session and Graphics…") { showHostSession?() }

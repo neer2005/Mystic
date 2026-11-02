@@ -65,6 +65,10 @@ public final class ConnectionModel {
     public private(set) var clipboardBusy=false
     public var canSendClipboard: Bool { phase == .streaming && clipboard?.canSend == true && !clipboardBusy }
     public var canReadClipboard: Bool { phase == .streaming && clipboard?.canRead == true && !clipboardBusy }
+    public var offersClipboardImages: Bool { phase == .streaming && clipboard?.imagesOffered == true }
+    public var canMoveClipboardImage: Bool { offersClipboardImages && !clipboardBusy }
+    public func sendClipboardImageToHost() { clipboard?.sendImageToHost() }
+    public func copyHostClipboardImage() { clipboard?.copyImageFromHost() }
     public func sendClipboardToHost() { clipboard?.sendTextToHost() }
     public func copyHostClipboard() { clipboard?.copyTextFromHost() }
     public var microphoneMuted=false { didSet { session?.setMicrophoneMuted(microphoneMuted) } }
@@ -807,12 +811,14 @@ public final class ConnectionModel {
                 self.clipboard=StreamClipboard(host:connection,
                     canRead:launch.clipboardRead ?? self.host?.clipboardRead ?? false,
                     canSend:launch.clipboardWrite ?? self.host?.clipboardWrite ?? false,
+                    imagesOffered:launch.imageClipboard == true,
                     syncEnabled:options.clipboardSync,isActive:{ [weak self] in self?.generation == token && self?.phase == .streaming && self?.inputCapture?.clipboardActive == true },
                     step:{ active,baseline,text in try await session.clipboardStep(active:active,baseline:baseline,text:text) },
                     report:{ [weak self] message,busy in
                         guard let self,self.generation == token else { return }
                         self.clipboardStatus=message;self.clipboardBusy=busy
                     })
+                self.record(launch.imageClipboard == true ? "The host offers its image clipboard." : "The host does not offer an image clipboard.",token:token)
                 self.hostCursorOffered=launch.cursorShapes == true
                 self.hostKeyboardLayout=launch.keyboardLayout == true;self.hostTextFields=launch.textFields == true
                 self.rates.streamStarted(launch:launch,adaptive:adaptive,configuration:config)
