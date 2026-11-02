@@ -146,6 +146,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
     private var lastFormat: VideoLayerFormat?
     var phaseReport: (@Sendable (UInt64,UInt64,Int64,Int64) -> Void)?
     var nextFrameTiming: VideoFrameTiming?
+    var nextFrameShown: (@Sendable (CFTimeInterval) -> Void)?
     func setClockOffset(_ offset: Int64,engineNow: UInt64) {
         slot.setClock(hostToEngine:offset,engineToMedia:Int64(CACurrentMediaTime()*1_000_000)-Int64(engineNow))
     }
@@ -179,7 +180,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
         if format != lastFormat { configure(format,image:image);lastFormat=format }
         if waitsForRefresh {
             let frame=RenderFrame(image:image,time:CMSampleBufferGetPresentationTimeStamp(sample),
-                                  readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime(),timing:nextFrameTiming)
+                                  readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime(),timing:nextFrameTiming,shown:nextFrameShown)
             let target=UnsafeLayer(layer:layer),drawer=drawer,clock=clock,slot=slot,phaseReport=phaseReport
             await withCheckedContinuation { (done: CheckedContinuation<Void,Never>) in
                 renderQueue.async {
@@ -199,7 +200,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
             return .enqueued
         }
         if slot.offer(RenderFrame(image:image,time:CMSampleBufferGetPresentationTimeStamp(sample),
-                                  readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime(),timing:nextFrameTiming)) {
+                                  readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime(),timing:nextFrameTiming,shown:nextFrameShown)) {
             let target=UnsafeLayer(layer:layer),drawer=drawer,clock=clock,slot=slot
             renderQueue.async { Self.drain(target,drawer,clock,slot) }
         }
@@ -225,6 +226,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
             drawable.addPresentedHandler { [committed=CACurrentMediaTime()] in
                 if $0.presentedTime == 0 { slot.countMissed();return }
                 slot.recordShown(seconds:$0.presentedTime,ready:frame.readySeconds)
+                frame.shown?($0.presentedTime)
                 if let host=frame.timing?.hostMicros,let received=frame.timing?.receiveMicros { slot.recordFromPC(host:host,received:received,shownSeconds:$0.presentedTime) }
                 guard let ready=frame.readySeconds,let completed=times.get() else { return }
                 func micros(_ from: CFTimeInterval,_ to: CFTimeInterval) -> Int64 { Int64((to-from)*1_000_000) }
@@ -285,7 +287,7 @@ final class MetalTimeline: @unchecked Sendable {
     func now() -> CMTime { lock.lock();defer { lock.unlock() };return CMTimeSubtract(clock(),origin) }
 }
 
-private struct RenderFrame: @unchecked Sendable { let image: CVPixelBuffer;let time: CMTime;let readySeconds: CFTimeInterval?;let enqueuedSeconds: CFTimeInterval;let timing: VideoFrameTiming? }
+private struct RenderFrame: @unchecked Sendable { let image: CVPixelBuffer;let time: CMTime;let readySeconds: CFTimeInterval?;let enqueuedSeconds: CFTimeInterval;let timing: VideoFrameTiming?;let shown: (@Sendable (CFTimeInterval) -> Void)? }
 /// When the GPU finished, from one Metal callback to the next.
 private final class FrameTimes: @unchecked Sendable {
     private let lock=NSLock();private var completed: CFTimeInterval?

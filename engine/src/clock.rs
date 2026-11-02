@@ -17,6 +17,10 @@ impl ClockSync {
         self.announced = messages.contains(&CLOCK_SYNC_MESSAGE_TYPE);
         self.offset.clear();
     }
+    /// The offset and round trip at `at_us`, when replies have come.
+    pub fn offset(&self, at_us: i64) -> Option<(i64, i64)> {
+        self.offset.offset_at(at_us).zip(self.offset.rtt_us())
+    }
     pub fn receive(&mut self, event: ControlEvent) {
         if let ControlEvent::ClockSync { reply, received } = event {
             let receive_us = session::now_us().saturating_sub(received.elapsed().as_micros() as u64);

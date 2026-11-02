@@ -363,6 +363,24 @@ char *mystic_session_rates(const MysticSession *session, uint32_t kbps, uint32_t
  * values, MYSTIC_ERR_UNIMPLEMENTED when the host does not take display reports. */
 int32_t mystic_session_display_caps(const MysticSession *session, float headroom);
 
+/* Timing CSV (additive to ABI 5): Nightjar's per-picture file, in its format. One row per picture
+ * shown, on the clock of mystic_clock_now_us; 0 where unknown. A folder gets nightjar-latency.csv. */
+typedef struct MysticTimingRow {
+    uint32_t number;
+    uint32_t rtp;
+    uint64_t receive_us;
+    uint64_t enqueue_us;
+    uint64_t input_us;
+    uint64_t output_us;
+    uint64_t render_us;
+    uint16_t host_latency;
+    uint64_t drops;
+    uint64_t due_us;
+    uint64_t begin_us;
+} MysticTimingRow;
+int32_t mystic_session_timing_csv_open(const MysticSession *session, const char *path);
+void mystic_session_timing_row(const MysticSession *session, const MysticTimingRow *row);
+
 /* Clock sync (additive to ABI 5). mystic_clock_now_us is the clock of receive_time_us and the offset.
  * mystic_session_clock_sync sends a probe, about four a second: 1 with the offset (client = host +
  * offset) and round trip, 0 while no reply has come, MYSTIC_ERR_UNIMPLEMENTED when the host takes none. */

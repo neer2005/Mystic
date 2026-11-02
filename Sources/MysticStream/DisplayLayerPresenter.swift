@@ -2,6 +2,7 @@ import AVFoundation
 import CoreMedia
 import Foundation
 import MysticCore
+import QuartzCore
 
 @MainActor
 protocol PresentationReceiver: AnyObject {
@@ -19,6 +20,12 @@ private final class NativePresentationReceiver: PresentationReceiver {
     }
     func flush() { receiver.flush() }
     func flush(removingDisplayedImage: Bool) async { await receiver.flush(removingDisplayedImage:removingDisplayedImage) }
+}
+
+/// One picture shown, on the telemetry clock.
+public struct PictureShown: Sendable {
+    public let timing: VideoFrameTiming
+    public let renderMicros: UInt64,drops: UInt64,dueMicros: UInt64,beginMicros: UInt64
 }
 
 /// Attach `layer` to an AppKit view on the main actor. No window or host lifecycle is owned here.
@@ -154,6 +161,7 @@ public final class DisplayLayerPresenter {
                 }
                 let now=Int64(VideoTelemetry.nowMicros())
                 let (due,dropped)=pacer.takeDue(now:now)
+                presenterDrops &+= UInt64(dropped)
                 if dropped > 0 { telemetry?.presentationDrop(generation:work.generation,reason:.superseded,count:UInt64(dropped)) }
                 if let due {
                     try await present(due)
@@ -188,10 +196,17 @@ public final class DisplayLayerPresenter {
         let enqueueStarted=VideoTelemetry.nowMicros()
         metal?.nextFrameAge=Double(max(0,Int64(enqueueStarted)-due.readyMicros))/1_000_000
         metal?.nextFrameTiming=frame.timing
+        let report=shownReport,drops=presenterDrops,dueMicros=UInt64(max(0,due.presentMicros))
+        if let report,let timing=frame.timing {
+            metal?.nextFrameShown={ report(PictureShown(timing:timing,renderMicros:VideoTelemetry.nowMicros()-UInt64(max(0,(CACurrentMediaTime()-$0)*1_000_000)),drops:drops,dueMicros:dueMicros,beginMicros:enqueueStarted)) }
+        }
         let result=try await receiver.enqueue(sample)
         guard mailbox.isCurrent(frame.generation) else { return }
         try checkEnqueue(result)
         if case .cancelledDueToFlush = result { return }
+        if metal == nil,let report=shownReport,let timing=frame.timing {
+            report(PictureShown(timing:timing,renderMicros:VideoTelemetry.nowMicros(),drops:presenterDrops,dueMicros:UInt64(max(0,due.presentMicros)),beginMicros:enqueueStarted))
+        }
         if due.late { telemetry?.presentationLate(generation:frame.generation) }
         if let hold=pacer.lastHoldMicros { telemetry?.presentationHold(generation:frame.generation,micros:hold) }
         if let timing=frame.timing {
@@ -204,6 +219,9 @@ public final class DisplayLayerPresenter {
     public func reportPhase(_ report: @escaping @Sendable (UInt64,UInt64,Int64,Int64) -> Void) {
         if pacing == .vsync { metal?.phaseReport=report }
     }
+    /// For the timing CSV: each picture as it is shown, or on System as it is handed over.
+    public var shownReport: (@Sendable (PictureShown) -> Void)?
+    private var presenterDrops: UInt64=0
     /// Clock sync: `offset` from the host's clock to the engine's, whose time is now `engineNow`.
     public func setClockOffset(_ offset: Int64,engineNow: UInt64) { metal?.setClockOffset(offset,engineNow:engineNow) }
     /// The screen's refresh rate, which phase lock reports to the host.
