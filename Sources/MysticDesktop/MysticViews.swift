@@ -83,6 +83,14 @@ public struct StreamingView: View {
                             .padding(12).allowsHitTesting(false)
                         }
                     }
+                    .overlay(alignment:.bottom) {
+                        if model.latencyTestRunning {
+                            Label("Measuring… show a still desktop with the mouse pointer and don't touch anything for a few seconds.",systemImage:"timer")
+                                .padding(.horizontal,14).padding(.vertical,8)
+                                .background(.regularMaterial,in:Capsule())
+                                .padding(16).allowsHitTesting(false)
+                        }
+                    }
             }
             else {
                 ZStack {
@@ -97,6 +105,9 @@ public struct StreamingView: View {
         .navigationSubtitle(subtitle)
         .sheet(isPresented:$showingHostSession) { HostSessionView(model:model) }
         .sheet(isPresented:$showingHealth) { StreamHealthView(model:model) }
+        .alert("Measure Input Latency",isPresented:Binding(get:{ model.latencyTestResult != nil },set:{ if !$0 { model.latencyTestResult=nil } })) {
+            Button("OK",role:.cancel) {}
+        } message: { Text(model.latencyTestResult ?? "") }
         .focusedSceneValue(\.hostSessionAction,streaming ? { showHostSession() } : nil)
         .focusedSceneValue(\.streamHealthAction,streaming ? { showHealth() } : nil)
         // Frequent controls only; everything else is in the Stream menu or Customize Toolbar.

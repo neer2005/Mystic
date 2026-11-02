@@ -2,6 +2,7 @@ import AVFoundation
 import CoreMedia
 import Foundation
 import MysticCore
+import MysticKit
 import QuartzCore
 
 @MainActor
@@ -197,15 +198,21 @@ public final class DisplayLayerPresenter {
         metal?.nextFrameAge=Double(max(0,Int64(enqueueStarted)-due.readyMicros))/1_000_000
         metal?.nextFrameTiming=frame.timing
         let report=shownReport,drops=presenterDrops,dueMicros=UInt64(max(0,due.presentMicros))
-        if let report,let timing=frame.timing {
-            metal?.nextFrameShown={ report(PictureShown(timing:timing,renderMicros:VideoTelemetry.nowMicros()-UInt64(max(0,(CACurrentMediaTime()-$0)*1_000_000)),drops:drops,dueMicros:dueMicros,beginMicros:enqueueStarted)) }
-        }
+        let probe=latencyProbe.armed ? latencyProbe : nil
+        if let timing=frame.timing,report != nil || probe != nil {
+            metal?.nextFrameShown={ seconds in
+                let render=VideoTelemetry.nowMicros()-UInt64(max(0,(CACurrentMediaTime()-seconds)*1_000_000))
+                report?(PictureShown(timing:timing,renderMicros:render,drops:drops,dueMicros:dueMicros,beginMicros:enqueueStarted))
+                probe?.frameRendered(timing,renderMicros:render)
+            }
+        } else { metal?.nextFrameShown=nil }
         let result=try await receiver.enqueue(sample)
         guard mailbox.isCurrent(frame.generation) else { return }
         try checkEnqueue(result)
         if case .cancelledDueToFlush = result { return }
-        if metal == nil,let report=shownReport,let timing=frame.timing {
-            report(PictureShown(timing:timing,renderMicros:VideoTelemetry.nowMicros(),drops:presenterDrops,dueMicros:UInt64(max(0,due.presentMicros)),beginMicros:enqueueStarted))
+        if metal == nil,let timing=frame.timing {
+            shownReport?(PictureShown(timing:timing,renderMicros:VideoTelemetry.nowMicros(),drops:presenterDrops,dueMicros:UInt64(max(0,due.presentMicros)),beginMicros:enqueueStarted))
+            probe?.frameRendered(timing,renderMicros:VideoTelemetry.nowMicros())
         }
         if due.late { telemetry?.presentationLate(generation:frame.generation) }
         if let hold=pacer.lastHoldMicros { telemetry?.presentationHold(generation:frame.generation,micros:hold) }
@@ -221,6 +228,9 @@ public final class DisplayLayerPresenter {
     }
     /// For the timing CSV: each picture as it is shown, or on System as it is handed over.
     public var shownReport: (@Sendable (PictureShown) -> Void)?
+    /// For the input latency test: on System a frame counts as shown when it is handed over.
+    public nonisolated let latencyProbe=LatencyProbe()
+    public var reportsShownFrames: Bool { metal != nil }
     private var presenterDrops: UInt64=0
     /// Clock sync: `offset` from the host's clock to the engine's, whose time is now `engineNow`.
     public func setClockOffset(_ offset: Int64,engineNow: UInt64) { metal?.setClockOffset(offset,engineNow:engineNow) }
@@ -246,6 +256,15 @@ public final class DisplayLayerPresenter {
         guard time.isNumeric else { return nil }
         let scaled=CMTimeConvertScale(time,timescale:1_000_000,method:.default)
         return scaled.isNumeric && scaled.value >= 0 ? scaled.value : nil
+    }
+}
+
+private extension LatencyProbe {
+    /// Frames' receive times are on the engine's clock and the presenter's on the system's.
+    func frameRendered(_ timing: VideoFrameTiming,renderMicros: UInt64) {
+        guard let receive=timing.receiveMicros else { return }
+        let delta=Int64(StreamingEngine.clockNowMicros)-Int64(VideoTelemetry.nowMicros())
+        frameRendered(receive:Int64(receive),render:Int64(renderMicros)+delta)
     }
 }
 

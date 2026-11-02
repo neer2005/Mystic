@@ -102,6 +102,8 @@ public struct StreamCommands: Commands {
             Button("Why Did My Stream Stutter?…") { showHealth?() }
                 .keyboardShortcut("h",modifiers:[.control,.command])
                 .disabled(showHealth == nil)
+            Button("Measure Input Latency") { model.measureInputLatency() }
+                .disabled(!model.canMeasureInputLatency)
             Button("Save Statistics…") { saveStatistics() }
                 .disabled(!model.canSaveStatistics)
             #if DEBUG
