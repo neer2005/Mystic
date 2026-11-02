@@ -22,6 +22,7 @@ public struct HostInfo: Codable, Sendable, Equatable {
     public var otpPairing: HostFeatureAvailability? = nil
     /// The host software, such as "Rubylight 3.2.1".
     public var software: String? = nil
+    public var nativeAPI: Bool? = nil
     /// What the host lets this device do; nil when paired hosts report no permissions.
     public var permissions: [String]? = nil
     public var webUI: HostWebUI? = nil
@@ -163,6 +164,8 @@ public protocol HostService: AnyObject, Sendable {
     /// The PNG on the PC's clipboard; nil while it holds no image.
     func clipboardImage() async throws -> Data?
     func sendClipboardImage(_ png: Data) async throws
+    /// The Files page, which asks the PC at once; nil where there is none.
+    func filesPage(downloads: URL) -> (any FilesPage)?
     /// Permanently cancels this connection, including in-flight pairing and launch requests.
     func cancel()
 }
@@ -188,6 +191,7 @@ public extension HostService {
     func sendClipboardText(_ text: String) async throws { throw HostConnectionError("This host does not support clipboard text transfer.") }
     func clipboardImage() async throws -> Data? { throw HostConnectionError("This host does not support clipboard images.") }
     func sendClipboardImage(_ png: Data) async throws { throw HostConnectionError("This host does not support clipboard images.") }
+    func filesPage(downloads: URL) -> (any FilesPage)? { nil }
 }
 
 /// A worker queue owns blocking Nightjar calls. Cancellation is the sole concurrent operation.
@@ -322,6 +326,7 @@ public final class HostConnection: HostService, @unchecked Sendable {
         let result: Sent = try await request("clipboardWrite",json:String(decoding:JSONEncoder().encode(["text":text]),as:UTF8.self))
         guard result.sent else { throw HostConnectionError("The host did not accept clipboard text.") }
     }
+    public func filesPage(downloads: URL) -> (any FilesPage)? { HostFilesPage(host:handle,downloads:downloads,keeping:self) }
     public func clipboardImage() async throws -> Data? {
         struct Answer: Decodable, Sendable { let image: Bool }
         return try await withCheckedThrowingContinuation { continuation in

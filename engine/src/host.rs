@@ -40,13 +40,15 @@ fn host_envelope(result: Result<Value, HostError>) -> *mut c_char {
 }
 
 pub struct MysticHost {
-    client: HostClient,
+    pub(crate) client: Arc<HostClient>,
     /// The capabilities of the last launch's serverinfo, so the overlay's hardware poll does not
     /// ask for serverinfo every time.
     capabilities: std::sync::Mutex<Option<nightjar_core::http::HostCapabilities>>,
     address: String,
     http_port: u16,
 }
+/// For the Files page, whose answers come from the same envelope.
+pub(crate) fn envelope_for(result: Result<Value, String>) -> *mut c_char { envelope(result) }
 pub(crate) fn envelope(result: Result<Value, String>) -> *mut c_char {
     let value = match result {
         Ok(v) => json!({"ok": true, "value": v}),
@@ -112,7 +114,7 @@ pub unsafe extern "C" fn mystic_host_new(
                 .with_server_certificate_pem(text(certificate)?)
                 .map_err(|e| e.to_string())?;
         }
-        Ok(MysticHost { client, capabilities: std::sync::Mutex::new(None), address: text(address)?.to_owned(), http_port: port })
+        Ok(MysticHost { client: Arc::new(client), capabilities: std::sync::Mutex::new(None), address: text(address)?.to_owned(), http_port: port })
     })();
     match result {
         Ok(h) => Box::into_raw(Box::new(h)),
@@ -683,7 +685,7 @@ fn host_info_value(i: &nightjar_core::http::ServerInfo, has_local_pin: bool) -> 
     json!({"name":i.hostname,"uniqueID":i.unique_id,"paired":i.paired && has_local_pin,
         "appVersion":i.app_version,"codecSupport":i.server_codec_mode_support,"currentGame":i.current_game,"currentGameUUID":i.current_game_uuid,"quitAllowed":has_local_pin && quit_allowed(i),
         "clipboardRead":has_local_pin && clipboard_permissions(i).0,"clipboardWrite":has_local_pin && clipboard_permissions(i).1,
-        "software":software_label(&i.capabilities),
+        "software":software_label(&i.capabilities),"nativeAPI":has_local_pin && i.capabilities.has(Feature::NativeApi),
         "permissions":i.capabilities.evidence().filter(|_| has_local_pin).and_then(|e| permission_names(i64::from(e.permission))),
         "otpPairing":availability_name(i.capabilities.availability(Feature::OtpPairing)),
         "display":{"virtualDisplay":availability_name(i.capabilities.availability(Feature::VirtualDisplay)),

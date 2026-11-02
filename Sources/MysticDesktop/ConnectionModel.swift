@@ -65,6 +65,12 @@ public final class ConnectionModel {
     public private(set) var clipboardBusy=false
     public var canSendClipboard: Bool { phase == .streaming && clipboard?.canSend == true && !clipboardBusy }
     public var canReadClipboard: Bool { phase == .streaming && clipboard?.canRead == true && !clipboardBusy }
+    /// The connected PC's Files page; downloads go to the Downloads folder.
+    func openFiles() -> FilesModel? {
+        guard let folder=FileManager.default.urls(for:.downloadsDirectory,in:.userDomainMask).first,
+              let page=connection?.filesPage(downloads:folder) else { return nil }
+        return FilesModel(page:page)
+    }
     public var offersClipboardImages: Bool { phase == .streaming && clipboard?.imagesOffered == true }
     public var canMoveClipboardImage: Bool { offersClipboardImages && !clipboardBusy }
     public func sendClipboardImageToHost() { clipboard?.sendImageToHost() }

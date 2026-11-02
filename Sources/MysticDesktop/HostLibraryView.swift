@@ -8,6 +8,7 @@ public struct HostLibraryView: View {
     @Bindable private var model: ConnectionModel
     @State private var showingHostSession=false
     @State private var showingHostDetails=false
+    @State private var filesModel: FilesModel?
     @FocusState private var searchFocused: Bool
     @Environment(\.openWindow) private var openWindow
     /// A stream asked for on the command line, started once the library appears.
@@ -45,6 +46,7 @@ public struct HostLibraryView: View {
         } message: { action in Text(action.explanation) }
         .sheet(isPresented:$showingHostSession) { HostSessionView(model:model) }
         .sheet(isPresented:$showingHostDetails) { HostDetailsView(model:model) }
+        .sheet(item:$filesModel) { FilesView(model:$0,hostName:model.host?.name ?? "PC") }
         .focusedSceneValue(\.hostDetailsAction,canShowHostDetails ? { showingHostDetails=true } : nil)
         .focusedSceneValue(\.libraryMenuActions,menuActions)
         .focusedSceneValue(\.hostSessionAction,canShowHostSession ? { showingHostSession=true } : nil)
@@ -157,6 +159,11 @@ public struct HostLibraryView: View {
                     Button("Host Details",systemImage:"info.circle") { showingHostDetails=true }
                         .disabled(!canShowHostDetails)
                         .help("The host's software, permissions and web UI")
+                    if model.host?.nativeAPI == true {
+                        Button("Files",systemImage:"folder") { filesModel=model.openFiles() }
+                            .disabled(!canShowHostDetails)
+                            .help("Send files to this PC and download from its transfer folder")
+                    }
                     Button("Session and Graphics",systemImage:"rectangle.connected.to.line.below") { showingHostSession=true }
                         .disabled(!canShowHostSession)
                         .help("Session and graphics controls")
