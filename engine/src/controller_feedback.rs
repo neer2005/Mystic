@@ -184,6 +184,7 @@ mod tests {
             let listener = ListenerAdapter {
                 phase: Default::default(),
                 clock: Default::default(),
+                timing: Default::default(),
                 callbacks: MysticCallbacks::default(),
                 feedback: (*handle).feedback.clone(),
                 clipboard: (*handle).clipboard.clone(),

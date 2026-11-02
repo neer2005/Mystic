@@ -455,6 +455,15 @@ public final class StreamingEngine {
         try check(result);return false
     }
 
+    /// Opens Nightjar's per-picture timing CSV at `path`, or `nightjar-latency.csv` in a folder.
+    public func openTimingCSV(path: String) throws { try check(mystic_session_timing_csv_open(requireHandle(),path)) }
+    public func timingRow(number: UInt32,rtp: UInt32,receive: UInt64,enqueue: UInt64,input: UInt64,output: UInt64,render: UInt64,
+                          hostLatency: UInt16,drops: UInt64,due: UInt64,begin: UInt64) {
+        var row=MysticTimingRow(number:number,rtp:rtp,receive_us:receive,enqueue_us:enqueue,input_us:input,output_us:output,render_us:render,
+                                host_latency:hostLatency,drops:drops,due_us:due,begin_us:begin)
+        mystic_session_timing_row(requireHandle(),&row)
+    }
+    public static var clockNowMicros: UInt64 { mystic_clock_now_us() }
     /// Sends a clock sync probe; the host-to-Mac offset and its round trip once replies have come.
     public func clockSync() -> (offsetMicros: Int64,roundTripMicros: Int64,clockNowMicros: UInt64)? {
         var offset: Int64=0,roundTrip: Int64=0

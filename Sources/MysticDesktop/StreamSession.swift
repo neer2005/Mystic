@@ -55,6 +55,9 @@ protocol StreamSessionService: AnyObject, Sendable {
     func trialClear() async
     /// The display's EDR headroom; whether the host took it (unchanged values count).
     func reportDisplay(headroom: Float) async -> DisplayReport
+    /// Starts the timing CSV; false when it could not.
+    func openTimingCSV(path: String) async -> Bool
+    func timingRow(_ shown: PictureShown) async
     /// Sends a clock sync probe; the offset, round trip and the offset's clock now, once known.
     func clockSync() async -> (offsetMicros: Int64,roundTripMicros: Int64,clockNowMicros: UInt64)?
     /// One frame about to be shown, for phase lock; the lead when a report went to the host.
@@ -87,6 +90,8 @@ extension StreamSessionService {
     func reportDisplay(headroom: Float) async -> DisplayReport { .unsupported }
     func phaseSample(readyMicros: UInt64,nowMicros: UInt64,latchMicros: Int64,periodNanos: Int64) async -> Int32? { nil }
     func clockSync() async -> (offsetMicros: Int64,roundTripMicros: Int64,clockNowMicros: UInt64)? { nil }
+    func openTimingCSV(path: String) async -> Bool { false }
+    func timingRow(_ shown: PictureShown) async {}
     func networkChanged(metered: Bool) async -> NetworkChange? { nil }
     func qualityBegin(_ mode: AutomaticQuality,minShortEdge: UInt32,minFps: UInt32) async -> Bool? { false }
     func qualityTick(decodedWidth: UInt32,decodedHeight: UInt32,suspended: Bool) async -> QualityTick? { nil }
@@ -260,6 +265,24 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
     func networkChanged(metered: Bool) async -> NetworkChange? {
         await withCheckedContinuation { continuation in queue.async { [self] in
             continuation.resume(returning:acceptingInput ? try? engine.networkChanged(metered:metered) : nil)
+        } }
+    }
+    func openTimingCSV(path: String) async -> Bool {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            continuation.resume(returning:(try? engine.openTimingCSV(path:path)) != nil)
+        } }
+    }
+    func timingRow(_ shown: PictureShown) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void,Never>) in queue.async { [self] in
+            defer { continuation.resume() }
+            guard acceptingInput else { return }
+            // Everything on the engine's clock, which the host offset is measured against.
+            let delta=Int64(StreamingEngine.clockNowMicros)-Int64(DispatchTime.now().uptimeNanoseconds/1000)
+            func onEngine(_ micros: UInt64) -> UInt64 { micros == 0 ? 0 : UInt64(max(0,Int64(micros)+delta)) }
+            let timing=shown.timing
+            engine.timingRow(number:timing.number,rtp:timing.rtp,receive:timing.receiveMicros ?? 0,enqueue:timing.enqueueMicros,
+                             input:onEngine(timing.submitMicros),output:onEngine(timing.decodedMicros),render:onEngine(shown.renderMicros),
+                             hostLatency:timing.hostLatencyTenthMs,drops:shown.drops,due:onEngine(shown.dueMicros),begin:onEngine(shown.beginMicros))
         } }
     }
     func clockSync() async -> (offsetMicros: Int64,roundTripMicros: Int64,clockNowMicros: UInt64)? {

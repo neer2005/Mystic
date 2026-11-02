@@ -86,6 +86,12 @@ The offset is good to about half the round trip, here about 1 ms.
 - The second V-Sync run dropped 28% of frames and was uneven, in a state like the old bad one but without its extra delay. Cause not known; the 4 ms skip limit is one suspect, since two drawables wait close to it.
 - Phase lock's lead read 0.8-1.3 ms in three of four readings here, closer to the host's 1.5 ms target than before, and -2.7 ms in the other.
 
+## Frame timing CSV
+
+Launch with `NIGHTJAR_TIMING_CSV` naming a file or folder, for example
+`open .build/Mystic.app --env NIGHTJAR_TIMING_CSV=/path/to/folder`. Each picture shown gets a row in Nightjar's format, with the host's stamps
+joined through clock sync. On System, `render_ns` is when the picture was handed over, not shown.
+
 ## Notes on the first table
 
 - **Metal with V-Sync settles into one of two states for a whole run.** Good: every refresh shows a frame, about 99% shown, about 29-36 ms.

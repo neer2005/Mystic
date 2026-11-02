@@ -33,6 +33,7 @@ public final class ConnectionModel {
     /// Held from launch through reconnects until the stream ends.
     @ObservationIgnored var displayWake=DisplayWake()
     @ObservationIgnored private var clockSyncMonitor: Task<Void,Never>?
+    @ObservationIgnored private var timingCSVPath: String?
     @ObservationIgnored private var clockRoundTripMicros: Int64?
     public let awdl=AWDLControl()
     /// A link's launch, waiting for the user to confirm it.
@@ -769,6 +770,10 @@ public final class ConnectionModel {
                 })
                 presenter.displayChanged = { [weak self] in self?.reportDisplay(token:token) }
                 self.monitorClockSync(session,presenter,token:token)
+                if let path=ProcessInfo.processInfo.environment["NIGHTJAR_TIMING_CSV"],!path.isEmpty {
+                    self.timingCSVPath=path
+                    presenter.shownReport={ shown in Task { await session.timingRow(shown) } }
+                }
                 presenter.reportPhase { ready,now,latch,period in
                     Task {
                         if let lead=await session.phaseSample(readyMicros:ready,nowMicros:now,latchMicros:latch,periodNanos:period) {
@@ -1014,6 +1019,12 @@ public final class ConnectionModel {
             if let session { monitorControllerFeedback(session,token:token);startKeyboard(session,token:token) }
             clipboard?.start()
             if let presenter { monitorRendererMetrics(presenter,token:token) }
+            if let path=timingCSVPath,let session {
+                Task { [weak self] in
+                    let opened=await session.openTimingCSV(path:path)
+                    self?.record(opened ? "Writing frame timings to the file in NIGHTJAR_TIMING_CSV." : "Could not write frame timings to the file in NIGHTJAR_TIMING_CSV.",token:token)
+                }
+            }
             reportDisplay(token:token)
             status = "Streaming \(plan?.app.name ?? library.selected?.name ?? "video")."
         case .stageStarting(let stage): status = "Starting \(stage.name)…"

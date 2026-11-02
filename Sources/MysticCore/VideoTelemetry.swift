@@ -99,7 +99,11 @@ public struct VideoFrameTiming: Sendable {
     /// engine's clock, for clock sync.
     public let hostMicros: Int64?
     public let receiveMicros: UInt64?
-    public init(submitMicros: UInt64,decodedMicros: UInt64,hostMicros: Int64? = nil,receiveMicros: UInt64? = nil) {
+    /// For the timing CSV.
+    public let number: UInt32,rtp: UInt32,enqueueMicros: UInt64,hostLatencyTenthMs: UInt16
+    public init(submitMicros: UInt64,decodedMicros: UInt64,hostMicros: Int64? = nil,receiveMicros: UInt64? = nil,
+                number: UInt32 = 0,rtp: UInt32 = 0,enqueueMicros: UInt64 = 0,hostLatencyTenthMs: UInt16 = 0) {
         self.submitMicros=submitMicros;self.decodedMicros=decodedMicros;self.hostMicros=hostMicros;self.receiveMicros=receiveMicros
+        self.number=number;self.rtp=rtp;self.enqueueMicros=enqueueMicros;self.hostLatencyTenthMs=hostLatencyTenthMs
     }
 }
