@@ -62,6 +62,11 @@ extension ConnectionModel {
         set { settings.update { $0.checkForUpdates=newValue } }
     }
     /// Nightjar's "Local cursor": in desktop control, the host's cursor is the Mac pointer.
+    /// Nightjar's "V-Sync", for the lowest latency pacing; the others always wait for the refresh.
+    public var vsync: Bool {
+        get { settings.value.vsync ?? true }
+        set { settings.update { $0.vsync=newValue } }
+    }
     public var holdAWDL: Bool {
         get { settings.value.holdAWDL ?? false }
         set { settings.update { $0.holdAWDL=newValue };awdl.setEnabled(newValue) }

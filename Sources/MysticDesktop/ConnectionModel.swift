@@ -762,7 +762,7 @@ public final class ConnectionModel {
                 })
                 let telemetry = VideoTelemetry()
                 self.telemetry = telemetry
-                let presenter = DisplayLayerPresenter(telemetry:telemetry,mode:plan.framePacing,renderer:plan.renderer,onFailure: { [weak self] message in
+                let presenter = DisplayLayerPresenter(telemetry:telemetry,mode:plan.framePacing,vsync:self.vsync,renderer:plan.renderer,onFailure: { [weak self] message in
                     Task { @MainActor in self?.record(message, token: token) }
                 })
                 presenter.displayChanged = { [weak self] in self?.reportDisplay(token:token) }
@@ -884,7 +884,7 @@ public final class ConnectionModel {
     private func logPresentation(mode: FramePacingMode) {
         guard let snapshot=videoTelemetry else { return }
         let presentation=snapshot.presentation
-        var line="Presentation (\(mode.label)): submitted \(snapshot.submitted), decoded \(snapshot.decoded), enqueued \(snapshot.enqueued), queue peak \(presentation.peakQueueDepth), late \(presentation.lateFrames), drops \(presentation.droppedFrames), renderer drops \(presentation.rendererDroppedFrames.map(String.init) ?? "none reported"), shared refreshes \(presentation.sharedRefreshes), timeline resets \(presentation.resynchronizations)"
+        var line="Presentation (\(mode.label)): submitted \(snapshot.submitted), decoded \(snapshot.decoded), enqueued \(snapshot.enqueued), queue peak \(presentation.peakQueueDepth), late \(presentation.lateFrames), drops \(presentation.droppedFrames), renderer drops \(presentation.rendererDroppedFrames.map(String.init) ?? "none reported"), timeline resets \(presentation.resynchronizations)"
         if let hold=presentation.holdMicros { line+=", held \(hold) us" }
         if let shown=presentation.cadence.summary {
             line+=", shown \(presentation.cadence.shown) every \(shown.p50)/\(shown.p95)/\(shown.p99) us, uneven \(Int((presentation.cadence.unevenShare ?? 0)*100))%"

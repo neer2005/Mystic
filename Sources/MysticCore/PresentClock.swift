@@ -8,26 +8,6 @@ public struct PresentClock: Sendable {
         public let late: Bool
         public let holdMicros: Int64
     }
-    /// The display's refresh timeline, on the same clock as the frames' ready times.
-    public struct Grid: Sendable, Equatable {
-        public let anchorMicros: Int64,intervalMicros: Int64,leadMicros: Int64,slackMicros: Int64
-        /// A frame is released a quarter refresh before its refresh, and takes the nearest one.
-        public init(anchorMicros: Int64,intervalMicros: Int64) {
-            self.init(anchorMicros:anchorMicros,intervalMicros:intervalMicros,leadMicros:intervalMicros/4,slackMicros:intervalMicros/2)
-        }
-        public init(anchorMicros: Int64,intervalMicros: Int64,leadMicros: Int64,slackMicros: Int64) {
-            self.anchorMicros=anchorMicros;self.intervalMicros=intervalMicros;self.leadMicros=leadMicros;self.slackMicros=slackMicros
-        }
-    }
-    public struct GridSchedule: Sendable, Equatable {
-        /// When to hand the frame over: a lead before its refresh, never before it is ready.
-        public let releaseMicros: Int64
-        public let refreshMicros: Int64
-        public let late: Bool
-        /// It has the refresh of the frame before it and replaces it there: content faster than the panel.
-        public let sharesRefresh: Bool
-        public let holdMicros: Int64
-    }
     /// Frames whose lateness sets the delay.
     private static let window=128
     /// Share of frames, in percent, that should be ready before their present time.
@@ -43,9 +23,6 @@ public struct PresentClock: Sendable {
     /// The gap between the delay and the percentile shrinks by `dt / tau` for each `dt` of PC time.
     private static let fallTauMicros: Int64=500_000
     private static let fallStepMaxMicros: Int64=100_000
-    /// On a grid the frame already waits for its refresh, and a late one still takes the first it
-    /// can make, so covering the worst frames only adds latency to all the others.
-    private static let gridPercentile=75
     /// A jump this large between two frames' timestamps is a restarted video clock.
     private static let discontinuityMicros: Int64=10_000_000
 
@@ -54,12 +31,12 @@ public struct PresentClock: Sendable {
     private var delay: Int64?
     private var start: Int64?
     private var lastHost: Int64?
-    private var lastRefresh: Int64?
-    private var lastBumped=false
-    private var onGrid=false
+    private var lastPresent: Int64?
+    /// The display's shortest refresh interval; presents are never closer.
+    public var minIntervalMicros: Int64=0
     public init() {}
     public var delayMicros: Int64? { delay }
-    public mutating func reset() { let grid=onGrid;self=PresentClock();onGrid=grid }
+    public mutating func reset() { let interval=minIntervalMicros;self=PresentClock();minIntervalMicros=interval }
 
     private func quantile(_ percent: Int) -> Int64 {
         lateness.sorted()[(lateness.count-1)*percent/100]
@@ -78,7 +55,7 @@ public struct PresentClock: Sendable {
         } else {
             if lateness.count < Self.window { lateness.append(ready-host) } else { lateness[next]=ready-host }
             next=(next+1)%Self.window
-            let wanted=quantile(onGrid ? Self.gridPercentile : Self.percentile)+Self.marginMicros
+            let wanted=quantile(Self.percentile)+Self.marginMicros
             var value=wanted
             if let held=delay,wanted < held {
                 let fall=(held-wanted)*min(max(step,0),Self.fallStepMaxMicros)/Self.fallTauMicros
@@ -89,38 +66,12 @@ public struct PresentClock: Sendable {
             delay=value
             present=host+value
         }
+        if let lastPresent { present=max(present,lastPresent+minIntervalMicros) }
         let late=present < ready
         present=min(max(present,ready),ready+Self.maxHoldMicros)
+        lastPresent=present
         return Schedule(presentMicros:present,late:late,holdMicros:present-ready)
     }
-    /// Nightjar's `schedule_on_grid`: `schedule`'s time, moved onto a refresh. Never before the first
-    /// refresh the frame can make, and at most one past it to keep one frame per refresh, not twice
-    /// running, so content faster than the panel does not run behind for good.
-    public mutating func schedule(hostMicros host: Int64,readyMicros ready: Int64,grid: Grid) -> GridSchedule {
-        onGrid=true
-        let base=schedule(hostMicros:host,readyMicros:ready)
-        let interval=grid.intervalMicros
-        let firstPossible=Self.ceilingDivide(ready-grid.anchorMicros,interval)
-        var index=max(firstPossible,Self.ceilingDivide(base.presentMicros-max(grid.slackMicros,0)-grid.anchorMicros,interval))
-        var shares=false,bumped=false
-        if let lastRefresh {
-            // The last frame's refresh as an index on this grid: the anchor moves.
-            let taken=Self.floorDivide(lastRefresh-grid.anchorMicros+interval/2,interval)
-            if index <= taken {
-                if taken == firstPossible && !lastBumped { index=firstPossible+1;bumped=true }
-                else { index=taken;shares=true }
-            }
-        }
-        let refresh=grid.anchorMicros+index*interval
-        lastRefresh=refresh;lastBumped=bumped
-        let release=max(refresh-max(grid.leadMicros,0),ready)
-        return GridSchedule(releaseMicros:release,refreshMicros:refresh,late:base.late,sharesRefresh:shares,holdMicros:release-ready)
-    }
-    private static func floorDivide(_ a: Int64,_ b: Int64) -> Int64 {
-        let (quotient,remainder)=a.quotientAndRemainder(dividingBy:b)
-        return remainder < 0 ? quotient-1 : quotient
-    }
-    private static func ceilingDivide(_ a: Int64,_ b: Int64) -> Int64 { floorDivide(a+b-1,b) }
 }
 
 /// Where a frame's time went between the decoder finishing it and the system reporting it shown.

@@ -62,27 +62,31 @@ public final class DisplayLayerPresenter {
     private let rendererClock: (@MainActor () -> CMTime)?
     private nonisolated let mailbox: PresentationMailbox
     private var displayedGeneration: UInt64?
-    private var pacer: FramePacer
+    private var pacer: PresentationPacer<DecodedVideoFrame>
+    private let pacing: PresentationPacing
     private var anchored=false
     private var waitTask: Task<Void,any Error>?
     var isWaitingForPresentation: Bool { waitTask != nil }
     private let onFailure: @Sendable (String) -> Void
     var decoderFailure: (@Sendable (UInt64,String) -> Void)?
 
-    public convenience init(telemetry: VideoTelemetry? = nil,mode: FramePacingMode = .lowLatency,renderer: VideoRendererKind = .displayLayer,
+    public convenience init(telemetry: VideoTelemetry? = nil,mode: FramePacingMode = .lowLatency,vsync: Bool = true,renderer: VideoRendererKind = .displayLayer,
                             onFailure: @escaping @Sendable (String) -> Void = { _ in }) {
-        self.init(telemetry:telemetry,mode:mode,renderer:renderer,receiverOverride:nil,onFailure:onFailure)
+        self.init(telemetry:telemetry,mode:mode,vsync:vsync,renderer:renderer,receiverOverride:nil,onFailure:onFailure)
     }
-    init(telemetry: VideoTelemetry?,mode: FramePacingMode,renderer: VideoRendererKind = .displayLayer,receiverOverride: (any PresentationReceiver)?,
+    init(telemetry: VideoTelemetry?,mode: FramePacingMode,vsync: Bool = true,renderer: VideoRendererKind = .displayLayer,receiverOverride: (any PresentationReceiver)?,
          rendererClock: (@MainActor () -> CMTime)? = nil,
          onFailure: @escaping @Sendable (String) -> Void = { _ in }) {
-        self.telemetry=telemetry;self.onFailure=onFailure;pacingMode=mode;pacer=FramePacer(mode:mode);self.rendererClock=rendererClock
-        mailbox=PresentationMailbox(telemetry:telemetry,capacity:mode.retainedFrames)
+        self.telemetry=telemetry;self.onFailure=onFailure;pacingMode=mode;self.rendererClock=rendererClock
+        // No check yet that a Mac display refreshes on present, so VRR's modes are not offered.
+        let pacing=PresentationPacing.choose(vrr:false,presentAtHostTimes:false,vsync:vsync,framePacing:mode,tearingSupported:false)
+        self.pacing=pacing;pacer=PresentationPacer(mode:pacing,framePacing:mode)
+        mailbox=PresentationMailbox(telemetry:telemetry,capacity:pacing.mailboxLimit)
         let layer=AVSampleBufferDisplayLayer();self.layer=layer
         let native=synchronizer.sampleBufferReceiver(adding:layer.sampleBufferRenderer)
         let timeline=metalClock
         let metal=renderer == .metal && receiverOverride == nil
-            ? try? MetalPresentationReceiver(clock:{ timeline.now() },capacity:mode.retainedFrames,waitsForRefresh:mode.waitsForRefresh) : nil
+            ? try? MetalPresentationReceiver(clock:{ timeline.now() },waitsForRefresh:pacing == .vsync) : nil
         self.metal=metal
         receiver=receiverOverride ?? metal ?? NativePresentationReceiver(native)
         synchronizer.delaysRateChangeUntilHasSufficientMediaData=false
@@ -122,94 +126,78 @@ public final class DisplayLayerPresenter {
         if schedule { scheduleDrain() }
     }
     private nonisolated func scheduleDrain() { Task { @MainActor [weak self] in await self?.drain() } }
+    /// Nightjar's stream loop: decoded pictures go to the pacer, and the due one to the screen.
     private func drain() async {
-        let work=mailbox.take()
         defer { if mailbox.finish() { scheduleDrain() } }
-        guard mailbox.isCurrent(work.generation) else { return }
-        if displayedGeneration != work.generation {
-            await receiver.flush(removingDisplayedImage:true)
-            guard mailbox.isCurrent(work.generation) else { return }
-            if pacer.hasAcceptedFrame { telemetry?.presentationResynchronize(generation:work.generation) }
-            displayedGeneration=work.generation;pacer.reset();anchored=false;videoSize = .zero
-            videoOutput.reset();configureDynamicRange()
-            synchronizer.setRate(0,time:.zero);metalClock.restart()
-        }
-        guard let frame=work.frame else { return }
         do {
-            guard let sourcePTS=Self.micros(frame.presentationTime) else {
-                telemetry?.presentationDrop(generation:frame.generation,reason:.invalidTimestamp);return
-            }
-            if !anchored { synchronizer.setRate(1,time:.zero);metalClock.restart();anchored=true }
-            while mailbox.isCurrent(frame.generation) {
-                let now=VideoTelemetry.nowMicros()
-                let age=frame.timing.flatMap { now >= $0.decodedMicros ? now-$0.decodedMicros : nil }
-                if mailbox.hasNewerFrame(than:frame),pacer.isSuperseded(ageMicros:age,frameRate:frame.frameRate) {
-                    telemetry?.presentationDrop(generation:frame.generation,reason:.superseded);return
+            while true {
+                let work=mailbox.take()
+                guard mailbox.isCurrent(work.generation) else { return }
+                if displayedGeneration != work.generation {
+                    await receiver.flush(removingDisplayedImage:true)
+                    guard mailbox.isCurrent(work.generation) else { return }
+                    if displayedGeneration != nil { telemetry?.presentationResynchronize(generation:work.generation) }
+                    displayedGeneration=work.generation;pacer=makePacer();anchored=false;videoSize = .zero
+                    videoOutput.reset();configureDynamicRange()
+                    synchronizer.setRate(0,time:.zero);metalClock.restart()
                 }
-                guard let rendererNow=rendererNow() else {
-                    throw VideoDecoderError.invalidSample("invalid renderer clock")
-                }
-                switch pacer.plan(sourcePTS:sourcePTS,rendererNow:rendererNow,ageMicros:age,frameRate:frame.frameRate).action {
-                case .drop(let reason): telemetry?.presentationDrop(generation:frame.generation,reason:reason);return
-                case .recoverTimestamp:
-                    telemetry?.presentationDrop(generation:frame.generation,reason:.invalidTimestamp)
-                    receiver.flush()
-                    let reason="Presentation timestamp discontinuity; resetting video timeline"
-                    decoderFailure?(frame.generation,reason);onFailure(reason);return
-                case .wait(let delay):
-                    let wait=Task { try await Task.sleep(for:.microseconds(delay)) }
-                    waitTask=wait
-                    do { try await wait.value;waitTask=nil }
-                    catch { waitTask=nil;throw error }
-                    // Recheck generation, freshness, source ordering and the newest image after waiting.
+                if let frame=work.frame {
+                    if let host=Self.micros(frame.presentationTime) {
+                        let now=VideoTelemetry.nowMicros()
+                        let ready=frame.timing.map { min($0.decodedMicros,now) } ?? now
+                        pacer.set(frameRate:frame.frameRate)
+                        pacer.accept(frame,readyMicros:Int64(ready),hostMicros:host)
+                    } else {
+                        telemetry?.presentationDrop(generation:frame.generation,reason:.invalidTimestamp)
+                    }
                     continue
-                case let .enqueue(time,late,resynchronize):
-                    if resynchronize {
-                        await receiver.flush(removingDisplayedImage:false)
-                        guard mailbox.isCurrent(frame.generation) else { return }
-                        telemetry?.presentationResynchronize(generation:frame.generation)
-                    }
-                    let sample=try frame.sampleBuffer(presentationTime:CMTime(value:time,timescale:1_000_000))
-                    if let description=CMSampleBufferGetFormatDescription(sample) {
-                        videoSize=CMVideoFormatDescriptionGetPresentationDimensions(description,usePixelAspectRatio:true,useCleanAperture:true)
-                    }
-                    guard mailbox.isCurrent(frame.generation) else { return }
-                    videoOutput.update(image:frame.pixelBuffer);configureDynamicRange()
-                    let enqueueStarted=VideoTelemetry.nowMicros()
-                    metal?.nextFrameAge=age.map { Double($0)/1_000_000 }
-                    let result=try await receiver.enqueue(sample)
-                    guard mailbox.isCurrent(frame.generation) else { return }
-                    try checkEnqueue(result)
-                    if case .cancelledDueToFlush = result { return }
-                    if late { telemetry?.presentationLate(generation:frame.generation) }
-                    if let hold=pacer.holdMicros { telemetry?.presentationHold(generation:frame.generation,micros:hold) }
-                    if pacer.sharesRefresh { telemetry?.presentationSharedRefresh(generation:frame.generation) }
-                    if let timing=frame.timing {
-                        telemetry?.enqueue(generation:frame.generation,timing:timing,startMicros:enqueueStarted,endMicros:VideoTelemetry.nowMicros())
-                    }
-                    pacer.accepted(sourcePTS:sourcePTS,rendererNow:rendererNow)
-                    return
                 }
+                let now=Int64(VideoTelemetry.nowMicros())
+                let (due,dropped)=pacer.takeDue(now:now)
+                if dropped > 0 { telemetry?.presentationDrop(generation:work.generation,reason:.superseded,count:UInt64(dropped)) }
+                if let due {
+                    try await present(due)
+                    continue
+                }
+                guard let next=pacer.nextDueMicros else { return }
+                let wait=Task { try await Task.sleep(for:.microseconds(max(0,next-now))) }
+                waitTask=wait
+                defer { waitTask=nil }
+                // A reset cancels the wait; it is not a failure.
+                guard (try? await wait.value) != nil else { return }
             }
         } catch {
             receiver.flush()
-            guard mailbox.isCurrent(work.generation) else { return }
-            telemetry?.presentationDrop(generation:work.generation,reason:.enqueueFailure)
-            decoderFailure?(work.generation,String(describing:error));onFailure(String(describing:error))
+            let generation=mailbox.currentGeneration
+            telemetry?.presentationDrop(generation:generation,reason:.enqueueFailure)
+            decoderFailure?(generation,String(describing:error));onFailure(String(describing:error))
         }
     }
-    /// PC Frame Times goes on a display's refresh timeline when it has one.
-    public var wantsRefreshTimeline: Bool { pacingMode == .pcFrameTimes }
-    /// `secondsToRefresh` from now to a coming refresh, `interval` between refreshes; nil when no display.
-    public func updateRefresh(secondsToRefresh: Double,interval: Double?) {
-        guard let interval,interval.isFinite,secondsToRefresh.isFinite,(0.002...0.1).contains(interval),anchored,let now=rendererNow() else {
-            pacer.refreshGrid=nil;return
+    private func present(_ due: PresentationPacer<DecodedVideoFrame>.Pending) async throws {
+        let frame=due.picture
+        if !anchored { synchronizer.setRate(1,time:.zero);metalClock.restart();anchored=true }
+        guard let rendererNow=Self.micros(rendererClock?() ?? (metal == nil ? synchronizer.currentTime() : metalClock.now())) else {
+            throw VideoDecoderError.invalidSample("invalid renderer clock")
         }
-        pacer.refreshGrid=PresentClock.Grid(anchorMicros:now+Int64(secondsToRefresh*1_000_000),intervalMicros:Int64(interval*1_000_000))
+        let sample=try frame.sampleBuffer(presentationTime:CMTime(value:rendererNow,timescale:1_000_000))
+        if let description=CMSampleBufferGetFormatDescription(sample) {
+            videoSize=CMVideoFormatDescriptionGetPresentationDimensions(description,usePixelAspectRatio:true,useCleanAperture:true)
+        }
+        guard mailbox.isCurrent(frame.generation) else { return }
+        videoOutput.update(image:frame.pixelBuffer);configureDynamicRange()
+        let enqueueStarted=VideoTelemetry.nowMicros()
+        metal?.nextFrameAge=Double(max(0,Int64(enqueueStarted)-due.readyMicros))/1_000_000
+        let result=try await receiver.enqueue(sample)
+        guard mailbox.isCurrent(frame.generation) else { return }
+        try checkEnqueue(result)
+        if case .cancelledDueToFlush = result { return }
+        if due.late { telemetry?.presentationLate(generation:frame.generation) }
+        if let hold=pacer.lastHoldMicros { telemetry?.presentationHold(generation:frame.generation,micros:hold) }
+        if let timing=frame.timing {
+            telemetry?.enqueue(generation:frame.generation,timing:timing,startMicros:enqueueStarted,endMicros:VideoTelemetry.nowMicros())
+        }
     }
-    private func rendererNow() -> Int64? {
-        Self.micros(rendererClock?() ?? (metal == nil ? synchronizer.currentTime() : metalClock.now()))
-    }
+    private func makePacer() -> PresentationPacer<DecodedVideoFrame> { PresentationPacer(mode:pacing,framePacing:pacingMode) }
     /// Renderer-reported drops are separate from Mystic's queue/policy drops; no scanout claim.
     public func refreshRendererMetrics() async {
         guard let generation=displayedGeneration,mailbox.isCurrent(generation) else { return }
@@ -286,6 +274,7 @@ final class PresentationMailbox: @unchecked Sendable {
         guard let frame=frames.first,frame.generation == current.generation else { return false }
         return CMTimeCompare(frame.presentationTime,current.presentationTime) > 0
     }
+    var currentGeneration: UInt64 { lock.lock();defer { lock.unlock() };return generation }
     func isCurrent(_ value: UInt64) -> Bool { lock.lock();defer { lock.unlock() };return value == generation }
 }
 

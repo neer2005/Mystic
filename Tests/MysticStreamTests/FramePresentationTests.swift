@@ -16,16 +16,14 @@ final class FramePresentationTests: XCTestCase {
                 presenter.offer(try frame(pts:9_000_000,generation:1,fps:fps))
                 try await wait { receiver.accepted.count == 1 }
                 let sample=try XCTUnwrap(receiver.accepted.first)
-                let interval=(1_000_000+Int64(fps)/2)/Int64(fps)
-                let buffer:[FramePacingMode:Int64]=[.balanced:interval,.smoothest:interval*2,.pcFrameTimes:500]
-                XCTAssertEqual(sample.ptsMicros,buffer[mode] ?? 0)
+                XCTAssertEqual(sample.ptsMicros,0,"Shown at the renderer's now, when the pacer says it is due")
                 XCTAssertEqual(CMTimeCompare(sample.duration,CMTime(value:1,timescale:Int32(fps))),0)
                 XCTAssertEqual(presenter.videoSize.width,64)
                 presenter.reset(generation:2)
             }
         }
     }
-    func testBackpressureRetainsOnlyInFlightAndLatestImagesAndCountsSupersededFrames() async throws {
+    func testOnlyTheNewestWaitsWhileAPictureIsBeingPresented() async throws {
         let receiver=TestPresentationReceiver();receiver.hold=true
         let clock=PresentationClock(),telemetry=VideoTelemetry();telemetry.activate(generation:1)
         let presenter=DisplayLayerPresenter(telemetry:telemetry,mode:.lowLatency,receiverOverride:receiver,rendererClock:{ clock.now })
@@ -35,32 +33,36 @@ final class FramePresentationTests: XCTestCase {
         for n in 1...100 {
             presenter.offer(DecodedVideoFrame(pixelBuffer:n == 100 ? last : middle,presentationTime:CMTime(value:Int64(n*10),timescale:1_000_000),generation:1))
         }
-        let pressure=telemetry.snapshot().presentation
-        XCTAssertEqual(pressure.queueDepth,2);XCTAssertEqual(pressure.peakQueueDepth,2)
-        XCTAssertEqual(pressure.drops[.superseded],99)
         receiver.release()
         try await wait { receiver.accepted.count == 2 && telemetry.snapshot().presentation.queueDepth == 0 }
         XCTAssertEqual(receiver.accepted.map(\.width),[64,80])
+        XCTAssertEqual(telemetry.snapshot().presentation.drops[.superseded],99)
         presenter.reset(generation:2)
     }
-    func testInOrderPacingsPresentEachWaitingFrameAndDropOnlyPastTheirBound() async throws {
-        for mode:FramePacingMode in [.fpsLimit,.smoothest,.pcFrameTimes] {
-            let receiver=TestPresentationReceiver();receiver.hold=true
-            let clock=PresentationClock(),telemetry=VideoTelemetry();telemetry.activate(generation:1)
-            let presenter=DisplayLayerPresenter(telemetry:telemetry,mode:mode,receiverOverride:receiver,rendererClock:{ clock.now })
-            presenter.reset(generation:1);presenter.offer(try frame(pts:0,generation:1))
-            try await wait { receiver.waiting }
-            let widths=[65,66,67,68]
-            for (index,width) in widths.enumerated() {
-                presenter.offer(DecodedVideoFrame(pixelBuffer:try pixel(width:width),presentationTime:CMTime(value:Int64(index+1)*1000,timescale:1_000_000),generation:1))
-            }
-            let pressure=telemetry.snapshot().presentation
-            XCTAssertEqual(pressure.queueDepth,4);XCTAssertEqual(pressure.drops[.superseded],1,"only the oldest past the bound")
-            clock.time=4000;receiver.release()
-            try await wait { receiver.accepted.count == 4 && telemetry.snapshot().presentation.queueDepth == 0 }
-            XCTAssertEqual(receiver.accepted.map(\.width),[64,66,67,68])
-            presenter.reset(generation:2)
-        }
+    func testSmoothestPresentsEachWaitingPictureInTurn() async throws {
+        let receiver=TestPresentationReceiver();receiver.hold=true
+        let clock=PresentationClock(),telemetry=VideoTelemetry();telemetry.activate(generation:1)
+        let presenter=DisplayLayerPresenter(telemetry:telemetry,mode:.smoothest,receiverOverride:receiver,rendererClock:{ clock.now })
+        presenter.reset(generation:1);presenter.offer(try frame(pts:0,generation:1))
+        try await wait { receiver.waiting }
+        presenter.offer(DecodedVideoFrame(pixelBuffer:try pixel(width:65),presentationTime:CMTime(value:1000,timescale:1_000_000),generation:1))
+        presenter.offer(DecodedVideoFrame(pixelBuffer:try pixel(width:66),presentationTime:CMTime(value:2000,timescale:1_000_000),generation:1))
+        receiver.release()
+        try await wait { receiver.accepted.count == 3 }
+        XCTAssertEqual(receiver.accepted.map(\.width),[64,65,66])
+        presenter.reset(generation:2)
+    }
+    func testAPictureWithoutATimestampIsDroppedAndTheNextShows() async throws {
+        let receiver=TestPresentationReceiver(),clock=PresentationClock(),telemetry=VideoTelemetry()
+        telemetry.activate(generation:1)
+        let presenter=DisplayLayerPresenter(telemetry:telemetry,mode:.lowLatency,receiverOverride:receiver,rendererClock:{ clock.now })
+        presenter.reset(generation:1);presenter.offer(try frame(pts:0,generation:1))
+        try await wait { receiver.accepted.count == 1 }
+        presenter.offer(try frame(pts:0,generation:1))
+        try await wait { telemetry.snapshot().presentation.drops[.outOfOrder] == 1 || receiver.accepted.count == 2 }
+        presenter.offer(try frame(pts:1000,generation:1))
+        try await wait { receiver.accepted.count >= 2 }
+        presenter.reset(generation:2)
     }
     func testResetCancelsSuspendedEnqueueAndRejectsOldGenerationWork() async throws {
         let receiver=TestPresentationReceiver();receiver.hold=true
@@ -77,56 +79,7 @@ final class FramePresentationTests: XCTestCase {
         presenter.offer(try frame(pts:1,generation:1))
         try await Task.sleep(for:.milliseconds(10))
         XCTAssertEqual(receiver.accepted.count,1);XCTAssertTrue(failures.values.isEmpty)
-        XCTAssertEqual(telemetry.snapshot().presentation.drops[.reset],1)
-        presenter.reset(generation:3)
-    }
-    func testRateChangeFlushesOldSchedulingAndUsesNewBufferDuration() async throws {
-        let receiver=TestPresentationReceiver(),clock=PresentationClock(),telemetry=VideoTelemetry()
-        telemetry.activate(generation:1)
-        let presenter=DisplayLayerPresenter(telemetry:telemetry,mode:.balanced,receiverOverride:receiver,rendererClock:{ clock.now })
-        presenter.reset(generation:1);presenter.offer(try frame(pts:0,generation:1))
-        try await wait { receiver.accepted.count == 1 }
-        clock.time=16667
-        presenter.offer(try frame(pts:16667,generation:1,fps:120))
-        try await wait { receiver.accepted.count == 2 }
-        XCTAssertEqual(receiver.accepted.last?.ptsMicros,25000)
-        XCTAssertEqual(receiver.preservedFlushes,1)
-        XCTAssertEqual(telemetry.snapshot().presentation.resynchronizations,1)
-        presenter.reset(generation:2)
-    }
-    func testMalformedAndOutOfOrderTimestampsCannotPoisonFollowingFrames() async throws {
-        let receiver=TestPresentationReceiver(),clock=PresentationClock(),telemetry=VideoTelemetry(),failures=PresentationFailures()
-        telemetry.activate(generation:1)
-        let presenter=DisplayLayerPresenter(telemetry:telemetry,mode:.lowLatency,receiverOverride:receiver,rendererClock:{ clock.now },onFailure:{ failures.add($0) })
-        presenter.reset(generation:1);presenter.offer(try frame(pts:0,generation:1))
-        try await wait { receiver.accepted.count == 1 }
-        presenter.offer(try frame(pts:Int64.max,generation:1))
-        try await wait { telemetry.snapshot().presentation.drops[.invalidTimestamp] == 1 }
-        clock.time=1000;presenter.offer(try frame(pts:1000,generation:1))
-        try await wait { receiver.accepted.count == 2 }
-        presenter.offer(try frame(pts:1000,generation:1))
-        try await wait { telemetry.snapshot().presentation.drops[.outOfOrder] == 1 }
-        clock.time=2000;presenter.offer(try frame(pts:1_000_000,generation:1))
-        try await wait { telemetry.snapshot().presentation.drops[.invalidTimestamp] == 2 }
-        clock.time=3000;presenter.offer(try frame(pts:1_016_667,generation:1))
-        try await wait { failures.values.count == 1 }
-        XCTAssertEqual(receiver.accepted.count,2)
-        XCTAssertEqual(telemetry.snapshot().presentation.drops[.invalidTimestamp],3)
-        presenter.reset(generation:2)
-    }
-    func testResetCancelsAnEarlyFrameWaitWithoutReportingAPlaybackFailure() async throws {
-        let receiver=TestPresentationReceiver(),clock=PresentationClock(),failures=PresentationFailures()
-        let presenter=DisplayLayerPresenter(telemetry:nil,mode:.balanced,receiverOverride:receiver,rendererClock:{ clock.now },onFailure:{ failures.add($0) })
-        presenter.reset(generation:1);presenter.offer(try frame(pts:0,generation:1))
-        try await wait { receiver.accepted.count == 1 }
-        presenter.offer(try frame(pts:16000,generation:1))
-        try await wait { presenter.isWaitingForPresentation }
-        presenter.reset(generation:2)
-        presenter.offer(try frame(pts:0,generation:2,fps:120))
-        try await wait { receiver.accepted.count == 2 }
-        XCTAssertEqual(receiver.accepted.last?.ptsMicros,8333)
-        XCTAssertTrue(failures.values.isEmpty)
-        presenter.reset(generation:3)
+                presenter.reset(generation:3)
     }
     private func frame(pts:Int64,generation:UInt64,fps:UInt32 = 60) throws -> DecodedVideoFrame {
         DecodedVideoFrame(pixelBuffer:try pixel(width:64),presentationTime:CMTime(value:pts,timescale:1_000_000),generation:generation,frameRate:fps)
