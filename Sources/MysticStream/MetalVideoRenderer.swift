@@ -150,8 +150,9 @@ final class MetalPresentationReceiver: PresentationReceiver {
         drawer=try MetalFrameDrawer();self.clock=clock;self.waitsForRefresh=waitsForRefresh
         layer.device=drawer.device
         layer.framebufferOnly=true;layer.isOpaque=true
-        // Two made a frame wait out a refresh for a drawable, and at 120 Hz most were then superseded.
-        layer.maximumDrawableCount=3
+        // V-Sync on two, as SDL's double buffering on Windows: a shorter queue. Without V-Sync a
+        // frame goes at once, and on two it could wait out a refresh for a drawable.
+        layer.maximumDrawableCount=waitsForRefresh ? 2 : 3
         // Off presents at once, as Nightjar's immediate mode; see METAL-RENDERER.md.
         layer.displaySyncEnabled=waitsForRefresh
         layer.pixelFormat = .bgra8Unorm

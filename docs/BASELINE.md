@@ -39,6 +39,20 @@ Same setup, two 68-second runs each, in reversed order the second round, figures
 By eye, the user found Metal with V-Sync on smooth on TestUFO, 2026-11-02. All six stayed in the good state. Waiting for a drawable marked the bad state: about 8.5 ms median against 0.04 ms. Skipping a frame that waited over 4 ms
 lets the queue drain. Six short runs are not proof it can never return. FPS Limit shares this path and was not rerun.
 
+## Two drawables with V-Sync
+
+Metal, Lowest Latency, V-Sync on, same setup, two 68-second runs each, alternating, figures at 60 s. Two is now the V-Sync setting, as SDL's double
+buffering on Windows; SDL on Metal leaves Apple's default of three. Without V-Sync it stays three, not tested with two.
+
+| Drawables | Run | Decoded | Renderer drops | Shown | Shown every p50 / p95 / p99, ms | Uneven | Decoded to screen p50 / p95, ms |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 3 | 1 | 6,994 | 44 | 6,792 | 8.3 / 8.3 / 8.3 | 0% | 30.2 / 33.0 |
+| | 2 | 7,049 | 18 | 6,891 | 8.3 / 8.3 / 8.3 | 0% | 26.6 / 34.5 |
+| 2 | 1 | 7,051 | 395 | 6,520 | 8.3 / 8.3 / 16.7 | 4% | 26.2 / 28.0 |
+| | 2 | 7,050 | 134 | 6,782 | 8.3 / 8.3 / 16.7 | 2% | 25.7 / 27.5 |
+
+Two takes 1-4 ms off the median and about 5-7 ms off the p95, and costs more skipped frames and a little evenness. Not yet looked at by eye.
+
 ## Notes on the first table
 
 - **Metal with V-Sync settles into one of two states for a whole run.** Good: every refresh shows a frame, about 99% shown, about 29-36 ms.
