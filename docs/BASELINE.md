@@ -51,7 +51,7 @@ buffering on Windows; SDL on Metal leaves Apple's default of three. Without V-Sy
 | 2 | 1 | 7,051 | 395 | 6,520 | 8.3 / 8.3 / 16.7 | 4% | 26.2 / 28.0 |
 | | 2 | 7,050 | 134 | 6,782 | 8.3 / 8.3 / 16.7 | 2% | 25.7 / 27.5 |
 
-Two takes 1-4 ms off the median and about 5-7 ms off the p95, and costs more skipped frames and a little evenness. Not yet looked at by eye.
+Two takes 1-4 ms off the median and about 5-7 ms off the p95, and costs more skipped frames and a little evenness. By eye, the user still found it smooth on TestUFO, 2026-11-02.
 
 ## Notes on the first table
 
