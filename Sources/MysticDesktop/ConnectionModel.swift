@@ -766,6 +766,13 @@ public final class ConnectionModel {
                     Task { @MainActor in self?.record(message, token: token) }
                 })
                 presenter.displayChanged = { [weak self] in self?.reportDisplay(token:token) }
+                presenter.reportPhase { ready,now,latch,period in
+                    Task {
+                        if let lead=await session.phaseSample(readyMicros:ready,nowMicros:now,latchMicros:latch,periodNanos:period) {
+                            telemetry.presentationPhase(leadMicros:lead)
+                        }
+                    }
+                }
                 presenter.setSizing(self.videoSizing,alignTop:self.alignVideoTop)
                 if plan.renderer == .metal {
                     self.sessionLog?.write(presenter.renderer == .metal ? "Video renderer: Metal." : "Metal could not start; using the system video layer.")
@@ -889,6 +896,7 @@ public final class ConnectionModel {
         if let shown=presentation.cadence.summary {
             line+=", shown \(presentation.cadence.shown) every \(shown.p50)/\(shown.p95)/\(shown.p99) us, uneven \(Int((presentation.cadence.unevenShare ?? 0)*100))%"
             if let delay=presentation.cadence.readyToShown { line+=", decoded to screen \(delay.p50)/\(delay.p95) us" }
+            if let lead=presentation.phaseLeadMicros { line+=", phase lead \(lead) us" }
             for stage in presentation.cadence.stageSummary { line+=", \(stage.name) \(stage.p50)/\(stage.p95)" }
         }
         sessionLog?.write(line)

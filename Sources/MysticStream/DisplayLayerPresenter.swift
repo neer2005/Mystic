@@ -198,6 +198,13 @@ public final class DisplayLayerPresenter {
         }
     }
     private func makePacer() -> PresentationPacer<DecodedVideoFrame> { PresentationPacer(mode:pacing,framePacing:pacingMode) }
+    /// For phase lock: each frame with V-Sync on, as (ready, now, last latch, period) in microseconds
+    /// and nanoseconds of the host clock. Only Metal reports when its frames are shown.
+    public func reportPhase(_ report: @escaping @Sendable (UInt64,UInt64,Int64,Int64) -> Void) {
+        if pacing == .vsync { metal?.phaseReport=report }
+    }
+    /// The screen's refresh rate, which phase lock reports to the host.
+    public func setRefresh(hertz: Double) { metal?.setRefresh(hertz:hertz) }
     /// Renderer-reported drops are separate from Mystic's queue/policy drops; no scanout claim.
     public func refreshRendererMetrics() async {
         guard let generation=displayedGeneration,mailbox.isCurrent(generation) else { return }

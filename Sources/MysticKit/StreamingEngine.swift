@@ -455,6 +455,12 @@ public final class StreamingEngine {
         try check(result);return false
     }
 
+    /// One frame about to be shown, for phase lock: the lead when a report went to the host.
+    public func phaseSample(readyMicros: UInt64,nowMicros: UInt64,latchMicros: Int64,periodNanos: Int64) -> Int32? {
+        var lead: Int32=0
+        return mystic_session_phase_sample(requireHandle(),readyMicros,nowMicros,latchMicros,periodNanos,&lead) == 1 ? lead : nil
+    }
+
     public var microphoneAvailable: Bool { mystic_session_microphone_available(requireHandle()) }
     public func sendMicrophone(_ packet: UnsafeRawBufferPointer) throws {
         try check(mystic_session_send_microphone(requireHandle(),packet.bindMemory(to:UInt8.self).baseAddress,packet.count))

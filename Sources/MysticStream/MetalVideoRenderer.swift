@@ -144,6 +144,8 @@ final class MetalPresentationReceiver: PresentationReceiver {
     /// As a V-Sync present blocks: the pacer's next picture waits for a drawable for this one.
     private let waitsForRefresh: Bool
     private var lastFormat: VideoLayerFormat?
+    var phaseReport: (@Sendable (UInt64,UInt64,Int64,Int64) -> Void)?
+    func setRefresh(hertz: Double) { slot.setRefresh(hertz:hertz) }
     /// Seconds since the decoder finished the frame about to be enqueued.
     var nextFrameAge: CFTimeInterval?
     init(clock: @escaping @Sendable () -> CMTime,waitsForRefresh: Bool = true) throws {
@@ -174,7 +176,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
         if waitsForRefresh {
             let frame=RenderFrame(image:image,time:CMSampleBufferGetPresentationTimeStamp(sample),
                                   readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime())
-            let target=UnsafeLayer(layer:layer),drawer=drawer,clock=clock,slot=slot
+            let target=UnsafeLayer(layer:layer),drawer=drawer,clock=clock,slot=slot,phaseReport=phaseReport
             await withCheckedContinuation { (done: CheckedContinuation<Void,Never>) in
                 renderQueue.async {
                     defer { done.resume() }
@@ -183,6 +185,10 @@ final class MetalPresentationReceiver: PresentationReceiver {
                     // Waiting means every drawable is queued, and left alone they stay queued: about
                     // 20 ms more delay and one frame in four lost. Skipping this one lets them drain.
                     if CACurrentMediaTime()-asked > Self.drawableWaitLimit { slot.countMissed();return }
+                    if let phaseReport,let ready=frame.readySeconds,let latch=slot.lastShownSeconds,let period=slot.refreshNanos {
+                        func micros(_ seconds: CFTimeInterval) -> Int64 { Int64(seconds*1_000_000) }
+                        phaseReport(UInt64(micros(ready)),UInt64(micros(CACurrentMediaTime())),micros(latch),period)
+                    }
                     Self.draw(frame,on:drawable,drawer,clock,slot)
                 }
             }
@@ -315,9 +321,16 @@ final class MetalFrameSlot<Frame>: @unchecked Sendable {
     func countMissed() { lock.lock();defer { lock.unlock() };missedCount += 1 }
     func recordShown(seconds: CFTimeInterval,ready: CFTimeInterval? = nil) {
         lock.lock();defer { lock.unlock() }
+        lastShown=seconds
         shown.record(presentedMicros:Int64(seconds*1_000_000),readyToShownMicros:ready.map { Int64((seconds-$0)*1_000_000) })
     }
     func recordStages(_ stages: PresentationStages) { lock.lock();defer { lock.unlock() };shown.record(stages:stages) }
+    private var lastShown: CFTimeInterval?
+    private var refresh: Int64?
+    /// The panel's last present, which is on its refresh grid with V-Sync on.
+    var lastShownSeconds: CFTimeInterval? { lock.lock();defer { lock.unlock() };return lastShown }
+    var refreshNanos: Int64? { lock.lock();defer { lock.unlock() };return refresh }
+    func setRefresh(hertz: Double) { lock.lock();defer { lock.unlock() };refresh=hertz > 0 ? Int64(1_000_000_000/hertz) : nil }
     var cadence: ShownCadence { lock.lock();defer { lock.unlock() };return shown }
     var missed: UInt64 { lock.lock();defer { lock.unlock() };return missedCount }
     func fail(_ error: any Error) { lock.lock();defer { lock.unlock() };failure=error }
