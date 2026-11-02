@@ -177,7 +177,12 @@ final class MetalPresentationReceiver: PresentationReceiver {
             await withCheckedContinuation { (done: CheckedContinuation<Void,Never>) in
                 renderQueue.async {
                     defer { done.resume() }
-                    if let drawable=target.layer.nextDrawable() { Self.draw(frame,on:drawable,drawer,clock,slot) } else { slot.countMissed() }
+                    let asked=CACurrentMediaTime()
+                    guard let drawable=target.layer.nextDrawable() else { slot.countMissed();return }
+                    // Waiting means every drawable is queued, and left alone they stay queued: about
+                    // 20 ms more delay and one frame in four lost. Skipping this one lets them drain.
+                    if CACurrentMediaTime()-asked > Self.drawableWaitLimit { slot.countMissed();return }
+                    Self.draw(frame,on:drawable,drawer,clock,slot)
                 }
             }
             return .enqueued
@@ -198,6 +203,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
             draw(frame,on:drawable,drawer,clock,slot)
         }
     }
+    private nonisolated static let drawableWaitLimit: CFTimeInterval=0.004
     private nonisolated static func draw(_ frame: RenderFrame,on drawable: any CAMetalDrawable,_ drawer: MetalFrameDrawer,_ clock: @Sendable () -> CMTime,_ slot: MetalFrameSlot<RenderFrame>) {
         let picked=CACurrentMediaTime()
         guard let commands=drawer.queue.makeCommandBuffer() else { slot.countMissed();return }

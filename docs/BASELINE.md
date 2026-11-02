@@ -23,6 +23,24 @@ reverse order, launched with `open`. Counters are at the 90-second reading; rang
 | System, Lowest Latency, V-Sync off | 1 | 10,709 | 63 | 3,750 | not reported | not reported | not reported | not reported |
 | | 2 | 10,712 | 63 | 3,865 | not reported | not reported | not reported | not reported |
 
+## After skipping a frame when drawables are full
+
+Same setup, two 68-second runs each, in reversed order the second round, figures at 60 s. This replaces the Metal V-Sync rows above; the other rows are unaffected.
+
+| Setup | Run | Decoded | Presenter drops | Renderer drops | Shown | Shown every p50 / p95 / p99, ms | Uneven | Decoded to screen p50, ms |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Metal, Lowest Latency, V-Sync on | 1 | 7,001 | 60 | 27 | 6,831 | 8.3 / 8.3 / 8.3 | 0% | 30 |
+| | 2 | 7,058 | 71 | 38 | 6,860 | 8.3 / 8.3 / 16.7 | 1% | 28 |
+| Metal, Balanced | 1 | 7,050 | 67 | 37 | 6,868 | 8.3 / 8.3 / 8.3 | 0% | 29 |
+| | 2 | 7,057 | 56 | 68 | 6,844 | 8.3 / 8.3 / 16.7 | 1% | 27 |
+| Metal, Smoothest Video | 1 | 7,053 | 31 | 25 | 6,911 | 8.3 / 8.3 / 8.3 | 0% | 30 |
+| | 2 | 7,048 | 37 | 53 | 6,877 | 8.3 / 8.3 / 8.3 | 0% | 32 |
+
+All six stayed in the good state. Waiting for a drawable marked the bad state: about 8.5 ms median against 0.04 ms. Skipping a frame that waited over 4 ms
+lets the queue drain. Six short runs are not proof it can never return. FPS Limit shares this path and was not rerun.
+
+## Notes on the first table
+
 - **Metal with V-Sync settles into one of two states for a whole run.** Good: every refresh shows a frame, about 99% shown, about 29-36 ms.
   Bad: about 25% of frames dropped before the renderer, gaps of 8.3, 8.3 and 16.7 ms, about 50-59 ms. What picks the state is not known yet, so compare
   both; a single run says little. Smoothest Video landed in the bad state both times.
