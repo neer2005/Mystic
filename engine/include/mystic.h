@@ -249,6 +249,11 @@ char *mystic_host_request(const MysticHost *host, const char *operation, const c
 char *mystic_host_clipboard_image_send(const MysticHost *host, const uint8_t *png, size_t length);
 char *mystic_host_clipboard_image_read(const MysticHost *host, uint8_t **png, size_t *length);
 void mystic_bytes_free(uint8_t *bytes, size_t length);
+/* A host's Files page: operations and its JSON snapshot are in engine/src/files.rs. Requests never block on the PC. Freeing cancels unfinished transfers. */
+typedef struct MysticFiles MysticFiles;
+MysticFiles *mystic_files_new(const MysticHost *host, const char *downloads);
+char *mystic_files_request(const MysticFiles *files, const char *operation, const char *request_json);
+void mystic_files_free(MysticFiles *files);
 void mystic_host_cancel(const MysticHost *host);
 void mystic_host_free(MysticHost *host);
 

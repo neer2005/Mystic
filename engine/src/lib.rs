@@ -20,6 +20,7 @@
 //! crosses the C boundary; a bug aborts rather than corrupting the caller.
 
 mod host;
+mod files;
 mod wake;
 mod audio;
 mod microphone;
