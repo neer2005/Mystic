@@ -106,8 +106,9 @@ final class MetalVideoRendererTests: XCTestCase {
     @MainActor func testTheLayerFollowsThePacingsRefreshWait() throws {
         do {
             let free=try MetalPresentationReceiver(clock:{ .zero },waitsForRefresh:false)
-            XCTAssertFalse(free.layer.displaySyncEnabled)
-            XCTAssertTrue(try MetalPresentationReceiver(clock:{ .zero }).layer.displaySyncEnabled)
+            XCTAssertFalse(free.layer.displaySyncEnabled);XCTAssertEqual(free.layer.maximumDrawableCount,3)
+            let synced=try MetalPresentationReceiver(clock:{ .zero })
+            XCTAssertTrue(synced.layer.displaySyncEnabled);XCTAssertEqual(synced.layer.maximumDrawableCount,2)
         } catch VideoDecoderError.unsupported { throw XCTSkip("No Metal device") }
     }
     func testADrawFailureIsReportedOnce() {
