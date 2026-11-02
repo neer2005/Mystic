@@ -62,6 +62,10 @@ extension ConnectionModel {
         set { settings.update { $0.checkForUpdates=newValue } }
     }
     /// Nightjar's "Local cursor": in desktop control, the host's cursor is the Mac pointer.
+    public var holdAWDL: Bool {
+        get { settings.value.holdAWDL ?? false }
+        set { settings.update { $0.holdAWDL=newValue };awdl.setEnabled(newValue) }
+    }
     public var localCursor: Bool {
         get { settings.value.localCursor ?? true }
         set { settings.update { $0.localCursor=newValue } }

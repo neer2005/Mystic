@@ -1,6 +1,26 @@
 import Testing
 @testable import MysticCore
 
+struct AWDLHoldTests {
+    @Test func itHoldsOnlyWhenOnAndStreamingOverWiFiOrAnUnknownRoute() {
+        #expect(AWDLHold.shouldHold(enabled:true,streaming:true,routeWireless:true))
+        #expect(AWDLHold.shouldHold(enabled:true,streaming:true,routeWireless:nil))
+        #expect(!AWDLHold.shouldHold(enabled:true,streaming:true,routeWireless:false))
+        #expect(!AWDLHold.shouldHold(enabled:true,streaming:false,routeWireless:true))
+        #expect(!AWDLHold.shouldHold(enabled:false,streaming:true,routeWireless:true))
+    }
+    @Test func onlyTheUpFlagChangesAndOnlyWhenItMust() {
+        #expect(AWDLHold.flags(current:0x8843,held:true) == 0x8842)
+        #expect(AWDLHold.flags(current:0x8842,held:true) == nil)
+        #expect(AWDLHold.flags(current:0x8842,held:false) == 0x8843)
+        #expect(AWDLHold.flags(current:0x8843,held:false) == nil)
+    }
+    @Test func theRequirementNamesTheAppAndItsTeam() {
+        let requirement=AWDLHold.clientRequirement(team:"ABC123")
+        #expect(requirement.contains("identifier \"com.mystic.streaming\"") && requirement.contains("\"ABC123\""))
+    }
+}
+
 struct FramePacingTests {
     @Test func lowLatencyIsImmediateAndBalancedBuffersOneFrameAtBothRates() {
         for fps:UInt32 in [60,120] {

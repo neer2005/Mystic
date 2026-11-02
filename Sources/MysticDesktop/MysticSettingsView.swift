@@ -95,6 +95,21 @@ public struct MysticSettingsView: View {
                         Text("A Rubylight host paces video for Wi-Fi from the first frame. A wired link speed lets any host cap its sending rate. Over a VPN, the Mac's own connection decides.")
                             .foregroundStyle(.secondary)
                     }.disabled(model.hasSession || model.isBusy)
+                    Section("Wi-Fi") {
+                        Toggle("Keep AWDL Off While Streaming",isOn:$model.holdAWDL)
+                        switch model.awdl.status {
+                        case .needsApproval:
+                            LabeledContent("Mystic's helper needs your approval in System Settings.") {
+                                Button("Open Login Items…") { model.awdl.openApproval() }
+                            }
+                        case .unavailable(let reason): Text(reason).foregroundStyle(.secondary)
+                        case .off,.ready: EmptyView()
+                        }
+                        Text("AWDL is the Wi-Fi link behind AirDrop and Continuity, and can stall a stream's packets. This installs a small helper that holds it down only during a stream over Wi-Fi, so those features pause for that time.")
+                            .foregroundStyle(.secondary)
+                    }
+                    .onAppear { model.awdl.refresh() }
+                    .onReceive(NotificationCenter.default.publisher(for:NSApplication.didBecomeActiveNotification)) { _ in model.awdl.refresh() }
                     Section("Network Profiles") { NetworkProfilesView(model:model) }.disabled(model.hasSession || model.isBusy)
                     Section("Network Changes") {
                         Toggle("Keep Streams When the Network Changes",isOn:$model.clientRoaming)
