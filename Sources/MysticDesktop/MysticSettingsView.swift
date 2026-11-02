@@ -37,6 +37,9 @@ public struct MysticSettingsView: View {
                 Form {
                     Section("Stream Defaults") { VideoPreferencesView(model:model) }
                     Section("Picture") {
+                        Toggle("V-Sync",isOn:$model.vsync).disabled(model.hasSession || model.isBusy || model.framePacing.forcesVsync)
+                        Text("Off, Lowest Latency shows each picture at once on the Metal renderer, with less delay, but it may tear or look uneven. The other pacings always wait for the refresh.")
+                            .foregroundStyle(.secondary)
                         Picker("Renderer",selection:$model.videoRenderer) {
                             ForEach(VideoRendererKind.allCases,id:\.self) { Text($0.label).tag($0) }
                         }.disabled(model.hasSession || model.isBusy)

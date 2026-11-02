@@ -1,164 +1,116 @@
-/// Presentation policy only: source PTS and the renderer clock have independent origins.
-public enum FramePacingMode: String, CaseIterable, Codable, Hashable, Sendable {
+/// Nightjar's `config::FramePacing`: how decoded pictures wait for the display without VRR.
+public enum FramePacingMode: String, CaseIterable, Hashable, Sendable {
     case lowLatency = "lowLatency"
     case balanced = "balanced"
     case fpsLimit = "fpsLimit"
     case smoothest = "smoothest"
-    case pcFrameTimes = "pcFrameTimes"
     public var label: String {
         switch self {
-        case .lowLatency: "Low Latency"
+        case .lowLatency: "Lowest Latency"
         case .balanced: "Balanced"
         case .fpsLimit: "Balanced with FPS Limit"
-        case .smoothest: "Smoothest Video"
-        case .pcFrameTimes: "PC Frame Times"
+        case .smoothest: "Smoothest Video (More Delay)"
         }
     }
     public var detail: String {
         switch self {
-        case .lowLatency: "Presents decoded frames without intentional buffering. With the Metal renderer it does not wait for the display's refresh, so the picture may tear."
-        case .balanced: "Uses about one frame of buffering to absorb arrival jitter."
-        case .fpsLimit: "Shows no more frames a second than the stream's rate: an early frame waits up to one frame for its turn."
-        case .smoothest: "Shows every frame in turn at the PC's timing, with about two frames of buffering. Adds the most delay."
-        case .pcFrameTimes: "Shows each frame at its time on the PC, behind a delay that follows recent network and decoder jitter."
+        case .lowLatency: "The newest picture at each refresh, or each picture at once with V-Sync off. Adds no delay."
+        case .balanced: "V-Sync whatever the V-Sync setting says: the newest picture at each refresh, no tearing."
+        case .fpsLimit: "V-Sync, and no more pictures a second than the stream's rate: an early picture waits up to one frame."
+        case .smoothest: "V-Sync, every picture in turn, one a refresh: a picture is skipped only once it is over a frame old."
         }
     }
-    /// Nightjar's rule: every pacing but the lowest latency waits for the display's refresh.
-    public var waitsForRefresh: Bool { self != .lowLatency }
-    /// The in-order pacings: a newer frame does not replace an older one that is still fresh.
-    public var keepsOrder: Bool { self != .lowLatency && self != .balanced }
-    /// Decoded frames the presenter may hold, besides the one it is working on.
-    public var retainedFrames: Int { keepsOrder ? 3 : 1 }
+    /// Every mode but the lowest latency waits for the refresh.
+    public var forcesVsync: Bool { self != .lowLatency }
+}
+/// An unknown stored value, such as the removed PC Frame Times choice, is the default.
+extension FramePacingMode: Codable {
+    public init(from decoder: any Decoder) throws {
+        self=FramePacingMode(rawValue:try decoder.singleValueContainer().decode(String.self)) ?? .lowLatency
+    }
 }
 
 public enum PresentationDropReason: String, CaseIterable, Hashable, Sendable {
     case superseded, late, outOfOrder, invalidTimestamp, reset, enqueueFailure
 }
 
-public struct FramePacingPlan: Sendable, Equatable {
-    public enum Action: Sendable, Equatable {
-        case enqueue(timeMicros: Int64, late: Bool, resynchronize: Bool)
-        case wait(microseconds: UInt64)
-        case drop(PresentationDropReason)
-        case recoverTimestamp
+/// Nightjar's `stream::present::PacingMode`, without the beam race.
+public enum PresentationPacing: Sendable, Equatable {
+    case hostTimes,immediate,vsync
+    /// `pacing`: host times need VRR, which needs a display that can tear and the check that it
+    /// refreshes on present. Mystic has no such check yet, so it passes `tearingSupported` false.
+    public static func choose(vrr: Bool,presentAtHostTimes: Bool,vsync: Bool,framePacing: FramePacingMode,tearingSupported: Bool) -> PresentationPacing {
+        if vrr && tearingSupported { return presentAtHostTimes ? .hostTimes : .immediate }
+        return withoutVRR(vsync:vsync,framePacing:framePacing)
     }
-    public let action: Action
+    public static func withoutVRR(vsync: Bool,framePacing: FramePacingMode) -> PresentationPacing {
+        vsync || framePacing.forcesVsync ? .vsync : .immediate
+    }
+    /// Host-time pacing schedules every picture; the other modes keep only the newest.
+    public var mailboxLimit: Int { self == .hostTimes ? 8 : 2 }
 }
 
-/// No clock or I/O: the presenter supplies renderer-relative time and local image age.
-/// A plan does not commit source ordering until the renderer accepts that image.
-public struct FramePacer: Sendable {
-    public let mode: FramePacingMode
-    public private(set) var frameRate: UInt32 = 60
-    public var hasAcceptedFrame: Bool { lastSourcePTS != nil }
-    public var frameIntervalMicros: Int64 { (1_000_000 + Int64(frameRate)/2)/Int64(frameRate) }
-    private var anchorSource: Int64?
-    private var anchorRenderer: Int64 = 0
-    private var lastSourcePTS: Int64?
-    private var lastAcceptedAt: Int64?
+/// Nightjar's `stream::present::Pacer`: when each decoded picture goes to the screen. No clock or
+/// I/O; times are microseconds on one clock.
+public struct PresentationPacer<Picture>: Sendable where Picture: Sendable {
+    public struct Pending: Sendable {
+        public let picture: Picture
+        public let readyMicros: Int64
+        public let presentMicros: Int64
+        public let holdMicros: Int64
+        public let late: Bool
+    }
+    public let mode: PresentationPacing
+    public private(set) var clock=PresentClock()
+    private var pending: [Pending]=[]
+    private let framePacing: FramePacingMode
+    private var frameMicros: Int64
     private var lastSlot: Int64?
-    private var plannedSlot: Int64?
-    private var clock=PresentClock()
-    /// The display's refresh timeline on the renderer clock, for `pcFrameTimes`; none without one.
-    public var refreshGrid: PresentClock.Grid?
-    /// The latest planned frame takes the refresh of the one before it.
-    public private(set) var sharesRefresh=false
-    /// How long `pcFrameTimes` is holding the latest planned frame after it was ready.
-    public private(set) var holdMicros: Int64?
-    private var pendingResynchronization = false
-    private var futureStrikes = 0
-    private var earlyOrLateStrikes = 0
-    public init(mode: FramePacingMode = .lowLatency) { self.mode=mode }
-    public mutating func reset() { let grid=refreshGrid;self=FramePacer(mode:mode);refreshGrid=grid }
-
-    public mutating func plan(sourcePTS: Int64, rendererNow: Int64, ageMicros: UInt64?, frameRate: UInt32) -> FramePacingPlan {
-        func result(_ action: FramePacingPlan.Action) -> FramePacingPlan { FramePacingPlan(action:action) }
-        guard sourcePTS >= 0,rendererNow >= 0,(1...1000).contains(frameRate) else { return result(.drop(.invalidTimestamp)) }
-        if let lastSourcePTS,sourcePTS <= lastSourcePTS { return result(.drop(.outOfOrder)) }
-        if let lastSourcePTS,let lastAcceptedAt {
-            let elapsed=rendererNow >= lastAcceptedAt ? rendererNow-lastAcceptedAt : 0
-            let step=sourcePTS-lastSourcePTS
-            if step > elapsed,step-elapsed > 100_000 { return futureTimestamp() }
+    public init(mode: PresentationPacing,framePacing: FramePacingMode,frameRate: UInt32 = 60,minIntervalMicros: Int64 = 0) {
+        self.mode=mode;self.framePacing=framePacing;frameMicros=Self.frameMicros(frameRate)
+        clock.minIntervalMicros=minIntervalMicros
+    }
+    /// The longest a picture waits in the in-order pacings: one frame, at most 250 ms.
+    public static func frameMicros(_ frameRate: UInt32) -> Int64 { min(1_000_000/Int64(max(frameRate,1)),250_000) }
+    public mutating func set(frameRate: UInt32) { frameMicros=Self.frameMicros(frameRate) }
+    public var nextDueMicros: Int64? { pending.first?.presentMicros }
+    public var lastHoldMicros: Int64? { mode == .hostTimes ? lastHold : nil }
+    private var lastHold: Int64?
+    private func paced(_ pacing: FramePacingMode) -> Bool { mode == .vsync && framePacing == pacing }
+    private mutating func capSlot(ready: Int64) -> Int64 {
+        let slot=lastSlot.map { min(max($0+frameMicros,ready),ready+frameMicros) } ?? ready
+        lastSlot=slot
+        return slot
+    }
+    /// Takes a newly decoded picture, scheduling it once, in order.
+    public mutating func accept(_ picture: Picture,readyMicros ready: Int64,hostMicros: Int64) {
+        var present=ready,hold: Int64=0,late=false
+        if mode == .hostTimes {
+            let schedule=clock.schedule(hostMicros:hostMicros,readyMicros:ready)
+            (present,hold,late)=(schedule.presentMicros,schedule.holdMicros,schedule.late)
+        } else if paced(.fpsLimit) {
+            present=capSlot(ready:ready);hold=present-ready
         }
-        let interval=(1_000_000 + Int64(frameRate)/2)/Int64(frameRate)
-        let ageLimit=mode == .lowLatency ? interval*2 : max(100_000,interval*3)
-        if let ageMicros,ageMicros > UInt64(ageLimit) { return result(.drop(.late)) }
-        if frameRate != self.frameRate {
-            pendingResynchronization=hasAcceptedFrame
-            self.frameRate=frameRate;anchorSource=nil
-        }
-        let buffer=mode == .smoothest ? interval*2 : interval
-        if mode == .lowLatency {
-            return result(.enqueue(timeMicros:rendererNow,late:ageMicros.map { $0 > UInt64(interval) } ?? false,
-                                   resynchronize:pendingResynchronization))
-        }
-        if mode == .pcFrameTimes {
-            guard sourcePTS <= Int64.max/4,rendererNow <= Int64.max/4 else { return result(.drop(.invalidTimestamp)) }
-            let ready=max(0,rendererNow-Int64(ageMicros ?? 0))
-            if let refreshGrid {
-                let schedule=clock.schedule(hostMicros:sourcePTS,readyMicros:ready,grid:refreshGrid)
-                holdMicros=schedule.holdMicros;sharesRefresh=schedule.sharesRefresh
-                return result(.enqueue(timeMicros:max(schedule.releaseMicros,rendererNow),late:schedule.late,
-                                       resynchronize:pendingResynchronization))
+        pending.append(Pending(picture:picture,readyMicros:ready,presentMicros:present,holdMicros:hold,late:late))
+    }
+    /// The newest picture due at `now`; older due ones are dropped. With the FPS limit or the
+    /// smoothest pacing it is the oldest due picture, one a refresh: an older one is dropped only
+    /// once it is over a frame old and a newer one is due.
+    public mutating func takeDue(now: Int64) -> (picture: Pending?,dropped: Int) {
+        var chosen: Pending?,dropped=0
+        if paced(.fpsLimit) || paced(.smoothest) {
+            while pending.count > 1,pending[1].presentMicros <= now,now-pending[0].readyMicros > frameMicros {
+                pending.removeFirst();dropped+=1
             }
-            let schedule=clock.schedule(hostMicros:sourcePTS,readyMicros:ready)
-            holdMicros=schedule.holdMicros
-            return result(.enqueue(timeMicros:max(schedule.presentMicros,rendererNow),late:schedule.late,
-                                   resynchronize:pendingResynchronization))
+            if let first=pending.first,first.presentMicros <= now { chosen=pending.removeFirst() }
+        } else {
+            while let first=pending.first,first.presentMicros <= now {
+                if chosen != nil { dropped+=1 }
+                chosen=pending.removeFirst()
+            }
         }
-        if mode == .fpsLimit {
-            // Nightjar's `cap_slot`: a frame after the last slot, never before now or over a frame away.
-            guard rendererNow <= Int64.max-interval else { return result(.drop(.invalidTimestamp)) }
-            let slot=lastSlot.map { min(max($0+interval,rendererNow),rendererNow+interval) } ?? rendererNow
-            plannedSlot=slot
-            return result(.enqueue(timeMicros:slot,late:ageMicros.map { $0 > UInt64(interval) } ?? false,
-                                   resynchronize:pendingResynchronization))
-        }
-        if anchorSource == nil {
-            anchorSource=sourcePTS
-            let (anchor,overflow)=rendererNow.addingReportingOverflow(buffer)
-            guard !overflow else { anchorSource=nil;return result(.drop(.invalidTimestamp)) }
-            anchorRenderer=anchor;earlyOrLateStrikes=0
-        }
-        let (step,stepOverflow)=sourcePTS.subtractingReportingOverflow(anchorSource!)
-        let (target,targetOverflow)=anchorRenderer.addingReportingOverflow(step)
-        guard !stepOverflow,!targetOverflow else { return result(.drop(.invalidTimestamp)) }
-        let (lead,leadOverflow)=target.subtractingReportingOverflow(rendererNow)
-        guard !leadOverflow else { return result(.drop(.invalidTimestamp)) }
-        // Elapsed beyond the PC's own step: a slow game's long gaps between frames are not a stall.
-        let stalled=lastAcceptedAt.map { rendererNow >= $0 && rendererNow-$0 > max(0,sourcePTS-(lastSourcePTS ?? sourcePTS))+100_000 } ?? false
-        let early=lead > buffer*2,lateBy=lead < -interval*2
-        // A corrupt PTS has gone above. One frame out of line is jitter; several mean the timeline
-        // really is off, such as anchored on a late frame after a network spike.
-        earlyOrLateStrikes=early || lateBy ? earlyOrLateStrikes+1 : 0
-        if stalled || earlyOrLateStrikes >= Self.strikesToRealign {
-            anchorSource=sourcePTS;earlyOrLateStrikes=0
-            let (anchor,overflow)=rendererNow.addingReportingOverflow(buffer)
-            guard !overflow else { return result(.drop(.invalidTimestamp)) }
-            anchorRenderer=anchor;pendingResynchronization=hasAcceptedFrame
-            return result(.enqueue(timeMicros:anchor,late:lead < 0,resynchronize:pendingResynchronization))
-        }
-        // An outlying early frame goes at the buffer's edge: waiting, the next would replace it.
-        if early { return result(.enqueue(timeMicros:rendererNow+buffer,late:false,resynchronize:pendingResynchronization)) }
-        // Do not feed the renderer further ahead than the mode's buffer.
-        if lead > buffer { return result(.wait(microseconds:UInt64(lead-buffer))) }
-        return result(.enqueue(timeMicros:max(0,target),late:lead < 0,resynchronize:pendingResynchronization))
-    }
-    public mutating func accepted(sourcePTS: Int64,rendererNow: Int64) {
-        lastSourcePTS=sourcePTS;lastAcceptedAt=rendererNow;pendingResynchronization=false;futureStrikes=0
-        lastSlot=plannedSlot ?? lastSlot
-    }
-    /// Whether a newer waiting frame replaces this one. The in-order pacings skip a frame only once
-    /// it is over a frame old (Nightjar's `take_due`); an unknown age stays, bounded by the mailbox.
-    public func isSuperseded(ageMicros: UInt64?,frameRate: UInt32) -> Bool {
-        guard mode.keepsOrder else { return true }
-        guard let ageMicros,frameRate > 0 else { return false }
-        return ageMicros > UInt64((1_000_000 + Int64(frameRate)/2)/Int64(frameRate))
-    }
-    private static let strikesToRealign=3
-    private mutating func futureTimestamp() -> FramePacingPlan {
-        futureStrikes=min(2,futureStrikes+1)
-        return FramePacingPlan(action:futureStrikes == 1 ? .drop(.invalidTimestamp) : .recoverTimestamp)
+        if let chosen { lastHold=chosen.holdMicros }
+        return (chosen,dropped)
     }
 }
 
@@ -171,7 +123,6 @@ public struct PresentationMetrics: Sendable, Equatable {
     public private(set) var rendererDroppedFrames: UInt64?
     public private(set) var rendererCorruptedFrames: UInt64?
     public private(set) var holdMicros: Int64?
-    public private(set) var sharedRefreshes: UInt64=0
     public private(set) var cadence=ShownCadence()
     public var droppedFrames: UInt64 { drops.values.reduce(0,&+) }
     public init() {}
@@ -180,10 +131,9 @@ public struct PresentationMetrics: Sendable, Equatable {
         if reason == .late { lateFrames &+= count }
     }
     public mutating func late() { lateFrames &+= 1 }
-    public mutating func queue(depth: Int) { queueDepth=max(0,min(4,depth));peakQueueDepth=max(peakQueueDepth,queueDepth) }
+    public mutating func queue(depth: Int) { queueDepth=max(0,min(9,depth));peakQueueDepth=max(peakQueueDepth,queueDepth) }
     public mutating func resynchronize() { resynchronizations &+= 1 }
     public mutating func hold(micros: Int64) { holdMicros=micros }
-    public mutating func sharedRefresh() { sharedRefreshes &+= 1 }
     public mutating func shown(_ cadence: ShownCadence) { self.cadence=cadence }
     public mutating func renderer(dropped: UInt64?,corrupted: UInt64?) {
         rendererDroppedFrames=dropped;rendererCorruptedFrames=corrupted

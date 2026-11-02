@@ -1,5 +1,11 @@
 # Native frame pacing
 
+**Since Nightjar parity was restored, pacing is a port of Nightjar 4.0.1's `stream::present` (`Pacer`, `pacing`,
+`without_vrr`), with its V-Sync setting, on by default.** Below, sections describing Mystic's own timeline mapping, realigning
+and PC Frame Times mode are history: those are gone. Host-time pacing remains in the pacer, unreachable until Mystic can tell that
+a display refreshes on present, as Nightjar's display check does. Its refresh grid is removed; Nightjar's desktop does not use it.
+Measurements here and in METAL-RENDERER.md were taken before this port.
+
 Settings → Video → Frame Pacing selects **Low Latency**, **Balanced**, **Balanced
 with FPS Limit**, **Smoothest Video** or **PC Frame Times** for the next stream. Older preferences default to Low Latency. The choice is captured
 with the stream's launch settings and retained through automatic reconnects.

@@ -140,17 +140,19 @@ final class MetalPresentationReceiver: PresentationReceiver {
     private let renderQueue=DispatchQueue(label:"mystic.video.metal",qos:.userInteractive)
     /// The presenter's timeline, to turn a frame's timestamp into a moment.
     private let clock: @Sendable () -> CMTime
-    private nonisolated let slot: MetalFrameSlot<RenderFrame>
+    private nonisolated let slot=MetalFrameSlot<RenderFrame>()
+    /// As a V-Sync present blocks: the pacer's next picture waits for a drawable for this one.
+    private let waitsForRefresh: Bool
     private var lastFormat: VideoLayerFormat?
     /// Seconds since the decoder finished the frame about to be enqueued.
     var nextFrameAge: CFTimeInterval?
-    init(clock: @escaping @Sendable () -> CMTime,capacity: Int = 1,waitsForRefresh: Bool = true) throws {
-        drawer=try MetalFrameDrawer();self.clock=clock;slot=MetalFrameSlot(capacity:capacity)
+    init(clock: @escaping @Sendable () -> CMTime,waitsForRefresh: Bool = true) throws {
+        drawer=try MetalFrameDrawer();self.clock=clock;self.waitsForRefresh=waitsForRefresh
         layer.device=drawer.device
         layer.framebufferOnly=true;layer.isOpaque=true
         // Two made a frame wait out a refresh for a drawable, and at 120 Hz most were then superseded.
         layer.maximumDrawableCount=3
-        // Off about halved decoded-to-screen time; see METAL-RENDERER.md.
+        // Off presents at once, as Nightjar's immediate mode; see METAL-RENDERER.md.
         layer.displaySyncEnabled=waitsForRefresh
         layer.pixelFormat = .bgra8Unorm
         layer.colorspace=CGColorSpace(name:CGColorSpace.itur_709)
@@ -168,6 +170,18 @@ final class MetalPresentationReceiver: PresentationReceiver {
         guard let image=CMSampleBufferGetImageBuffer(sample) else { throw VideoDecoderError.invalidSample("sample has no image") }
         let format=VideoLayerFormat(image:image)
         if format != lastFormat { configure(format,image:image);lastFormat=format }
+        if waitsForRefresh {
+            let frame=RenderFrame(image:image,time:CMSampleBufferGetPresentationTimeStamp(sample),
+                                  readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime())
+            let target=UnsafeLayer(layer:layer),drawer=drawer,clock=clock,slot=slot
+            await withCheckedContinuation { (done: CheckedContinuation<Void,Never>) in
+                renderQueue.async {
+                    defer { done.resume() }
+                    if let drawable=target.layer.nextDrawable() { Self.draw(frame,on:drawable,drawer,clock,slot) } else { slot.countMissed() }
+                }
+            }
+            return .enqueued
+        }
         if slot.offer(RenderFrame(image:image,time:CMSampleBufferGetPresentationTimeStamp(sample),
                                   readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime())) {
             let target=UnsafeLayer(layer:layer),drawer=drawer,clock=clock,slot=slot
@@ -181,26 +195,27 @@ final class MetalPresentationReceiver: PresentationReceiver {
             // A timeout is a frame missed, not a failed stream.
             guard let drawable=target.layer.nextDrawable() else { slot.discardWaiting();continue }
             guard let frame=slot.take() else { continue }
-            let picked=CACurrentMediaTime()
-            guard let commands=drawer.queue.makeCommandBuffer() else { slot.countMissed();continue }
-            do {
-                try drawer.encode(frame.image,to:drawable.texture,commands:commands)
-                let times=FrameTimes()
-                commands.addCompletedHandler { _ in times.set(CACurrentMediaTime()) }
-                drawable.addPresentedHandler { [committed=CACurrentMediaTime()] in
-                    if $0.presentedTime == 0 { slot.countMissed();return }
-                    slot.recordShown(seconds:$0.presentedTime,ready:frame.readySeconds)
-                    guard let ready=frame.readySeconds,let completed=times.get() else { return }
-                    func micros(_ from: CFTimeInterval,_ to: CFTimeInterval) -> Int64 { Int64((to-from)*1_000_000) }
-                    slot.recordStages(PresentationStages(toEnqueue:micros(ready,frame.enqueuedSeconds),forDrawable:micros(frame.enqueuedSeconds,picked),
-                        encode:micros(picked,committed),gpu:micros(committed,completed),toScreen:micros(completed,$0.presentedTime)))
-                }
-                let wait=CMTimeGetSeconds(CMTimeSubtract(frame.time,clock()))
-                if wait.isFinite,wait > 0.001 { commands.present(drawable,atTime:CACurrentMediaTime()+wait) }
-                else { commands.present(drawable) }
-                commands.commit()
-            } catch { slot.fail(error) }
+            draw(frame,on:drawable,drawer,clock,slot)
         }
+    }
+    private nonisolated static func draw(_ frame: RenderFrame,on drawable: any CAMetalDrawable,_ drawer: MetalFrameDrawer,_ clock: @Sendable () -> CMTime,_ slot: MetalFrameSlot<RenderFrame>) {
+        let picked=CACurrentMediaTime()
+        guard let commands=drawer.queue.makeCommandBuffer() else { slot.countMissed();return }
+        do {
+            try drawer.encode(frame.image,to:drawable.texture,commands:commands)
+            let times=FrameTimes()
+            commands.addCompletedHandler { _ in times.set(CACurrentMediaTime()) }
+            drawable.addPresentedHandler { [committed=CACurrentMediaTime()] in
+                if $0.presentedTime == 0 { slot.countMissed();return }
+                slot.recordShown(seconds:$0.presentedTime,ready:frame.readySeconds)
+                guard let ready=frame.readySeconds,let completed=times.get() else { return }
+                func micros(_ from: CFTimeInterval,_ to: CFTimeInterval) -> Int64 { Int64((to-from)*1_000_000) }
+                slot.recordStages(PresentationStages(toEnqueue:micros(ready,frame.enqueuedSeconds),forDrawable:micros(frame.enqueuedSeconds,picked),
+                    encode:micros(picked,committed),gpu:micros(committed,completed),toScreen:micros(completed,$0.presentedTime)))
+            }
+            commands.present(drawable)
+            commands.commit()
+        } catch { slot.fail(error) }
     }
     /// Frames replaced, timed out or never shown, like the display layer's own drop count.
     var droppedFrames: UInt64 { slot.missed }

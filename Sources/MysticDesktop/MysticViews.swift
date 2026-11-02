@@ -169,9 +169,9 @@ private struct LatencyHUD: View {
             if let snapshot {
                 Text("Submitted \(snapshot.submitted) · Decoded \(snapshot.decoded) · Enqueued \(snapshot.enqueued)")
                 let presentation=snapshot.presentation
-                Text("Presenter queue \(presentation.queueDepth)/\(mode.retainedFrames+1) · Peak \(presentation.peakQueueDepth) · Late \(presentation.lateFrames)\(presentation.holdMicros.map { " · Held \(String(format:"%.1f",Double($0)/1000)) ms" } ?? "")")
+                Text("Presenter queue \(presentation.queueDepth) · Peak \(presentation.peakQueueDepth) · Late \(presentation.lateFrames)\(presentation.holdMicros.map { " · Held \(String(format:"%.1f",Double($0)/1000)) ms" } ?? "")")
                 if let shown=presentation.cadence.summary {
-                    Text("Shown every \(String(format:"%.1f / %.1f / %.1f",Double(shown.p50)/1000,Double(shown.p95)/1000,Double(shown.p99)/1000)) ms (p50/p95/p99) · Uneven \(Int((presentation.cadence.unevenShare ?? 0)*100))% · Shared refreshes \(presentation.sharedRefreshes)")
+                    Text("Shown every \(String(format:"%.1f / %.1f / %.1f",Double(shown.p50)/1000,Double(shown.p95)/1000,Double(shown.p99)/1000)) ms (p50/p95/p99) · Uneven \(Int((presentation.cadence.unevenShare ?? 0)*100))%")
                 }
                 Text("Presenter drops \(presentation.droppedFrames) · Superseded \(presentation.drops[.superseded,default:0]) · Late \(presentation.drops[.late,default:0])")
                 Text("Order/time \(presentation.drops[.outOfOrder,default:0] + presentation.drops[.invalidTimestamp,default:0]) · Reset discards \(presentation.drops[.reset,default:0]) · Enqueue errors \(presentation.drops[.enqueueFailure,default:0])")

@@ -37,6 +37,7 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public var errorCorrection: String? = nil // Missing in older documents; defaults to the host's.
     public var tellHostWireless: Bool? = nil // Missing in older documents; defaults on.
     public var tellHostLinkSpeed: Bool? = nil // Missing in older documents; defaults on.
+    public var vsync: Bool? = nil // Missing in older documents; defaults on, as Nightjar.
     public var holdAWDL: Bool? = nil // Missing in older documents; defaults off, since it installs a helper.
     public var clientRoaming: Bool? = nil // Missing in older documents; defaults on, as Nightjar.
     public var roamingOnMeteredNetworks: Bool? = nil // Missing in older documents; defaults off.
