@@ -168,5 +168,18 @@ The approach follows [AWDL Control](https://github.com/james-howard/AWDLControl)
 - **Afterwards.** Mystic connects to the helper only while holding. When that connection ends, even from a crash, the helper
   lets `awdl0` up and exits, so nothing stays running.
 
-Not yet tried: registering the helper, which needs the user's approval, or holding `awdl0` live. Whether an Apple Development
-signature is enough for `SMAppService`, and the effect on a stream, are both unknown. See PLAYTEST.md's frame pacing checks for the TestUFO method.
+Tried on the user's Mac, 2026-11-01: an Apple Development signature was enough once approved in Login Items. `awdl0` stayed
+down through 2-second samples during streams; a forced quit brought it back up and the helper exited.
+
+TestUFO on Big Dawg's Desktop over Wi-Fi, Low Latency, 120 fps negotiated, two 98-second runs each, in turn. Counters at 90 s; shown gaps at the 30, 60 and 90 s readings:
+
+| | Decoded | Renderer drops | Shown | Shown every p99, ms | Decoded to screen p50, ms |
+| --- | --- | --- | --- | --- | --- |
+| Metal, held | 10,535-10,562 | 999-1,377 | 9,103-9,447 | 18-20 | 7.7-8.1 |
+| Metal, not held | 10,555-10,577 | 1,988-2,857 | 7,577-8,491 | 19-106 | 7.6-8.8 |
+| System, held | 10,692-10,708 | 3,960-4,113 | not reported | not reported | not reported |
+| System, not held | 10,582-10,679 | 4,658-5,195 | not reported | not reported | not reported |
+
+- **Gaps near 100 ms were gone:** three of six Metal readings had them without the hold, none of six with it.
+- It does not change the Mac-side delay, nor the unevenness of Metal with sync off (55-67% held, 42-60% not).
+- One sitting on one network, by the logs only. Nearby Apple devices or another time of day may change the size of the effect.

@@ -53,7 +53,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | FEC controls | Implemented | Settings → Network; launch and ANNOUNCE requests; engine loss reports. Effect on a lossy link not yet measured; see NETWORK.md |
 | Ride out drops and link reports | Implemented | Drop tolerance and Wi-Fi/link-speed hints; Big Dawg launch told "wireless" over Wi-Fi. A real network drop not yet tested; see NETWORK.md |
 | VPN route packet size | Implemented | Tunnel/PPP interfaces or an MTU under 1500 stream as remote with 1024-byte packets, as Nightjar; see NETWORK.md. Not yet tried over a real VPN |
-| Keep AWDL off while streaming (not in Nightjar) | Implemented, live validation pending | Privileged helper, opt-in, after AWDL Control; see NETWORK.md |
+| Keep AWDL off while streaming (not in Nightjar) | Implemented | Privileged helper, opt-in, after AWDL Control; on Big Dawg over Wi-Fi it removed gaps near 100 ms; see NETWORK.md |
 | Client roaming | Implemented, live validation pending | Network watcher, roaming and metered-network settings (on and off by default, as Nightjar); see NETWORK.md |
 | Stream health report and bitrate trial | Implemented | Nightjar's StreamHealth/BitrateTrial via the engine; HUD network figures. Big Dawg report verified; the trial is tested with fakes only (no lossy link yet); see STREAM-HEALTH.md |
 | Remote access check | Implemented, live validation pending | Android's and Nightjar's check (`host_page.rs`): five pinned probes, then the host's route; the PC's context menu |
