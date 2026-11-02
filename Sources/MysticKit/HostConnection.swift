@@ -166,6 +166,7 @@ public protocol HostService: AnyObject, Sendable {
     func sendClipboardImage(_ png: Data) async throws
     /// The Files page, which asks the PC at once; nil where there is none.
     func filesPage(downloads: URL) -> (any FilesPage)?
+    func foldersPage() -> (any FoldersPage)?
     /// Permanently cancels this connection, including in-flight pairing and launch requests.
     func cancel()
 }
@@ -192,6 +193,7 @@ public extension HostService {
     func clipboardImage() async throws -> Data? { throw HostConnectionError("This host does not support clipboard images.") }
     func sendClipboardImage(_ png: Data) async throws { throw HostConnectionError("This host does not support clipboard images.") }
     func filesPage(downloads: URL) -> (any FilesPage)? { nil }
+    func foldersPage() -> (any FoldersPage)? { nil }
 }
 
 /// A worker queue owns blocking Nightjar calls. Cancellation is the sole concurrent operation.
@@ -326,6 +328,7 @@ public final class HostConnection: HostService, @unchecked Sendable {
         let result: Sent = try await request("clipboardWrite",json:String(decoding:JSONEncoder().encode(["text":text]),as:UTF8.self))
         guard result.sent else { throw HostConnectionError("The host did not accept clipboard text.") }
     }
+    public func foldersPage() -> (any FoldersPage)? { HostFoldersPage(host:handle,keeping:self) }
     public func filesPage(downloads: URL) -> (any FilesPage)? { HostFilesPage(host:handle,downloads:downloads,keeping:self) }
     public func clipboardImage() async throws -> Data? {
         struct Answer: Decodable, Sendable { let image: Bool }

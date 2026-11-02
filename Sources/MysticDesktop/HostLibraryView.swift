@@ -9,6 +9,7 @@ public struct HostLibraryView: View {
     @State private var showingHostSession=false
     @State private var showingHostDetails=false
     @State private var filesModel: FilesModel?
+    @State private var foldersModel: SharedFoldersModel?
     @FocusState private var searchFocused: Bool
     @Environment(\.openWindow) private var openWindow
     /// A stream asked for on the command line, started once the library appears.
@@ -47,6 +48,7 @@ public struct HostLibraryView: View {
         .sheet(isPresented:$showingHostSession) { HostSessionView(model:model) }
         .sheet(isPresented:$showingHostDetails) { HostDetailsView(model:model) }
         .sheet(item:$filesModel) { FilesView(model:$0,hostName:model.host?.name ?? "PC") }
+        .sheet(item:$foldersModel) { SharedFoldersView(model:$0,hostName:model.host?.name ?? "PC") }
         .focusedSceneValue(\.hostDetailsAction,canShowHostDetails ? { showingHostDetails=true } : nil)
         .focusedSceneValue(\.libraryMenuActions,menuActions)
         .focusedSceneValue(\.hostSessionAction,canShowHostSession ? { showingHostSession=true } : nil)
@@ -163,6 +165,9 @@ public struct HostLibraryView: View {
                         Button("Files",systemImage:"folder") { filesModel=model.openFiles() }
                             .disabled(!canShowHostDetails)
                             .help("Send files to this PC and download from its transfer folder")
+                        Button("Shared Folders",systemImage:"externaldrive.connected.to.line.below") { foldersModel=model.openSharedFolders() }
+                            .disabled(!canShowHostDetails)
+                            .help("Browse the folders this PC shares with this Mac")
                     }
                     Button("Session and Graphics",systemImage:"rectangle.connected.to.line.below") { showingHostSession=true }
                         .disabled(!canShowHostSession)

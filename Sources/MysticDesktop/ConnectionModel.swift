@@ -71,6 +71,7 @@ public final class ConnectionModel {
               let page=connection?.filesPage(downloads:folder) else { return nil }
         return FilesModel(page:page)
     }
+    func openSharedFolders() -> SharedFoldersModel? { connection?.foldersPage().map { SharedFoldersModel(page:$0) } }
     public var offersClipboardImages: Bool { phase == .streaming && clipboard?.imagesOffered == true }
     public var canMoveClipboardImage: Bool { offersClipboardImages && !clipboardBusy }
     public func sendClipboardImageToHost() { clipboard?.sendImageToHost() }
