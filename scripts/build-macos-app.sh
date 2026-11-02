@@ -28,11 +28,24 @@ export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-/tmp/mystic-clang}"
 export SWIFTPM_MODULECACHE_OVERRIDE="${SWIFTPM_MODULECACHE_OVERRIDE:-/tmp/mystic-swift}"
 cargo build --manifest-path engine/Cargo.toml --release --locked
 swift build --disable-sandbox --configuration "$configuration" --product MysticApp
+swift build --disable-sandbox --configuration "$configuration" --product MysticAWDLHelper
 binary_directory="$(swift build --disable-sandbox --configuration "$configuration" --show-bin-path)"
 app="$PWD/.build/Mystic.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$binary_directory/MysticApp" "$app/Contents/MacOS/MysticApp.new"
 mv -f "$app/Contents/MacOS/MysticApp.new" "$app/Contents/MacOS/MysticApp"
+cp "$binary_directory/MysticAWDLHelper" "$app/Contents/MacOS/MysticAWDLHelper"
+mkdir -p "$app/Contents/Library/LaunchDaemons"
+cat > "$app/Contents/Library/LaunchDaemons/com.mystic.streaming.awdl.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>com.mystic.streaming.awdl</string>
+<key>BundleProgram</key><string>Contents/MacOS/MysticAWDLHelper</string>
+<key>MachServices</key><dict><key>com.mystic.streaming.awdl</key><true/></dict>
+<key>AssociatedBundleIdentifiers</key><array><string>com.mystic.streaming</string></array>
+</dict></plist>
+PLIST
 cp -R "$binary_directory/Mystic_MysticStream.bundle" "$app/Contents/Resources/"
 mkdir -p "$app/Contents/Resources/ThirdPartyNotices"
 cp -R third_party/opus "$app/Contents/Resources/ThirdPartyNotices/"
@@ -59,6 +72,8 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 # Local development signing only; distribution signing and notarization are later work.
-codesign --force --deep --sign "$signing_identity" --timestamp=none --identifier com.mystic.streaming "$app"
+# The helper first, under its own identifier, hardened since it runs as root.
+codesign --force --sign "$signing_identity" --timestamp=none --options runtime --identifier com.mystic.streaming.awdl "$app/Contents/MacOS/MysticAWDLHelper"
+codesign --force --sign "$signing_identity" --timestamp=none --identifier com.mystic.streaming "$app"
 codesign --verify --deep --strict "$app"
 printf '\nBuilt %s\n' "$app"

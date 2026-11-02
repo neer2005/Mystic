@@ -11,10 +11,12 @@ let engineLibraryPath = "\(packageRoot)/engine/target/release"
 // Apple framework targets are intentionally absent from Linux package graphs.
 #if os(macOS)
 let streamProducts: [Product] = [.library(name: "MysticStream", targets: ["MysticStream"]),
-                                 .executable(name: "MysticApp", targets: ["MysticApp"])]
+                                 .executable(name: "MysticApp", targets: ["MysticApp"]),
+                                 .executable(name: "MysticAWDLHelper", targets: ["MysticAWDLHelper"])]
 let streamTargets: [Target] = [
     .target(name: "MysticDesktop", dependencies: ["MysticStream", "MysticKit", "MysticCore"]),
     .executableTarget(name: "MysticApp", dependencies: ["MysticDesktop"]),
+    .executableTarget(name: "MysticAWDLHelper", dependencies: ["MysticCore"]),
     .testTarget(name: "MysticDesktopTests", dependencies: ["MysticDesktop", "MysticCore"]),
     .target(name: "MysticStream", dependencies: ["MysticCore", "MysticKit"],
             resources: [.copy("Fixtures")]),

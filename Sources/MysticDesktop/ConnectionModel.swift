@@ -29,9 +29,10 @@ public final class ConnectionModel {
     @ObservationIgnored public private(set) lazy var health = StreamHealthModel(model:self)
     @ObservationIgnored public private(set) lazy var quality = StreamQualityModel(model:self)
 
-    public private(set) var phase: Phase = .idle { didSet { displayWake.update(streaming:hasSession);shortcutPhaseChanged(from:oldValue) } }
+    public private(set) var phase: Phase = .idle { didSet { displayWake.update(streaming:hasSession);awdl.update(streaming:hasSession);shortcutPhaseChanged(from:oldValue) } }
     /// Held from launch through reconnects until the stream ends.
     @ObservationIgnored var displayWake=DisplayWake()
+    public let awdl=AWDLControl()
     /// A link's launch, waiting for the user to confirm it.
     public private(set) var pendingShortcut: ShortcutLaunch?
     public private(set) var status = "Enter your host’s LAN address to connect."
@@ -421,6 +422,8 @@ public final class ConnectionModel {
         port = savedHosts.hosts.first.map { String($0.endpoint.port) } ?? UserDefaults.standard.string(forKey: "lastPort") ?? "47989"
         // Nightjar's `add_secrets`: every saved PC's name, ID and address stays out of the log.
         for saved in savedHosts.hosts { SessionLog.addSecrets([saved.name,saved.uniqueID,saved.endpoint.address]) }
+        awdl.log={ [weak self] in self?.sessionLog?.write($0) }
+        if self.settings.value.holdAWDL == true { awdl.setEnabled(true) }
     }
     public func libraryAppeared() { libraryVisible=true;applyLiveSettings() }
     public func libraryDisappeared() { libraryVisible=false;discovery.stop();homeSync.cancel() }
@@ -733,6 +736,7 @@ public final class ConnectionModel {
                 let report=await self.lookUpRoute(address,self.connectedPort)
                 let route=report.route
                 guard self.generation == token else { return }
+                self.awdl.update(routeWireless:route?.wireless)
                 let hints=NetworkRoute.hints(route,tellWireless:plan.tellWireless,tellLinkSpeed:plan.tellLinkSpeed)
                 var options=options
                 options.clientWireless=hints.wireless
@@ -1101,7 +1105,10 @@ public final class ConnectionModel {
             if phase == .streaming { status="Network lost. Waiting for it to come back…" }
         case let .changed(metered,afterLoss):
             Task { [weak self] in
-                guard let change=await session.networkChanged(metered:metered),let self,self.generation == token else { return }
+                guard let self else { return }
+                let report=await self.lookUpRoute(self.connectedAddress,self.connectedPort)
+                if self.generation == token { self.awdl.update(routeWireless:report.route?.wireless) }
+                guard let change=await session.networkChanged(metered:metered),self.generation == token else { return }
                 let what: String = switch change {
                 case .roamed: "the stream moved onto it"
                 case .carriesOn: "the stream carries on"

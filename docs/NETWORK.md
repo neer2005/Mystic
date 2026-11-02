@@ -153,3 +153,20 @@ settings tests cover migration and persistence.
 Live packet-loss/reconnect and adaptive-bitrate behavior still need validation
 against a streaming host. Automated tests do not establish visual quality or
 reconnect latency on a real network.
+
+## Keeping AWDL off
+
+Settings → Network → Wi-Fi → Keep AWDL Off While Streaming, off by default. AWDL is the Wi-Fi link behind AirDrop
+and Continuity. Its channel hopping can stall a stream's packets, and macOS brings `awdl0` back after `ifconfig down`.
+The approach follows [AWDL Control](https://github.com/james-howard/AWDLControl) by James Howard (MIT), written anew in Swift.
+
+- **Helper.** `MysticAWDLHelper` runs as root, registered with `SMAppService`, which macOS asks the user to approve once in
+  Login Items. Turning the setting off removes the registration. Its plist is in `Contents/Library/LaunchDaemons`.
+- **What it can do.** Hold `awdl0` down or let it up, nothing else. A route socket wakes it when interfaces change, and it clears
+  `IFF_UP` again if the interface came back. It accepts only an app with Mystic's identifier, signed by its own team.
+- **When.** Only during a stream on a route that is Wi-Fi or unknown; on Ethernet AirDrop stays. A network change looks at the route again.
+- **Afterwards.** Mystic connects to the helper only while holding. When that connection ends, even from a crash, the helper
+  lets `awdl0` up and exits, so nothing stays running.
+
+Not yet tried: registering the helper, which needs the user's approval, or holding `awdl0` live. Whether an Apple Development
+signature is enough for `SMAppService`, and the effect on a stream, are both unknown. See PLAYTEST.md's frame pacing checks for the TestUFO method.
