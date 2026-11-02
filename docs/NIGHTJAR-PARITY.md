@@ -78,7 +78,8 @@ must be investigated and documented before a feature is marked inapplicable.
 | DualSense adaptive triggers / PCM haptics | Pending | Mac device/API support investigation |
 | Touch/pen and local cursor | Pending applicability audit | Native Mac input devices and host support; Nightjar sends raw touchpad contacts to the PC (`touchpad.rs`) |
 | Clipboard text | Implemented, live validation deferred | Manual and opt-in foreground sync |
-| Clipboard images, files, shared folders, USB | Pending | Capability/permission-aware native flows |
+| Clipboard images | Implemented, live validation pending | Stream menu, as PNG both ways, only when the host offers it through its native API; a TIFF copy also goes on the Mac clipboard |
+| Files, shared folders, USB | Pending | Capability/permission-aware native flows |
 | Session graphics / Radeon controls | Implemented | Big Dawg GPU/settings and permission gating verified; live writes/restore pending Host control permission; see GRAPHICS.md |
 | Accessibility and system appearance | Partial | SwiftUI/accessibility labels present; systematic audit pending |
 | Release packaging, CI, notarization | Pending | Signed local app exists; distribution and release checks remain |

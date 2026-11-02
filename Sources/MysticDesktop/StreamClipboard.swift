@@ -8,6 +8,18 @@ protocol StreamPasteboard: AnyObject {
     var protectsContent: Bool { get }
     func text(limit: Int) throws -> String?
     func write(_ text: String) throws
+    /// The image as it came, PNG or TIFF; nil without one, or when it is protected.
+    func image() -> Data?
+    func write(image png: Data,tiff: Data?) throws
+}
+
+/// Images travel as PNG; the Mac's clipboard also takes TIFF, which older apps read.
+enum ClipboardImage {
+    static func png(from data: Data) -> Data? {
+        if data.starts(with:[0x89,0x50,0x4E,0x47]) { return data }
+        return NSBitmapImageRep(data:data)?.representation(using:.png,properties:[:])
+    }
+    static func tiff(from png: Data) -> Data? { NSBitmapImageRep(data:png)?.tiffRepresentation }
 }
 
 @MainActor
@@ -30,6 +42,18 @@ final class MacStreamPasteboard: StreamPasteboard {
         try ClipboardText.validate(text,limit:limit)
         return text
     }
+    func image() -> Data? {
+        let types=pasteboard.types ?? []
+        guard !types.contains(where:{ ["org.nspasteboard.ConcealedType","org.nspasteboard.TransientType"].contains($0.rawValue) }) else { return nil }
+        return pasteboard.data(forType:.png) ?? pasteboard.data(forType:.tiff)
+    }
+    func write(image png: Data,tiff: Data?) throws {
+        let item=NSPasteboardItem()
+        guard item.setData(png,forType:.png) else { throw HostConnectionError("The image could not be prepared.") }
+        if let tiff { item.setData(tiff,forType:.tiff) }
+        pasteboard.clearContents()
+        guard pasteboard.writeObjects([item]) else { throw HostConnectionError("The Mac clipboard changed before the image could be written.") }
+    }
     func write(_ text: String) throws {
         try ClipboardText.validate(text,limit:ClipboardText.manualLimit)
         if !protectsContent,pasteboard.string(forType:.string) == text { return }
@@ -46,6 +70,7 @@ final class StreamClipboard {
     typealias Step = @Sendable (Bool,Bool,String?) async throws -> ClipboardSyncResult
     let canRead: Bool
     let canSend: Bool
+    let imagesOffered: Bool
     private let host: any HostService
     private let pasteboard: any StreamPasteboard
     private let isActive: () -> Bool
@@ -65,9 +90,9 @@ final class StreamClipboard {
     private var reportedBusy=false
 
     init(host: any HostService,pasteboard: any StreamPasteboard = MacStreamPasteboard(),
-         canRead: Bool,canSend: Bool,syncEnabled: Bool,isActive: @escaping () -> Bool,
+         canRead: Bool,canSend: Bool,imagesOffered: Bool = false,syncEnabled: Bool,isActive: @escaping () -> Bool,
          step: @escaping Step,report: @escaping (String,Bool) -> Void,observeFocus: Bool = true) {
-        self.host=host;self.pasteboard=pasteboard;self.canRead=canRead;self.canSend=canSend
+        self.host=host;self.pasteboard=pasteboard;self.canRead=canRead;self.canSend=canSend;self.imagesOffered=imagesOffered
         self.syncEnabled=syncEnabled;self.isActive=isActive;self.step=step;self.report=report
         if observeFocus {
             for name in [NSApplication.didResignActiveNotification,NSWindow.didResignKeyNotification] {
@@ -137,6 +162,46 @@ final class StreamClipboard {
                 self.needsBaseline=true
                 self.publish("Host text copied to Mac clipboard")
             } catch { self.publish("Clipboard transfer failed: \(error.localizedDescription)") }
+        }
+    }
+    func sendImageToHost() {
+        guard !stopped,manual == nil,imagesOffered,isActive() else { return }
+        guard let image=pasteboard.image() else { publish("The clipboard on this Mac holds no image.");return }
+        publish("Sending clipboard image…",busy:true)
+        manual=Task { [weak self] in
+            guard let self else { return }
+            defer { self.manual=nil }
+            do {
+                guard let png=await Task.detached(operation:{ ClipboardImage.png(from:image) }).value else {
+                    self.publish("Could not convert the image on the Mac's clipboard to PNG.");return
+                }
+                try await self.host.sendClipboardImage(png)
+                guard !self.stopped,!Task.isCancelled else { return }
+                self.needsBaseline=true
+                self.publish("Image sent to the PC")
+            } catch { self.publish(error.localizedDescription) }
+        }
+    }
+    func copyImageFromHost() {
+        guard !stopped,manual == nil,imagesOffered,isActive() else { return }
+        let count=pasteboard.changeCount,revision=activityRevision
+        publish("Reading the PC's image…",busy:true)
+        manual=Task { [weak self] in
+            guard let self else { return }
+            defer { self.manual=nil }
+            do {
+                guard let png=try await self.host.clipboardImage() else {
+                    self.publish("The PC's clipboard holds no image.");return
+                }
+                let tiff=await Task.detached(operation:{ ClipboardImage.tiff(from:png) }).value
+                guard !self.stopped,!Task.isCancelled else { return }
+                guard self.isActive(),self.activityRevision == revision,self.pasteboard.changeCount == count else {
+                    self.publish("The PC's image was not copied because the Mac clipboard or active window changed.");return
+                }
+                try self.pasteboard.write(image:png,tiff:tiff)
+                self.needsBaseline=true
+                self.publish("The PC's image copied to the Mac clipboard")
+            } catch { self.publish(error.localizedDescription) }
         }
     }
     /// Awaited polling bounds in-flight work. No clipboard contents are read while inactive/off.

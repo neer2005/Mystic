@@ -245,6 +245,10 @@ MysticHost *mystic_host_new(const char *address, uint16_t http_port,
                           const char *identity_json, const char *server_certificate_pem,
                           char *error_buffer, size_t error_capacity);
 char *mystic_host_request(const MysticHost *host, const char *operation, const char *request_json);
+/* The image clipboard, as PNG. Read fills `png` when the result says {"image":true}; free it with mystic_bytes_free. */
+char *mystic_host_clipboard_image_send(const MysticHost *host, const uint8_t *png, size_t length);
+char *mystic_host_clipboard_image_read(const MysticHost *host, uint8_t **png, size_t *length);
+void mystic_bytes_free(uint8_t *bytes, size_t length);
 void mystic_host_cancel(const MysticHost *host);
 void mystic_host_free(MysticHost *host);
 
