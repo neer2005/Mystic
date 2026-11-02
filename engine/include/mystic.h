@@ -363,6 +363,12 @@ char *mystic_session_rates(const MysticSession *session, uint32_t kbps, uint32_t
  * values, MYSTIC_ERR_UNIMPLEMENTED when the host does not take display reports. */
 int32_t mystic_session_display_caps(const MysticSession *session, float headroom);
 
+/* Phase lock (additive to ABI 5): one frame about to be shown, on one microsecond clock, with the
+ * display's last latch and refresh period. Returns 1 when a report went to the host, with its lead in
+ * lead_us; 0 when none is due; MYSTIC_ERR_UNIMPLEMENTED when the host takes none. */
+int32_t mystic_session_phase_sample(const MysticSession *session, uint64_t ready_us, uint64_t now_us,
+    int64_t latch_us, int64_t period_ns, int32_t *lead_us);
+
 /* Stream doctor (additive to ABI 3): Nightjar's StreamHealth and BitrateTrial. One tick a second
  * with the app's recent timings (NaN when unknown); returns an envelope with the network figures.
  * The report envelope carries findings, evidence and the trial offer ("none", "try", "undo").

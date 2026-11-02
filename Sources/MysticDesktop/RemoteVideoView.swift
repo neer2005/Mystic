@@ -51,6 +51,7 @@ final class RemoteVideoView: NSView {
     private func updateDisplay() {
         let screen=window?.screen
         needsLayout = true
+        if let screen { presenter.setRefresh(hertz:DisplayRefresh.hertz(screen)) }
         presenter.updateDisplay(name:screen?.localizedName,
             currentHeadroom:screen.map { Double($0.maximumExtendedDynamicRangeColorComponentValue) },
             potentialHeadroom:screen.map { Double($0.maximumPotentialExtendedDynamicRangeColorComponentValue) })

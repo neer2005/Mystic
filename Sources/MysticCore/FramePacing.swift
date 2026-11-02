@@ -123,6 +123,7 @@ public struct PresentationMetrics: Sendable, Equatable {
     public private(set) var rendererDroppedFrames: UInt64?
     public private(set) var rendererCorruptedFrames: UInt64?
     public private(set) var holdMicros: Int64?
+    public private(set) var phaseLeadMicros: Int32?
     public private(set) var cadence=ShownCadence()
     public var droppedFrames: UInt64 { drops.values.reduce(0,&+) }
     public init() {}
@@ -134,6 +135,7 @@ public struct PresentationMetrics: Sendable, Equatable {
     public mutating func queue(depth: Int) { queueDepth=max(0,min(9,depth));peakQueueDepth=max(peakQueueDepth,queueDepth) }
     public mutating func resynchronize() { resynchronizations &+= 1 }
     public mutating func hold(micros: Int64) { holdMicros=micros }
+    public mutating func phase(leadMicros: Int32) { phaseLeadMicros=leadMicros }
     public mutating func shown(_ cadence: ShownCadence) { self.cadence=cadence }
     public mutating func renderer(dropped: UInt64?,corrupted: UInt64?) {
         rendererDroppedFrames=dropped;rendererCorruptedFrames=corrupted

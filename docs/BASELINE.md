@@ -53,6 +53,22 @@ buffering on Windows; SDL on Metal leaves Apple's default of three. Without V-Sy
 
 Two takes 1-4 ms off the median and about 5-7 ms off the p95, and costs more skipped frames and a little evenness. By eye, the user still found it smooth on TestUFO, 2026-11-02.
 
+## Phase lock
+
+Metal, Lowest Latency, V-Sync on, two drawables, same setup, three 68-second runs each, alternating, figures at 60 s. It reports to the host when the host takes
+it, as Nightjar does. Nightjar reads the system's latch; the Mac uses Metal's last present time, which is on the refresh grid but later than the real latch by an unknown amount.
+
+| | Run | Renderer drops | Shown | Uneven | Decoded to screen p50 / p95, ms | Reported lead, ms |
+| --- | --- | --- | --- | --- | --- | --- |
+| On | 1 | 216 | 6,636 | 2% | 24.7 / 26.8 | -3.5 |
+| | 2 | 166 | 6,742 | 4% | 22.5 / 24.6 | 2.5 |
+| | 3 | 294 | 6,601 | 5% | 21.4 / 27.3 | 1.2 |
+| Off | 1 | 109 | 6,798 | 2% | 23.7 / 25.8 | |
+| | 2 | 130 | 6,775 | 2% | 22.8 / 25.2 | |
+| | 3 | 286 | 6,607 | 5% | 20.8 / 24.8 | |
+
+**No measurable gain.** The ranges overlap, with slightly more drops on. The lead did not settle at the host's 1.5 ms margin, so whether the host is locking is not known. All of this session ran about 3 ms faster than the two-drawable table above, on the same settings, so compare within one sitting.
+
 ## Notes on the first table
 
 - **Metal with V-Sync settles into one of two states for a whole run.** Good: every refresh shows a frame, about 99% shown, about 29-36 ms.
