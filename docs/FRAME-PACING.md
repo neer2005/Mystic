@@ -5,6 +5,7 @@
 and PC Frame Times mode are history: those are gone. Host-time pacing remains in the pacer, unreachable until Mystic can tell that
 a display refreshes on present, as Nightjar's display check does. Its refresh grid is removed; Nightjar's desktop does not use it.
 Measurements here and in METAL-RENDERER.md were taken before this port.
+The current figures are in BASELINE.md.
 
 Settings → Video → Frame Pacing selects **Low Latency**, **Balanced**, **Balanced
 with FPS Limit**, **Smoothest Video** or **PC Frame Times** for the next stream. Older preferences default to Low Latency. The choice is captured
