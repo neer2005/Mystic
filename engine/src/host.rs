@@ -699,7 +699,7 @@ fn host_info_value(i: &nightjar_core::http::ServerInfo, has_local_pin: bool) -> 
     json!({"name":i.hostname,"uniqueID":i.unique_id,"paired":i.paired && has_local_pin,
         "appVersion":i.app_version,"codecSupport":i.server_codec_mode_support,"currentGame":i.current_game,"currentGameUUID":i.current_game_uuid,"quitAllowed":has_local_pin && quit_allowed(i),
         "clipboardRead":has_local_pin && clipboard_permissions(i).0,"clipboardWrite":has_local_pin && clipboard_permissions(i).1,
-        "software":software_label(&i.capabilities),"nativeAPI":has_local_pin && i.capabilities.has(Feature::NativeApi),
+        "lastFailure":i.last_failure,"software":software_label(&i.capabilities),"nativeAPI":has_local_pin && i.capabilities.has(Feature::NativeApi),
         "permissions":i.capabilities.evidence().filter(|_| has_local_pin).and_then(|e| permission_names(i64::from(e.permission))),
         "otpPairing":availability_name(i.capabilities.availability(Feature::OtpPairing)),
         "display":{"virtualDisplay":availability_name(i.capabilities.availability(Feature::VirtualDisplay)),

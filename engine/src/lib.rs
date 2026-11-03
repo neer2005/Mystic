@@ -800,6 +800,8 @@ pub unsafe extern "C" fn mystic_session_start(
         &handle.interrupt,
     ) {
         Ok(session) => {
+            // A 4 or 8 kHz mouse is merged rather than sending a packet per report; a 1 kHz one never waits.
+            session.input(|q| q.set_relative_motion_floor(nightjar_core::input::queue::FAST_MOUSE_FLOOR));
             handle.session = Some(session);
             MYSTIC_OK
         }
