@@ -92,6 +92,18 @@ Launch with `NIGHTJAR_TIMING_CSV` naming a file or folder, for example
 `open .build/Mystic.app --env NIGHTJAR_TIMING_CSV=/path/to/folder`. Each picture shown gets a row in Nightjar's format, with the host's stamps
 joined through clock sync. On System, `render_ns` is when the picture was handed over, not shown.
 
+## Nightjar 4.3.1 against 4.0.1
+
+TestUFO on Big Dawg's Desktop, HEVC 10-bit at 3024x1890, 120 fps, Metal, the user's settings, about 20 s each, runs alternating,
+about 2,400 rows each, median/p95 in ms.
+
+| Engine | Host present to encoded | Network | PC present to shown | Uneven |
+| --- | --- | --- | --- | --- |
+| 4.3.1 | 4.0/4.3, 4.0/4.3 | 2.5/5.1, 2.3/4.1 | 34.9/35.7, 34.0/37.9 | 2%, 4% |
+| 4.0.1 | 3.9/4.5, 4.0/4.6 | 2.3/4.4, 2.5/4.4 | 34.4/38.7, 33.6/36.9 | 4%, 3% |
+
+No measured change either way in these runs; the differences are within run-to-run spread.
+
 ## Input latency test
 
 Stream menu → Measure Input Latency, Nightjar's Android probe unchanged. No figure yet. On Big Dawg, on a still desktop with
