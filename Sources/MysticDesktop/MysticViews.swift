@@ -124,14 +124,16 @@ public struct StreamingView: View {
             }
         }
         .windowToolbarFullScreenVisibility(.onHover)
-        .background(WindowReader { window=$0 })
+        .background(WindowReader { window=$0
+            if let window=$0 { NotchFullScreen.install(on:window) { [model] in model.presenter?.videoSize ?? .zero } }
+        })
         .fullScreenCommandTarget()
         // When the stream ends, a full-screen window must not be left showing an empty Space.
         // A deliberate end closes the window; one that ended with an error stays to show it.
         .onChange(of:model.phase) { old,new in
             guard old != new,new == .idle || new == .failed else { return }
             if model.errorMessage == nil { dismissWindow(id:"stream") }
-            else if let window,window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
+            else if let window,window.isStreamFullScreen { window.toggleFullScreen(nil) }
         }
         .onDisappear { if model.hasSession { model.leave() } }
     }

@@ -40,7 +40,7 @@ stream over Wi-Fi reached the screen about 34 ms after the PC drew each frame, d
 **Feels like a Mac app**
 - One library of games from all your PCs, with box art, favorites and recently played
 - Wake-on-LAN, pairing with a PIN or a pairing link, and quick resume into a running game
-- Native full screen, menus and keyboard shortcuts, and settings per PC and per game
+- Native full screen, menus and keyboard shortcuts, and settings per PC and per game; a full-display resolution such as 3024 × 1964 fills a notched MacBook screen up to the top edge
 - Your Mac's pointer drives the desktop with no video delay; capture the mouse for games
 - Keyboard layouts, emoji and dictation reach the PC as text; saved key shortcuts for anything else
 
