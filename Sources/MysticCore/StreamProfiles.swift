@@ -9,6 +9,7 @@ public struct StreamVideoSettings: Codable, Equatable, Sendable {
     public var hdr: Bool
     /// Missing in older documents; off, as Nightjar.
     public var tenBitSDR: Bool
+    public var preferYUV444: Bool
     public var framePacing: FramePacingMode
     public var adaptiveBitrate: Bool
     /// Missing in older documents; off.
@@ -24,7 +25,7 @@ public struct StreamVideoSettings: Codable, Equatable, Sendable {
     public init(preferences: StreamPreferences = StreamPreferences()) {
         let value=preferences.validated()
         resolution=value.resolution;fps=value.fps;bitrateMbps=value.bitrateMbps
-        codec=value.codec;hdr=value.hdr;tenBitSDR=value.tenBitSDR ?? false
+        codec=value.codec;hdr=value.hdr;tenBitSDR=value.tenBitSDR ?? false;preferYUV444=value.preferYUV444 ?? false
         framePacing=FramePacingMode(rawValue:value.framePacing ?? "") ?? .lowLatency
         adaptiveBitrate=value.adaptiveBitrate ?? false
         automaticQuality=AutomaticQuality(rawValue:value.automaticQuality ?? "") ?? .off
@@ -35,7 +36,7 @@ public struct StreamVideoSettings: Codable, Equatable, Sendable {
         renderScalePercent=value.renderScalePercent ?? 100
         displayScalePercent=value.displayScalePercent ?? 0
     }
-    private enum CodingKeys: String, CodingKey { case resolution,fps,bitrateMbps,codec,hdr,tenBitSDR,framePacing,adaptiveBitrate,automaticQuality,qualityMinShortEdge,qualityMinFps,virtualDisplay,hostDisplay,renderScalePercent,displayScalePercent }
+    private enum CodingKeys: String, CodingKey { case resolution,fps,bitrateMbps,codec,hdr,tenBitSDR,preferYUV444,framePacing,adaptiveBitrate,automaticQuality,qualityMinShortEdge,qualityMinFps,virtualDisplay,hostDisplay,renderScalePercent,displayScalePercent }
     public init(from decoder: any Decoder) throws {
         let c=try decoder.container(keyedBy:CodingKeys.self)
         resolution=try c.decode(String.self,forKey:.resolution);fps=try c.decode(UInt32.self,forKey:.fps)
@@ -43,6 +44,7 @@ public struct StreamVideoSettings: Codable, Equatable, Sendable {
         hdr=try c.decode(Bool.self,forKey:.hdr);framePacing=try c.decode(FramePacingMode.self,forKey:.framePacing)
         adaptiveBitrate=try c.decode(Bool.self,forKey:.adaptiveBitrate)
         tenBitSDR=try c.decodeIfPresent(Bool.self,forKey:.tenBitSDR) ?? false
+        preferYUV444=try c.decodeIfPresent(Bool.self,forKey:.preferYUV444) ?? false
         automaticQuality=try c.decodeIfPresent(AutomaticQuality.self,forKey:.automaticQuality) ?? .off
         qualityMinShortEdge=try c.decodeIfPresent(UInt32.self,forKey:.qualityMinShortEdge) ?? 720
         qualityMinFps=try c.decodeIfPresent(UInt32.self,forKey:.qualityMinFps) ?? 30
@@ -98,6 +100,7 @@ extension StreamPreferences {
             codec=newValue.codec;hdr=newValue.hdr;framePacing=newValue.framePacing.rawValue
             adaptiveBitrate=newValue.adaptiveBitrate
             tenBitSDR=newValue.tenBitSDR ? true : nil
+            preferYUV444=newValue.preferYUV444 ? true : nil
             automaticQuality=newValue.automaticQuality == .off ? nil : newValue.automaticQuality.rawValue
             qualityMinShortEdge=newValue.qualityMinShortEdge == 720 ? nil : newValue.qualityMinShortEdge
             qualityMinFps=newValue.qualityMinFps == 30 ? nil : newValue.qualityMinFps

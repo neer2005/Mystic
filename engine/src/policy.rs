@@ -327,51 +327,64 @@ mod tests {
     }
 }
 
-/// Nightjar's offer for "10-bit color (SDR)": `base` with the Main10 formats that this Mac decodes
-/// (`decodable`) and the PC encodes (`scm`), as JSON: `formats`, `offered`, and `refusal`, the words
-/// for why not when they are worth saying.
+/// Nightjar's `color::offer`: `base` with the 4:4:4 and Main10 formats wanted, that this Mac
+/// decodes (`decodable`) and the PC encodes (`scm`), as JSON: `formats`, whether each was offered,
+/// and the words for why not when they are worth saying.
 #[no_mangle]
-pub unsafe extern "C" fn mystic_sdr10_offer(base: u32, decodable: u32, scm: u32, hdr: bool, wanted: bool, decoder_reason: *const std::ffi::c_char) -> *mut std::ffi::c_char {
+pub unsafe extern "C" fn mystic_color_offer(base: u32, decodable: u32, scm: u32, hdr: bool, yuv444: bool, sdr10: bool, decoder_reason: *const std::ffi::c_char) -> *mut std::ffi::c_char {
     use nightjar_core::color::{offer, Refusal, Wants};
     let reason = if decoder_reason.is_null() { "" } else { std::ffi::CStr::from_ptr(decoder_reason).to_str().unwrap_or("") };
-    let result = offer(base, Wants { sdr10: wanted, hdr, ..Default::default() }, decodable, reason, scm);
-    let refusal = result.sdr10.as_ref().err().filter(|r| r.worth_saying()).map(|r| match r {
+    let result = offer(base, Wants { yuv444, sdr10, hdr, ..Default::default() }, decodable, reason, scm);
+    let words = |refusal: &Refusal| match refusal {
         Refusal::Decoder(why) if why.is_empty() => "this Mac has no hardware decoder for it".to_owned(),
         Refusal::Decoder(why) => format!("this Mac's decoder: {why}"),
-        Refusal::Host => "the PC encodes no 10-bit format for this codec".to_owned(),
+        Refusal::Host => "the PC does not encode it for this codec".to_owned(),
+        Refusal::Yuv444 => "the PC streams 4:4:4 or 10-bit, not both, and 4:4:4 is on".to_owned(),
         _ => "another setting takes priority".to_owned(),
-    });
-    crate::host::envelope_for(Ok(serde_json::json!({"formats":result.formats,"offered":result.sdr10.is_ok(),"refusal":refusal})))
+    };
+    let said = |answer: &Result<(), Refusal>| answer.as_ref().err().filter(|r| r.worth_saying()).map(words);
+    crate::host::envelope_for(Ok(serde_json::json!({"formats":result.formats,"yuv444":result.yuv444.is_ok(),"sdr10":result.sdr10.is_ok(),
+        "yuv444Refusal":said(&result.yuv444),"sdr10Refusal":said(&result.sdr10)})))
 }
 
 #[cfg(test)]
-mod sdr10_tests {
+mod color_tests {
     use super::*;
     use nightjar_core::sdp::*;
-    fn offer(decodable: u32, scm: u32, hdr: bool, wanted: bool) -> serde_json::Value {
+    fn offer(decodable: u32, scm: u32, hdr: bool, yuv444: bool, sdr10: bool) -> serde_json::Value {
         unsafe {
-            let answer = mystic_sdr10_offer(VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265, decodable, scm, hdr, wanted, c"no decoder".as_ptr());
+            let answer = mystic_color_offer(VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265, decodable, scm, hdr, yuv444, sdr10, c"no decoder".as_ptr());
             let value: serde_json::Value = serde_json::from_str(std::ffi::CStr::from_ptr(answer).to_str().unwrap()).unwrap();
             crate::host::mystic_string_free(answer);
             value["value"].clone()
         }
     }
-    const HEVC: u32 = SCM_HEVC | SCM_HEVC_MAIN10;
+    const PLAIN: u64 = (VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265) as u64;
+    const ALL: u32 = VIDEO_FORMAT_H265_MAIN10 | VIDEO_FORMAT_H265_REXT8_444;
+    const SCM: u32 = SCM_HEVC | SCM_HEVC_MAIN10 | SCM_HEVC_REXT8_444;
     #[test]
-    fn main10_is_added_only_when_wanted_decoded_and_encoded() {
-        let plain = u64::from(VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265);
-        let on = offer(VIDEO_FORMAT_H265_MAIN10, HEVC, false, true);
-        assert_eq!(on["formats"].as_u64().unwrap(), plain | u64::from(VIDEO_FORMAT_H265_MAIN10));
-        assert_eq!(on["offered"], true);
-        assert_eq!(offer(VIDEO_FORMAT_H265_MAIN10, HEVC, false, false)["formats"].as_u64().unwrap(), plain);
-        let host = offer(VIDEO_FORMAT_H265_MAIN10, SCM_HEVC, false, true);
-        assert_eq!((host["offered"].as_bool(), host["refusal"].as_str()), (Some(false), Some("the PC encodes no 10-bit format for this codec")));
-        assert_eq!(offer(0, HEVC, false, true)["refusal"], "this Mac's decoder: no decoder");
+    fn nothing_extra_is_offered_unless_asked() {
+        let off = offer(ALL, SCM, false, false, false);
+        assert_eq!(off["formats"].as_u64().unwrap(), PLAIN);
+        assert!(off["yuv444Refusal"].is_null() && off["sdr10Refusal"].is_null());
     }
     #[test]
-    fn hdr_takes_priority_without_a_word() {
-        let hdr = offer(VIDEO_FORMAT_H265_MAIN10, HEVC, true, true);
-        assert_eq!(hdr["offered"], false);
-        assert!(hdr["refusal"].is_null());
+    fn each_format_needs_the_setting_the_decoder_and_the_pc() {
+        let main10 = offer(ALL, SCM, false, false, true);
+        assert_eq!(main10["formats"].as_u64().unwrap(), PLAIN | u64::from(VIDEO_FORMAT_H265_MAIN10));
+        let full = offer(ALL, SCM, false, true, false);
+        assert_eq!(full["formats"].as_u64().unwrap(), PLAIN | u64::from(VIDEO_FORMAT_H265_REXT8_444));
+        let host = offer(ALL, SCM_HEVC | SCM_HEVC_MAIN10, false, true, false);
+        assert_eq!((host["yuv444"].as_bool(), host["yuv444Refusal"].as_str()), (Some(false), Some("the PC does not encode it for this codec")));
+        assert_eq!(offer(0, SCM, false, true, false)["yuv444Refusal"], "this Mac's decoder: no decoder");
+    }
+    #[test]
+    fn four_four_four_wins_over_ten_bit_and_hdr_over_both_without_a_word() {
+        let both = offer(ALL, SCM, false, true, true);
+        assert_eq!((both["yuv444"].as_bool(), both["sdr10"].as_bool()), (Some(true), Some(false)));
+        assert!(both["sdr10Refusal"].as_str().unwrap().contains("not both"));
+        let hdr = offer(ALL, SCM, true, true, true);
+        assert_eq!((hdr["yuv444"].as_bool(), hdr["sdr10"].as_bool()), (Some(false), Some(false)));
+        assert!(hdr["yuv444Refusal"].is_null() && hdr["sdr10Refusal"].is_null());
     }
 }
