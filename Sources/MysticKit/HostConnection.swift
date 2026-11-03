@@ -64,6 +64,8 @@ public struct LaunchOptions: Codable, Sendable {
     public var height: UInt32 = 1080
     public var fps: UInt32 = 60
     public var hdr = false
+    /// The launch offers a 10-bit format for SDR; hosts otherwise read one as HDR.
+    public var tenBitSDR = false
     public var channelCount: UInt8 = 2
     public var channelMask: UInt16 = 3
     public var gamepadMask: UInt16 = 0

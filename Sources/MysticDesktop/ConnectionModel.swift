@@ -121,9 +121,10 @@ public final class ConnectionModel {
     @ObservationIgnored public private(set) lazy var hostHardware=HostHardwareModel(model:self)
     @ObservationIgnored public private(set) lazy var remoteCheck=RemoteCheckModel(model:self)
     /// The overlay's Stream line: the launch's size, rate and bitrate.
+    private var tenBitStreaming=false
     public var overlayStreamLine: String {
         guard let config=plan?.configuration else { return "—" }
-        return "\(config.width)x\(config.height) \(config.fps) fps · \(rates.currentKbps/1000) Mbps"
+        return "\(config.width)x\(config.height) \(config.fps) fps · \(rates.currentKbps/1000) Mbps\(tenBitStreaming ? " · 10-bit SDR" : "")"
     }
     public let shortcuts: KeyShortcutsStore
     public let networkProfiles: PreferenceDocument<NetworkProfiles>
@@ -378,6 +379,7 @@ public final class ConnectionModel {
         var qualityMinShortEdge: UInt32=720
         var qualityMinFps: UInt32=30
         var renderer: VideoRendererKind = .displayLayer
+        var tenBit: TenBitOffer? = nil
     }
     @ObservationIgnored private(set) var plan: StreamPlan?
     /// The headroom of the screen the stream will open on, read when a plan is made.
@@ -643,7 +645,11 @@ public final class ConnectionModel {
             case "av1": mask &= 0xF000
             default: break
             }
+            let decodable10=mask & (VideoFormat.hevc10.rawValue | VideoFormat.av110.rawValue)
             mask &= video.hdr ? 0xAA00 : ~UInt32(0xAA00)
+            let tenBit=TenBitOffer.make(base:mask,decodable:decodable10,hostCodecs:host?.codecSupport ?? 0,hdr:video.hdr,wanted:video.tenBitSDR,
+                decoderReason:[VideoFormat.hevc10,.av110].compactMap { capabilities.exclusionReasons[$0.rawValue] }.joined(separator:"; "))
+            mask=tenBit.formats
             guard mask != 0 else { throw HostConnectionError("This Mac has no verified hardware decoder for the selected codec and HDR mode.") }
             guard !video.hdr || app.hdrSupported else { throw HostConnectionError("This app does not advertise HDR support.") }
             var options = LaunchOptions(app: app)
@@ -660,6 +666,7 @@ public final class ConnectionModel {
             options.clientRefreshRateX100 = DisplayRefresh.x100(launchRefreshRate())
             options.clipboardSync=clipboardSync
             options.width = mode.width; options.height = mode.height; options.fps = mode.fps; options.hdr = video.hdr
+            options.tenBitSDR = !video.hdr && mask & 0xAA00 != 0
             var config = StreamConfiguration()
             config.width = Int32(mode.width); config.height = Int32(mode.height); config.fps = Int32(mode.fps)
             config.bitrateKbps = mode.bitrateKbps; config.supportedVideoFormats = mask
@@ -675,7 +682,7 @@ public final class ConnectionModel {
                 hostID:host?.uniqueID ?? "",framePacing:video.framePacing,
                 tellWireless:tellHostWireless,tellLinkSpeed:tellHostLinkSpeed,
                 roaming:clientRoaming,roamingMetered:roamingOnMeteredNetworks,quality:video.automaticQuality,
-                qualityMinShortEdge:video.qualityMinShortEdge,qualityMinFps:video.qualityMinFps,renderer:videoRenderer)
+                qualityMinShortEdge:video.qualityMinShortEdge,qualityMinFps:video.qualityMinFps,renderer:videoRenderer,tenBit:tenBit)
     }
     private func startPreparedPlan(_ plan: StreamPlan,connection: any HostService,capabilities: VideoCapabilities) {
         recovery=StreamRecovery();recovering=false;hadVideo=false;connectedAt=nil
@@ -1039,6 +1046,7 @@ public final class ConnectionModel {
                 }
             }
             reportDisplay(token:token)
+            reportTenBit(token:token)
             status = "Streaming \(plan?.app.name ?? library.selected?.name ?? "video")."
         case .stageStarting(let stage): status = "Starting \(stage.name)…"
         case .stageComplete: break
@@ -1257,6 +1265,15 @@ public final class ConnectionModel {
         latencyTestResult="Input to screen: \(figures).\n\n"+(shown
             ? "Timed from the moment Mystic sends a mouse nudge until macOS reports the host's answering frame on the display. It covers the network, host capture and encoding, decoding and display. Your hand and the panel's own lag are not included."
             : "Timed from the moment Mystic sends a mouse nudge until the host's answering frame is handed to macOS. The System renderer doesn't report when a frame is shown, so the wait for the display is not included, nor are your hand and the panel's own lag.")
+    }
+    /// Nightjar's word on 10-bit SDR once the stream's format is known.
+    private func reportTenBit(token: UUID) {
+        tenBitStreaming=false
+        guard let offer=plan?.tenBit else { return }
+        if let refusal=offer.refusal { record("10-bit SDR isn't used, so the stream is 8-bit: \(refusal).",token:token);return }
+        guard offer.offered,let format=decoder?.negotiatedFormat else { return }
+        tenBitStreaming=format.tenBit
+        record(format.tenBit ? "Streaming 10-bit color (SDR)." : "This PC didn't accept 10-bit, so the stream is 8-bit.",token:token)
     }
     /// A line in the current stream's session log.
     func recordStream(_ message: String) { record(message,token:generation) }

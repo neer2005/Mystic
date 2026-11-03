@@ -14,6 +14,7 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public var codec = "auto"
     public var framePacing: String? = nil // Missing in older documents; defaults to low latency.
     public var hdr = false
+    public var tenBitSDR: Bool? = nil // Missing in older documents; defaults off, as Nightjar.
     public var audioLayout = "stereo"
     public var volume: Float = 0.8
     public var muted = false

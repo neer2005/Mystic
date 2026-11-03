@@ -85,6 +85,8 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
             log("Video setup: \(selected) \(info.width)×\(info.height) @ \(info.fps) fps, \(fullRange ? "full" : "limited") range")
         }
     }
+    /// The format the stream negotiated, once set up.
+    public var negotiatedFormat: VideoFormat? { queue.sync { format } }
     public func start() { queue.sync { if setupInfo != nil { running = true } } }
     public func stop() { queue.sync { running = false; invalidate() } }
     public func cleanup() { queue.sync { running = false; invalidate(); setupInfo = nil; format = nil } }

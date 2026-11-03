@@ -119,7 +119,10 @@ final class MetalVideoRendererTests: XCTestCase {
     }
     func testTagsChooseTheLayerFormat() throws {
         let image=try frame(kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange,y:64,u:512,v:512,matrix:kCVImageBufferYCbCrMatrix_ITU_R_2020)
-        XCTAssertEqual(VideoLayerFormat(image:image).transfer,.sdr);XCTAssertEqual(VideoLayerFormat(image:image).pixelFormat,.bgra8Unorm)
+        // 10-bit SDR keeps its depth to the screen; 8-bit SDR stays 8-bit.
+        XCTAssertEqual(VideoLayerFormat(image:image).transfer,.sdr);XCTAssertEqual(VideoLayerFormat(image:image).pixelFormat,.bgr10a2Unorm)
+        let eight=try frame(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,y:16,u:128,v:128,matrix:kCVImageBufferYCbCrMatrix_ITU_R_709_2)
+        XCTAssertEqual(VideoLayerFormat(image:eight).pixelFormat,.bgra8Unorm)
         CVBufferSetAttachment(image,kCVImageBufferTransferFunctionKey,kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ,.shouldPropagate)
         XCTAssertEqual(VideoLayerFormat(image:image).transfer,.pq);XCTAssertEqual(VideoLayerFormat(image:image).pixelFormat,.bgr10a2Unorm)
         CVBufferSetAttachment(image,kCVImageBufferTransferFunctionKey,kCVImageBufferTransferFunction_ITU_R_2100_HLG,.shouldPropagate)
