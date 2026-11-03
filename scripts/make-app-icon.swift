@@ -23,32 +23,39 @@ func draw(_ pixels: Int) -> Data {
     c.addPath(CGPath(roundedRect:tile.insetBy(dx:2,dy:2),cornerWidth:183,cornerHeight:183,transform:nil))
     c.setStrokeColor(color(1,1,1,0.14));c.setLineWidth(4);c.strokePath()
     // A white controller, drawn here: Apple's symbols may not be used in app icons.
+    // Shaped like an Xbox 360 controller: wide shoulders and full grips, with staggered sticks.
     let pad=CGMutablePath()
-    pad.move(to:CGPoint(x:356,y:712));pad.addLine(to:CGPoint(x:668,y:712))
-    pad.addCurve(to:CGPoint(x:806,y:598),control1:CGPoint(x:744,y:712),control2:CGPoint(x:788,y:668))
-    pad.addLine(to:CGPoint(x:852,y:408))
-    pad.addCurve(to:CGPoint(x:782,y:298),control1:CGPoint(x:872,y:326),control2:CGPoint(x:830,y:288))
-    pad.addCurve(to:CGPoint(x:690,y:402),control1:CGPoint(x:746,y:306),control2:CGPoint(x:718,y:346))
-    pad.addCurve(to:CGPoint(x:620,y:456),control1:CGPoint(x:674,y:436),control2:CGPoint(x:652,y:456))
-    pad.addLine(to:CGPoint(x:404,y:456))
-    pad.addCurve(to:CGPoint(x:334,y:402),control1:CGPoint(x:372,y:456),control2:CGPoint(x:350,y:436))
-    pad.addCurve(to:CGPoint(x:242,y:298),control1:CGPoint(x:306,y:346),control2:CGPoint(x:278,y:306))
-    pad.addCurve(to:CGPoint(x:172,y:408),control1:CGPoint(x:194,y:288),control2:CGPoint(x:152,y:326))
-    pad.addLine(to:CGPoint(x:218,y:598))
-    pad.addCurve(to:CGPoint(x:356,y:712),control1:CGPoint(x:236,y:668),control2:CGPoint(x:280,y:712))
+    let right: [(CGPoint,CGPoint,CGPoint)]=[
+        (CGPoint(x:570,y:672),CGPoint(x:600,y:704),CGPoint(x:668,y:708)),
+        (CGPoint(x:744,y:712),CGPoint(x:802,y:682),CGPoint(x:828,y:612)),
+        (CGPoint(x:862,y:522),CGPoint(x:884,y:420),CGPoint(x:860,y:346)),
+        (CGPoint(x:842,y:290),CGPoint(x:776,y:282),CGPoint(x:736,y:332)),
+        (CGPoint(x:706,y:370),CGPoint(x:682,y:414),CGPoint(x:640,y:428)),
+        (CGPoint(x:600,y:440),CGPoint(x:560,y:438),CGPoint(x:512,y:438))]
+    func mirrored(_ point: CGPoint) -> CGPoint { CGPoint(x:1024-point.x,y:point.y) }
+    pad.move(to:CGPoint(x:512,y:672))
+    for curve in right { pad.addCurve(to:curve.2,control1:curve.0,control2:curve.1) }
+    // Back up the left side, the same curves in reverse.
+    var ends=[CGPoint(x:512,y:672)]+right.map(\.2)
+    ends.removeLast()
+    for (curve,end) in zip(right,ends).reversed() {
+        pad.addCurve(to:mirrored(end),control1:mirrored(curve.1),control2:mirrored(curve.0))
+    }
     pad.closeSubpath()
-    // The D-pad and the four buttons, cut out.
-    let (dx,dy,arm,half): (CGFloat,CGFloat,CGFloat,CGFloat)=(372,590,66,23)
+    // Cut out: a ring for each stick, the D-pad, the four buttons and the guide button.
+    func circle(_ x: CGFloat,_ y: CGFloat,_ radius: CGFloat) { pad.addEllipse(in:CGRect(x:x-radius,y:y-radius,width:radius*2,height:radius*2)) }
+    circle(334,590,54);circle(334,590,30)
+    circle(610,500,46);circle(610,500,25)
+    let (dx,dy,arm,half): (CGFloat,CGFloat,CGFloat,CGFloat)=(414,500,44,16)
     pad.addLines(between:[CGPoint(x:dx-half,y:dy+arm),CGPoint(x:dx+half,y:dy+arm),CGPoint(x:dx+half,y:dy+half),CGPoint(x:dx+arm,y:dy+half),
                           CGPoint(x:dx+arm,y:dy-half),CGPoint(x:dx+half,y:dy-half),CGPoint(x:dx+half,y:dy-arm),CGPoint(x:dx-half,y:dy-arm),
                           CGPoint(x:dx-half,y:dy-half),CGPoint(x:dx-arm,y:dy-half),CGPoint(x:dx-arm,y:dy+half),CGPoint(x:dx-half,y:dy+half)])
     pad.closeSubpath()
-    for (x,y) in [(652.0,644.0),(652.0,536.0),(598.0,590.0),(706.0,590.0)] as [(CGFloat,CGFloat)] {
-        pad.addEllipse(in:CGRect(x:x-27,y:y-27,width:54,height:54))
-    }
+    for (x,y) in [(694.0,630.0),(694.0,550.0),(654.0,590.0),(734.0,590.0)] as [(CGFloat,CGFloat)] { circle(x,y,20) }
+    circle(512,590,28)
     c.saveGState();c.addPath(pad);c.clip(using:.evenOdd)
     c.drawLinearGradient(CGGradient(colorsSpace:space,colors:[color(1,1,1),color(0.8,0.8,0.82)] as CFArray,locations:[0,1])!,
-                         start:CGPoint(x:512,y:712),end:CGPoint(x:512,y:298),options:[])
+                         start:CGPoint(x:512,y:712),end:CGPoint(x:512,y:290),options:[])
     c.restoreGState()
     NSGraphicsContext.restoreGraphicsState()
     return rep.representation(using:.png,properties:[:])!
