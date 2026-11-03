@@ -25,6 +25,7 @@ public final class ConnectionModel {
     @ObservationIgnored public private(set) lazy var homeSync = HomeSync(model:self)
     @ObservationIgnored public private(set) lazy var rates = StreamRatesModel(model:self)
     @ObservationIgnored public private(set) lazy var sessionControls = HostSessionModel(model:self)
+    @ObservationIgnored public private(set) lazy var hostAudioControls = HostAudioModel(model:self)
     @ObservationIgnored public private(set) lazy var graphics = HostGraphicsModel(model:self)
     @ObservationIgnored public private(set) lazy var health = StreamHealthModel(model:self)
     @ObservationIgnored public private(set) lazy var quality = StreamQualityModel(model:self)
@@ -476,7 +477,7 @@ public final class ConnectionModel {
         cancelGameAction()
         rates.resetManual()
         graphics.reset()
-        sessionControls.reset()
+        hostAudioControls.reset();sessionControls.reset()
         remoteCheck.reset()
         library.clear()
         host = nil; pairingPIN = nil; diagnostics = []
@@ -873,7 +874,7 @@ public final class ConnectionModel {
         cancelGameAction()
         rates.resetManual()
         graphics.reset()
-        sessionControls.reset()
+        hostAudioControls.reset();sessionControls.reset()
         remoteCheck.reset()
         library.clear()
         host = nil
