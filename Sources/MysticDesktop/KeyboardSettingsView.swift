@@ -34,7 +34,7 @@ struct KeyboardSettingsView: View {
                     Button("Export…",action:exportFile).disabled(store.shortcuts.data.isEmpty)
                 }
                 if let error=store.error { Text(error).font(.caption).foregroundStyle(.red) }
-                Text("Send them from Stream → Send Shortcut. Files use the format of Nightjar and Moonlight on Android, so an exported file imports there too. Importing replaces every saved shortcut.")
+                Text("Send them from Stream → Send Shortcut. Importing replaces every saved shortcut.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Layout") {

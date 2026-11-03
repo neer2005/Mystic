@@ -141,10 +141,10 @@ struct PerformanceOverlay<Details: View>: View {
                 }
             }
         }
-        .font(.caption.monospacedDigit())
+        .font(mode == .compact ? .callout.monospacedDigit() : .caption.monospacedDigit())
         .foregroundStyle(.white)
-        .padding(mode == .compact ? 8 : 12)
-        .background(.black.opacity(0.8),in:RoundedRectangle(cornerRadius:10))
+        .padding(.horizontal,mode == .compact ? 12 : 14).padding(.vertical,mode == .compact ? 7 : 12)
+        .background(.black.opacity(0.65),in:RoundedRectangle(cornerRadius:mode == .compact ? 16 : 12))
         .accessibilityElement(children:.combine)
     }
 }

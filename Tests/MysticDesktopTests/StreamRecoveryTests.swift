@@ -671,7 +671,8 @@ final class StreamRecoveryTests: XCTestCase {
         for _ in 0..<count { telemetry.decode(startMicros:1000,endMicros:3000) }
         return telemetry.snapshot(nowMicros:10000)
     }
-    private func wait(seconds: Double = 2,_ done: () -> Bool) async throws {
+    // Generous: the whole suite running at once starves these waits.
+    private func wait(seconds: Double = 6,_ done: () -> Bool) async throws {
         for _ in 0..<Int(seconds*200) { if done() { return };try await Task.sleep(for:.milliseconds(5)) }
         XCTFail("Timed out waiting for stream state")
     }

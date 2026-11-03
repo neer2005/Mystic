@@ -38,7 +38,7 @@ struct HomeLibraryContent: View {
                 ScrollView {
                     VStack(alignment:.leading,spacing:20) {
                         ContentUnavailableView(model.home.games.isEmpty ? "Your Games, Together" : "No Matching Games",systemImage:"gamecontroller",
-                            description:Text(model.home.games.isEmpty ? "Pair a PC in the sidebar, then refresh Home. Cached games stay available when a PC is offline." : "Try another search, store or collection."))
+                            description:Text(model.home.games.isEmpty ? "Add a PC in the sidebar and its games appear here, even when it's offline." : "Try another search, store or collection."))
                         yourPCs
                     }.padding(16)
                 }
@@ -51,10 +51,11 @@ struct HomeLibraryContent: View {
                                 .aspectRatio(GameArtwork.aspect,contentMode:.fit)
                                 .task(id:model.home.artKey(copy)+"-"+(model.home.reach[copy.hostID]?.rawValue ?? "unknown")) { await model.homeSync.loadArt(copy) }
                         }
-                        HStack { Text(game.title).lineLimit(2);if game.favourite { Image(systemName:"star.fill").foregroundStyle(.yellow) } }.font(.callout)
+                        HStack(alignment:.top) { Text(game.title).lineLimit(2,reservesSpace:true);if game.favourite { Image(systemName:"star.fill").foregroundStyle(.yellow) } }.font(.callout)
                         Text(stores(game).joined(separator:" · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        Text(pcNames(game).joined(separator:" · ")).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                        Text(availability(game)).font(.caption).foregroundStyle(.secondary)
+                        // The PC only matters with several; offline is the exception worth a line.
+                        if savedPCs.count > 1 { Text(pcNames(game).joined(separator:" · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                        if availability(game) != "Online" { Label("Offline",systemImage:"moon.zzz").font(.caption).foregroundStyle(.secondary) }
                     }
                 } menu: { game in gameMenu(game) } footer: { yourPCs }
             }
@@ -92,7 +93,7 @@ struct HomeLibraryContent: View {
                 if let notice=model.home.notices[key] { Text(notice).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
             }
         }
-        Text("Wake-on-LAN needs a supported PC and a network path for magic packets; VPN connections may not carry broadcasts.").font(.caption).foregroundStyle(.secondary)
+        Text("Waking a PC needs it to support Wake-on-LAN, and may not work over a VPN.").font(.caption).foregroundStyle(.secondary)
         if let error=model.home.error { Text(error).font(.caption).foregroundStyle(.red) }
     }
     private func stores(_ game: HomeGame) -> [String] { Array(Set(game.copies.compactMap(\.store))).sorted() }
@@ -164,7 +165,7 @@ struct HomeGameDetails: View {
                             if model.home.reach[pc.id] != .online {
                                 Button("Wake \(pc.name)",systemImage:"power") { Task { await model.homeSync.wake(pc.id) } }.disabled(pc.wake.macs.isEmpty || model.homeSync.busy || model.isBusy || model.hasSession)
                             }
-                            Text("Connects to this PC, verifies the current library and uses this game's saved settings. Any required game switch is confirmed before quitting.").font(.caption).foregroundStyle(.secondary)
+                            Text("Uses this game's saved settings. If another game is running, you'll be asked before it quits.").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }

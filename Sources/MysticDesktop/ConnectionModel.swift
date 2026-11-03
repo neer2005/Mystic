@@ -39,7 +39,7 @@ public final class ConnectionModel {
     public let awdl=AWDLControl()
     /// A link's launch, waiting for the user to confirm it.
     public private(set) var pendingShortcut: ShortcutLaunch?
-    public private(set) var status = "Enter your host’s LAN address to connect."
+    public private(set) var status = "Choose a PC to connect."
     public private(set) var errorMessage: String?
     public private(set) var host: HostInfo?
     public private(set) var pairingPIN: String?

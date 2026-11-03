@@ -14,12 +14,12 @@ struct LiveRatesView: View {
     }
     var body: some View {
         VStack(alignment:.leading,spacing:12) {
-            Text("Live Stream Rates").font(.headline)
-            if model.phase != .streaming { Text("Start a stream to change bitrate and frame rate.").foregroundStyle(.secondary) }
+            Text("Stream Rates").font(.headline)
+            if model.phase != .streaming { Text("Start a stream to change its bitrate and frame rate.").foregroundStyle(.secondary) }
             else {
                 if let applied=model.rates.appliedKbps { LabeledContent("Host-confirmed bitrate",value:"\(applied) kbps") }
                 if let applied=model.rates.appliedFPS { LabeledContent("Host-confirmed frame rate",value:String(format:"%.3f fps",Double(applied)/1000)) }
-                if model.rates.appliedKbps == nil { Text("Launch request: \(model.rates.launchKbps) kbps · \(model.rates.launchFPS) fps").font(.caption).foregroundStyle(.secondary) }
+                if model.rates.appliedKbps == nil { Text("Started at \(String(format:"%.1f",Double(model.rates.launchKbps)/1000)) Mbps · \(model.rates.launchFPS) fps").font(.caption).foregroundStyle(.secondary) }
                 LabeledContent("Bitrate (Mbps)") { TextField("Bitrate (Mbps)",text:$bitrate).textFieldStyle(.roundedBorder).frame(width:130).disabled(model.rates.busy) }
                 Text("1–150 Mbps").font(.caption).foregroundStyle(.secondary)
                 if model.rates.liveAvailable {
@@ -34,9 +34,10 @@ struct LiveRatesView: View {
                 }.disabled(!model.rates.canChange || kbps == nil || (model.rates.liveAvailable && milliHz == nil))
                 if model.rates.busy { ProgressView("Waiting for host…") }
             }
-            Text(model.rates.message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-            if model.phase == .streaming { Text(model.quality.status).font(.caption).foregroundStyle(.secondary) }
-            Text("Changes apply to this stream. Saved game settings stay the same; reconnect restores them and automatic bitrate.").font(.caption).foregroundStyle(.secondary)
+            if model.phase == .streaming {
+                if !model.rates.message.isEmpty { Text(model.rates.message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+                Text("Changes apply to this stream only. Reconnecting restores the saved settings.").font(.caption).foregroundStyle(.secondary)
+            }
         }
         .onAppear { bitrate=String(Double(model.rates.appliedKbps ?? model.rates.launchKbps)/1000);fps=String(Double(model.rates.appliedFPS ?? model.rates.launchFPS*1000)/1000) }
     }

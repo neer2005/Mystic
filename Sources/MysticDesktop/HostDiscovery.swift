@@ -11,7 +11,7 @@ public protocol HostDiscoveryTransport: AnyObject {
 @MainActor @Observable
 public final class HostDiscovery {
     public private(set) var hosts: [DiscoveredHost] = []
-    public private(set) var status="LAN discovery stopped"
+    public private(set) var status="Not searching"
     public private(set) var isRunning=false
     @ObservationIgnored private let transport: any HostDiscoveryTransport
     @ObservationIgnored private var generation=UUID()
@@ -19,7 +19,7 @@ public final class HostDiscovery {
     public func start() {
         guard !isRunning else { return }
         generation=UUID();let token=generation
-        isRunning=true;status="Looking for hosts on your LAN…"
+        isRunning=true;status="Looking for PCs on your network…"
         transport.start(update: { [weak self] hosts in
             guard let self,self.generation == token,self.isRunning else { return }
             var unique:[String:DiscoveredHost]=[:]
@@ -30,7 +30,7 @@ public final class HostDiscovery {
         })
     }
     public func stop() {
-        generation=UUID();isRunning=false;transport.stop();hosts=[];status="LAN discovery stopped"
+        generation=UUID();isRunning=false;transport.stop();hosts=[];status="Not searching"
     }
     public func refresh() { stop();start() }
     isolated deinit { transport.stop() }

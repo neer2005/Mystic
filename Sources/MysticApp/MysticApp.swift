@@ -39,6 +39,9 @@ struct MysticApp: App {
             }
         Settings { MysticSettingsView(model:model) }
         Window("Mystic Stream", id: "stream") { StreamingView(model: model) }
+            // Never opens by itself, at launch or from a previous run's windows.
+            .defaultLaunchBehavior(.suppressed)
+            .restorationBehavior(.disabled)
             .windowManagerRole(.principal)
             // Opened by starting a stream; an empty stream window from the Window menu has no use.
             .commandsRemoved()
