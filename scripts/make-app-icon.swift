@@ -38,7 +38,7 @@ func draw(_ pixels: Int) -> Data {
                      control2:CGPoint(x:p2.x-(p3.x-p1.x)/6,y:p2.y-(p3.y-p1.y)/6))
     }
     pad.closeSubpath()
-    // Cut out: a ring for each stick, the D-pad, the four buttons, the guide button, and View, Menu and Share.
+    // Cut out: a ring for each stick, the D-pad and the four buttons.
     func circle(_ x: CGFloat,_ y: CGFloat,_ radius: CGFloat) {
         let centre=mapped(x,y);pad.addEllipse(in:CGRect(x:centre.x-radius,y:centre.y-radius,width:radius*2,height:radius*2))
     }
@@ -50,8 +50,6 @@ func draw(_ pixels: Int) -> Data {
                           CGPoint(x:d.x-width,y:d.y-width),CGPoint(x:d.x-arm,y:d.y-width),CGPoint(x:d.x-arm,y:d.y+width),CGPoint(x:d.x-width,y:d.y+width)])
     pad.closeSubpath()
     for (x,y) in [(490.0,229.0),(490.0,301.0),(454.0,265.0),(526.0,265.0)] as [(CGFloat,CGFloat)] { circle(x,y,21) }
-    circle(350,212,28)
-    circle(311,264,11);circle(389,264,11);circle(350,293,9)
     c.saveGState();c.addPath(pad);c.clip(using:.evenOdd)
     c.drawLinearGradient(CGGradient(colorsSpace:space,colors:[color(1,1,1),color(0.8,0.8,0.82)] as CFArray,locations:[0,1])!,
                          start:CGPoint(x:512,y:730),end:CGPoint(x:512,y:280),options:[])
