@@ -74,6 +74,20 @@ public struct MysticSettingsView: View {
                         Toggle("Disable Vibration",isOn:$model.inputPreferences.disableVibration)
                         Stepper("Stick Dead Zone: \(model.inputPreferences.stickDeadZonePercent)%",value:$model.inputPreferences.stickDeadZonePercent,in:0...50)
                         Text("Each connected controller appears on the PC. The Nintendo layout swaps A with B and X with Y.").font(.caption).foregroundStyle(.secondary)
+                        Picker("Buttons to Leave the Stream",selection:$model.inputPreferences.leaveCombo) {
+                            ForEach(ControllerLeaveCombo.allCases,id:\.self) { Text($0.label).tag($0) }
+                        }
+                        Text("Hold these buttons together to leave the stream. Pick others if a game or your controller needs these.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Section("Controller Mouse") {
+                        Toggle("Controller Mouse Mode",isOn:$model.inputPreferences.controllerMouse)
+                        Text("Hold Start for 750 ms, then let go, to move the PC's pointer with the controller. A and B click, the D-pad scrolls.").font(.caption).foregroundStyle(.secondary)
+                        Picker("Stick for Scrolling",selection:$model.inputPreferences.scrollStick) {
+                            ForEach(ControllerMouse.ScrollStick.allCases,id:\.self) { Text($0.label).tag($0) }
+                        }.disabled(!model.inputPreferences.controllerMouse)
+                        Text("In controller mouse mode this stick scrolls and the other moves the pointer. Off lets both sticks move it.").font(.caption).foregroundStyle(.secondary)
+                        Toggle("Precise Controller Mouse",isOn:$model.inputPreferences.preciseControllerMouse).disabled(!model.inputPreferences.controllerMouse)
+                        Text("In controller mouse mode, hold X to move in fixed pixel steps. Press Y to double the step, from 1 to 128 pixels.").font(.caption).foregroundStyle(.secondary)
                     }
                 }.tabItem { Label("Controls",systemImage:"gamecontroller") }.tag("controls")
                 KeyboardSettingsView(model:model)

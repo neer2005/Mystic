@@ -9,7 +9,12 @@ public final class StreamInputCapture {
     public enum Mode: String { case released, desktop, relative }
     public private(set) var mode: Mode = .released
     public private(set) var available = false
+    /// A controller moves the PC's pointer (Nightjar's controller mouse mode).
+    public private(set) var controllerMouse = false
+    /// A controller's leave combo was pressed.
+    @ObservationIgnored var leaveStream: (() -> Void)?
     public var status: String {
+        if controllerMouse,mode != .released { return "Controller mouse • A/B click, D-pad scrolls • hold Start for the controller" }
         switch mode {
         case .released: available ? "Click video to control • ⌃⌥⇧Esc releases input" : "Input waiting for connection"
         case .desktop: "Desktop control • ⌃⌥⇧Esc releases input"
@@ -101,6 +106,13 @@ public final class StreamInputCapture {
                 self?.release();self?.failure("Controller input backlog was full. Control released; click video to resume.")
             })
             controllers?.settings=input
+            controllers?.leave = { [weak self] in self?.leaveStream?() }
+            controllers?.mouseSwitched = { [weak self] on in
+                guard let self else { return }
+                controllerMouse=on
+                // Nightjar's toasts, in the session log.
+                failure(on ? "Controller mouse enabled. A/B click; D-pad scrolls. Hold Start to return to gamepad." : "Controller mouse disabled.")
+            }
         }
         controllers?.setEnabled(input.controllers)
         guard mode != .released else { return }

@@ -846,6 +846,11 @@ public final class ConnectionModel {
                 self.audioPlayer = audio
                 self.inputCapture = StreamInputCapture(send: { [weak session] in session?.send($0) ?? false },failure: { [weak self] message in self?.record(message,token:token) })
                 self.inputCapture?.input = self.inputPreferences
+                self.inputCapture?.leaveStream = { [weak self] in
+                    guard let self,self.generation == token else { return }
+                    self.record("A controller's leave buttons ended the stream.",token:token)
+                    self.leave()
+                }
                 self.presenter = presenter; self.decoder = decoder; self.session = session
                 self.status = "Starting video connection…"
                 session.start(host: address, launch: launch, configuration: config, decoder: decoder, audio: audio,

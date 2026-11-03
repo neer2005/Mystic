@@ -235,8 +235,18 @@ public struct InputPreferences: Codable, Equatable, Sendable {
     public var swapFaceButtons=false
     public var controllerMotion=true
     public var stickDeadZonePercent=12
+    /// Nightjar's controller mouse mode: hold Start for 750 ms to move the PC's pointer.
+    public var controllerMouse=true
+    public var scrollStick=ControllerMouse.ScrollStick.right
+    /// In controller mouse mode, X moves in fixed steps that Y doubles.
+    public var preciseControllerMouse=false
+    /// The buttons that leave the stream together.
+    public var leaveCombo=ControllerLeaveCombo.startSelectLbRb
     public init() {}
-    private enum CodingKeys: String, CodingKey { case mouseSpeedPercent,mouseNavigationButtons,controllers,disableVibration,swapFaceButtons,controllerMotion,stickDeadZonePercent }
+    private enum CodingKeys: String, CodingKey {
+        case mouseSpeedPercent,mouseNavigationButtons,controllers,disableVibration,swapFaceButtons,controllerMotion,stickDeadZonePercent
+        case controllerMouse,scrollStick,preciseControllerMouse,leaveCombo
+    }
     public init(from decoder: any Decoder) throws {
         let c=try decoder.container(keyedBy:CodingKeys.self)
         mouseSpeedPercent=try c.decodeIfPresent(Int.self,forKey:.mouseSpeedPercent) ?? 100
@@ -246,6 +256,11 @@ public struct InputPreferences: Codable, Equatable, Sendable {
         swapFaceButtons=try c.decodeIfPresent(Bool.self,forKey:.swapFaceButtons) ?? false
         controllerMotion=try c.decodeIfPresent(Bool.self,forKey:.controllerMotion) ?? true
         stickDeadZonePercent=try c.decodeIfPresent(Int.self,forKey:.stickDeadZonePercent) ?? 12
+        // Missing in older documents, and an unknown choice keeps the default, as Nightjar.
+        controllerMouse=try c.decodeIfPresent(Bool.self,forKey:.controllerMouse) ?? true
+        scrollStick=(try? c.decodeIfPresent(ControllerMouse.ScrollStick.self,forKey:.scrollStick)) ?? .right
+        preciseControllerMouse=try c.decodeIfPresent(Bool.self,forKey:.preciseControllerMouse) ?? false
+        leaveCombo=(try? c.decodeIfPresent(ControllerLeaveCombo.self,forKey:.leaveCombo)) ?? .startSelectLbRb
     }
     public func validated() -> Self {
         var value=self
