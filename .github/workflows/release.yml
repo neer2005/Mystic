@@ -1,0 +1,106 @@
+# Builds, tests and publishes Mystic when a version tag is pushed, such as v0.2.0 or v0.2.0-beta.1.
+# See docs/RELEASING.md for the secrets it needs.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # Mystic needs the macOS 27 SDK. This image is a GitHub public preview.
+    runs-on: xcode-27
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the version from the tag
+        run: |
+          version="${TAG#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::$TAG is not vX.Y.Z or vX.Y.Z-pre";exit 1; }
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "MYSTIC_VERSION=$version" >> "$GITHUB_ENV"
+          echo "MYSTIC_BUILD=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+
+      - name: Test the engine and its C interface
+        run: bash engine/scripts/test-c-abi.sh
+
+      - name: Test the app
+        run: swift test
+
+      - name: Check the signing secrets
+        env:
+          CERTIFICATE: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          NOTARY_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_APP_PASSWORD }}
+          NOTARY_TEAM: ${{ secrets.NOTARY_TEAM_ID }}
+        run: |
+          if [[ -n "$CERTIFICATE" && -n "$CERTIFICATE_PASSWORD" && -n "$NOTARY_ID" && -n "$NOTARY_PASSWORD" && -n "$NOTARY_TEAM" ]]; then
+            echo "SIGNED=1" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No Developer ID secrets: this build is ad-hoc signed and published as a draft, for testing only."
+            echo "SIGNED=" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up Developer ID signing
+        if: env.SIGNED == '1'
+        env:
+          CERTIFICATE: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          NOTARY_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_APP_PASSWORD }}
+          NOTARY_TEAM: ${{ secrets.NOTARY_TEAM_ID }}
+        run: |
+          keychain="$RUNNER_TEMP/release.keychain-db"
+          password="$(uuidgen)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          xcrun notarytool store-credentials mystic-release --apple-id "$NOTARY_ID" --password "$NOTARY_PASSWORD" --team-id "$NOTARY_TEAM" --keychain "$keychain"
+          identity="$(security find-identity -v -p codesigning "$keychain" | sed -nE 's/.*([[:xdigit:]]{40}) "Developer ID Application:.*/\1/p' | head -1)"
+          [[ -n "$identity" ]] || { echo "::error::The certificate is not a Developer ID Application certificate.";exit 1; }
+          echo "MYSTIC_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "MYSTIC_DISTRIBUTION=1" >> "$GITHUB_ENV"
+          echo "MYSTIC_NOTARY_PROFILE=mystic-release" >> "$GITHUB_ENV"
+          echo "KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
+      - name: Use ad-hoc signing
+        if: env.SIGNED != '1'
+        run: echo "MYSTIC_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: bash scripts/build-macos-app.sh release
+
+      - name: Package
+        run: bash scripts/package-release.sh "$VERSION"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=(--verify-tag --generate-notes --title "Mystic $VERSION")
+          [[ "$VERSION" == *-* ]] && flags+=(--prerelease)
+          [[ "$SIGNED" == 1 ]] || flags+=(--draft)
+          gh release create "$TAG" .build/release/* "${flags[@]}"
+
+      - name: Remove the signing keychain
+        if: always() && env.KEYCHAIN != ''
+        run: security delete-keychain "$KEYCHAIN"

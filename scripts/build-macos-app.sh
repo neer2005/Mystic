@@ -60,8 +60,8 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Mystic</string>
 <key>CFBundleDisplayName</key><string>Mystic</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.1.0</string>
-<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleShortVersionString</key><string>__VERSION__</string>
+<key>CFBundleVersion</key><string>__BUILD__</string>
 <key>LSMinimumSystemVersion</key><string>27.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSMicrophoneUsageDescription</key><string>Mystic sends your microphone to the streaming host when you enable Use Mac Microphone.</string>
@@ -73,9 +73,16 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>NSLocalNetworkUsageDescription</key><string>Mystic connects to your game-streaming host on your local network.</string>
 </dict></plist>
 PLIST
-# Local development signing only; distribution signing and notarization are later work.
-# The helper first, under its own identifier, hardened since it runs as root.
-codesign --force --sign "$signing_identity" --timestamp=none --options runtime --identifier com.mystic.streaming.awdl "$app/Contents/MacOS/MysticAWDLHelper"
-codesign --force --sign "$signing_identity" --timestamp=none --identifier com.mystic.streaming "$app"
+# A release passes its version; a local build stays at 0.1.0, which the update check treats as old.
+sed -i '' -e "s/__VERSION__/${MYSTIC_VERSION:-0.1.0}/" -e "s/__BUILD__/${MYSTIC_BUILD:-1}/" "$app/Contents/Info.plist"
+# The helper first, under its own identifier, hardened since it runs as root. MYSTIC_DISTRIBUTION
+# signs for notarization: hardened runtime and a secure timestamp on the whole app.
+if [[ -n "${MYSTIC_DISTRIBUTION:-}" ]]; then
+    codesign --force --sign "$signing_identity" --timestamp --options runtime --identifier com.mystic.streaming.awdl "$app/Contents/MacOS/MysticAWDLHelper"
+    codesign --force --sign "$signing_identity" --timestamp --options runtime --entitlements Resources/Mystic.entitlements --identifier com.mystic.streaming "$app"
+else
+    codesign --force --sign "$signing_identity" --timestamp=none --options runtime --identifier com.mystic.streaming.awdl "$app/Contents/MacOS/MysticAWDLHelper"
+    codesign --force --sign "$signing_identity" --timestamp=none --identifier com.mystic.streaming "$app"
+fi
 codesign --verify --deep --strict "$app"
 printf '\nBuilt %s\n' "$app"
