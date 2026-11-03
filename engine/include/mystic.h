@@ -259,8 +259,8 @@ typedef struct MysticFolders MysticFolders;
 MysticFolders *mystic_folders_new(const MysticHost *host);
 char *mystic_folders_request(const MysticFolders *folders, const char *operation, const char *request_json);
 void mystic_folders_free(MysticFolders *folders);
-/* The offer for 10-bit SDR, as JSON {formats,offered,refusal}. */
-char *mystic_sdr10_offer(uint32_t base, uint32_t decodable, uint32_t scm, bool hdr, bool wanted, const char *decoder_reason);
+/* The offer for 4:4:4 and 10-bit SDR, as JSON {formats,yuv444,sdr10,yuv444Refusal,sdr10Refusal}. */
+char *mystic_color_offer(uint32_t base, uint32_t decodable, uint32_t scm, bool hdr, bool yuv444, bool sdr10, const char *decoder_reason);
 void mystic_host_cancel(const MysticHost *host);
 void mystic_host_free(MysticHost *host);
 

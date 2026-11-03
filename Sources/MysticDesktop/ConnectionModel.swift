@@ -121,10 +121,10 @@ public final class ConnectionModel {
     @ObservationIgnored public private(set) lazy var hostHardware=HostHardwareModel(model:self)
     @ObservationIgnored public private(set) lazy var remoteCheck=RemoteCheckModel(model:self)
     /// The overlay's Stream line: the launch's size, rate and bitrate.
-    private var tenBitStreaming=false
+    private var colorStreaming: String?
     public var overlayStreamLine: String {
         guard let config=plan?.configuration else { return "—" }
-        return "\(config.width)x\(config.height) \(config.fps) fps · \(rates.currentKbps/1000) Mbps\(tenBitStreaming ? " · 10-bit SDR" : "")"
+        return "\(config.width)x\(config.height) \(config.fps) fps · \(rates.currentKbps/1000) Mbps\(colorStreaming.map { " · \($0)" } ?? "")"
     }
     public let shortcuts: KeyShortcutsStore
     public let networkProfiles: PreferenceDocument<NetworkProfiles>
@@ -379,7 +379,7 @@ public final class ConnectionModel {
         var qualityMinShortEdge: UInt32=720
         var qualityMinFps: UInt32=30
         var renderer: VideoRendererKind = .displayLayer
-        var tenBit: TenBitOffer? = nil
+        var color: ColorOffer? = nil
     }
     @ObservationIgnored private(set) var plan: StreamPlan?
     /// The headroom of the screen the stream will open on, read when a plan is made.
@@ -645,11 +645,13 @@ public final class ConnectionModel {
             case "av1": mask &= 0xF000
             default: break
             }
-            let decodable10=mask & (VideoFormat.hevc10.rawValue | VideoFormat.av110.rawValue)
-            mask &= video.hdr ? 0xAA00 : ~UInt32(0xAA00)
-            let tenBit=TenBitOffer.make(base:mask,decodable:decodable10,hostCodecs:host?.codecSupport ?? 0,hdr:video.hdr,wanted:video.tenBitSDR,
-                decoderReason:[VideoFormat.hevc10,.av110].compactMap { capabilities.exclusionReasons[$0.rawValue] }.joined(separator:"; "))
-            mask=tenBit.formats
+            // As Nightjar: plain 4:2:0, with Main10 for HDR; 4:4:4 and 10-bit SDR only through their settings.
+            let extras=[VideoFormat.hevc10,.av110,.h264444,.hevc444,.av1444]
+            let decodable=mask & extras.reduce(0) { $0 | $1.rawValue }
+            mask &= video.hdr ? 0x2200 : 0x1101
+            let color=ColorOffer.make(base:mask,decodable:decodable,hostCodecs:host?.codecSupport ?? 0,hdr:video.hdr,yuv444:video.preferYUV444,sdr10:video.tenBitSDR,
+                decoderReason:extras.compactMap { capabilities.exclusionReasons[$0.rawValue] }.joined(separator:"; "))
+            mask=color.formats
             guard mask != 0 else { throw HostConnectionError("This Mac has no verified hardware decoder for the selected codec and HDR mode.") }
             guard !video.hdr || app.hdrSupported else { throw HostConnectionError("This app does not advertise HDR support.") }
             var options = LaunchOptions(app: app)
@@ -682,7 +684,7 @@ public final class ConnectionModel {
                 hostID:host?.uniqueID ?? "",framePacing:video.framePacing,
                 tellWireless:tellHostWireless,tellLinkSpeed:tellHostLinkSpeed,
                 roaming:clientRoaming,roamingMetered:roamingOnMeteredNetworks,quality:video.automaticQuality,
-                qualityMinShortEdge:video.qualityMinShortEdge,qualityMinFps:video.qualityMinFps,renderer:videoRenderer,tenBit:tenBit)
+                qualityMinShortEdge:video.qualityMinShortEdge,qualityMinFps:video.qualityMinFps,renderer:videoRenderer,color:color)
     }
     private func startPreparedPlan(_ plan: StreamPlan,connection: any HostService,capabilities: VideoCapabilities) {
         recovery=StreamRecovery();recovering=false;hadVideo=false;connectedAt=nil
@@ -1046,7 +1048,7 @@ public final class ConnectionModel {
                 }
             }
             reportDisplay(token:token)
-            reportTenBit(token:token)
+            reportColor(token:token)
             status = "Streaming \(plan?.app.name ?? library.selected?.name ?? "video")."
         case .stageStarting(let stage): status = "Starting \(stage.name)…"
         case .stageComplete: break
@@ -1266,14 +1268,18 @@ public final class ConnectionModel {
             ? "Timed from the moment Mystic sends a mouse nudge until macOS reports the host's answering frame on the display. It covers the network, host capture and encoding, decoding and display. Your hand and the panel's own lag are not included."
             : "Timed from the moment Mystic sends a mouse nudge until the host's answering frame is handed to macOS. The System renderer doesn't report when a frame is shown, so the wait for the display is not included, nor are your hand and the panel's own lag.")
     }
-    /// Nightjar's word on 10-bit SDR once the stream's format is known.
-    private func reportTenBit(token: UUID) {
-        tenBitStreaming=false
-        guard let offer=plan?.tenBit else { return }
-        if let refusal=offer.refusal { record("10-bit SDR isn't used, so the stream is 8-bit: \(refusal).",token:token);return }
-        guard offer.offered,let format=decoder?.negotiatedFormat else { return }
-        tenBitStreaming=format.tenBit
-        record(format.tenBit ? "Streaming 10-bit color (SDR)." : "This PC didn't accept 10-bit, so the stream is 8-bit.",token:token)
+    /// Nightjar's word on 4:4:4 and 10-bit SDR once the stream's format is known.
+    private func reportColor(token: UUID) {
+        colorStreaming=nil
+        guard let offer=plan?.color else { return }
+        let format=decoder?.negotiatedFormat
+        if let refusal=offer.yuv444Refusal { record("YUV 4:4:4 unavailable; using 4:2:0: \(refusal).",token:token) }
+        if let refusal=offer.sdr10Refusal { record("10-bit SDR isn't used, so the stream is 8-bit: \(refusal).",token:token) }
+        if offer.yuv444,format?.chroma444 == true { colorStreaming="4:4:4";record("Streaming in YUV 4:4:4.",token:token) }
+        if offer.sdr10,let format {
+            if format.tenBit { colorStreaming="10-bit SDR" }
+            record(format.tenBit ? "Streaming 10-bit color (SDR)." : "This PC didn't accept 10-bit, so the stream is 8-bit.",token:token)
+        }
     }
     /// A line in the current stream's session log.
     func recordStream(_ message: String) { record(message,token:generation) }
