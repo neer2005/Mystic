@@ -25,7 +25,8 @@ func draw(_ pixels: Int) -> Data {
     // A white controller, drawn here: Apple's symbols may not be used in app icons.
     // Traced from a photo of an Xbox Series controller, 700 points wide: the outline's right half from
     // the top centre, then the controls, mapped onto the icon and drawn as a smooth curve.
-    func mapped(_ x: CGFloat,_ y: CGFloat) -> CGPoint { CGPoint(x:512+(x-350)*1.22,y:512-(y-352)*1.22) }
+    // About two thirds of the tile wide, raised a little so it looks centred.
+    func mapped(_ x: CGFloat,_ y: CGFloat) -> CGPoint { CGPoint(x:512+(x-350),y:528-(y-352)) }
     let half: [(CGFloat,CGFloat)]=[(350,176),(430,176),(480,180),(520,190),(554,208),(578,238),(596,288),(608,350),
         (618,420),(626,478),(628,514),(614,538),(588,546),(560,536),(528,508),(500,472),(470,448),(430,436),(390,432)]
     let outline=half.map { mapped($0.0,$0.1) }+[mapped(350,430)]+half.dropFirst().reversed().map { mapped(700-$0.0,$0.1) }
@@ -38,18 +39,16 @@ func draw(_ pixels: Int) -> Data {
                      control2:CGPoint(x:p2.x-(p3.x-p1.x)/6,y:p2.y-(p3.y-p1.y)/6))
     }
     pad.closeSubpath()
-    // Cut out: a ring for each stick, the D-pad and the four buttons.
+    // Cut out: only the D-pad and the four buttons, level and large enough to read at Dock size.
     func circle(_ x: CGFloat,_ y: CGFloat,_ radius: CGFloat) {
         let centre=mapped(x,y);pad.addEllipse(in:CGRect(x:centre.x-radius,y:centre.y-radius,width:radius*2,height:radius*2))
     }
-    circle(212,262,46);circle(212,262,26)
-    circle(420,345,46);circle(420,345,26)
-    let d=mapped(272,355),(arm,width): (CGFloat,CGFloat)=(44,16)
+    let d=mapped(232,300),(arm,width): (CGFloat,CGFloat)=(62,22)
     pad.addLines(between:[CGPoint(x:d.x-width,y:d.y+arm),CGPoint(x:d.x+width,y:d.y+arm),CGPoint(x:d.x+width,y:d.y+width),CGPoint(x:d.x+arm,y:d.y+width),
                           CGPoint(x:d.x+arm,y:d.y-width),CGPoint(x:d.x+width,y:d.y-width),CGPoint(x:d.x+width,y:d.y-arm),CGPoint(x:d.x-width,y:d.y-arm),
                           CGPoint(x:d.x-width,y:d.y-width),CGPoint(x:d.x-arm,y:d.y-width),CGPoint(x:d.x-arm,y:d.y+width),CGPoint(x:d.x-width,y:d.y+width)])
     pad.closeSubpath()
-    for (x,y) in [(490.0,229.0),(490.0,301.0),(454.0,265.0),(526.0,265.0)] as [(CGFloat,CGFloat)] { circle(x,y,21) }
+    for (x,y) in [(468.0,248.0),(468.0,352.0),(416.0,300.0),(520.0,300.0)] as [(CGFloat,CGFloat)] { circle(x,y,27) }
     c.saveGState();c.addPath(pad);c.clip(using:.evenOdd)
     c.drawLinearGradient(CGGradient(colorsSpace:space,colors:[color(1,1,1),color(0.8,0.8,0.82)] as CFArray,locations:[0,1])!,
                          start:CGPoint(x:512,y:730),end:CGPoint(x:512,y:280),options:[])
