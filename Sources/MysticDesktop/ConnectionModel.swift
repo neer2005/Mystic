@@ -1269,13 +1269,14 @@ public final class ConnectionModel {
             : "Timed from the moment Mystic sends a mouse nudge until the host's answering frame is handed to macOS. The System renderer doesn't report when a frame is shown, so the wait for the display is not included, nor are your hand and the panel's own lag.")
     }
     /// Nightjar's word on 4:4:4 and 10-bit SDR once the stream's format is known.
+    /// The log's address filter would hide "4:4:4", so these lines say 444.
     private func reportColor(token: UUID) {
         colorStreaming=nil
         guard let offer=plan?.color else { return }
         let format=decoder?.negotiatedFormat
-        if let refusal=offer.yuv444Refusal { record("YUV 4:4:4 unavailable; using 4:2:0: \(refusal).",token:token) }
+        if let refusal=offer.yuv444Refusal { record("YUV 444 unavailable, using 420: \(refusal).",token:token) }
         if let refusal=offer.sdr10Refusal { record("10-bit SDR isn't used, so the stream is 8-bit: \(refusal).",token:token) }
-        if offer.yuv444,format?.chroma444 == true { colorStreaming="4:4:4";record("Streaming in YUV 4:4:4.",token:token) }
+        if offer.yuv444,format?.chroma444 == true { colorStreaming="4:4:4";record("Streaming in YUV 444.",token:token) }
         if offer.sdr10,let format {
             if format.tenBit { colorStreaming="10-bit SDR" }
             record(format.tenBit ? "Streaming 10-bit color (SDR)." : "This PC didn't accept 10-bit, so the stream is 8-bit.",token:token)
