@@ -1234,7 +1234,7 @@ mod tests {
 
     #[test]
     fn abi_version_is_stable() {
-        assert_eq!(mystic_abi_version(), 5);
+        assert_eq!(mystic_abi_version(), 6);
     }
 
     #[test]
