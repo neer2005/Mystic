@@ -40,14 +40,15 @@ public struct FullScreenCommands: Commands {
 private struct FullScreenCommandTarget: ViewModifier {
     @State private var window: NSWindow?
     @State private var isFullScreen=false
-    private func update(_ notification: Notification,_ value: Bool) {
-        if let window,notification.object as? NSWindow === window { isFullScreen=value }
+    private func update(_ notification: Notification) {
+        if let window,notification.object as? NSWindow === window { isFullScreen=window.isStreamFullScreen }
     }
     func body(content: Content) -> some View {
         content
-            .background(WindowReader { window=$0;isFullScreen=$0?.styleMask.contains(.fullScreen) == true })
-            .onReceive(NotificationCenter.default.publisher(for:NSWindow.didEnterFullScreenNotification)) { update($0,true) }
-            .onReceive(NotificationCenter.default.publisher(for:NSWindow.didExitFullScreenNotification)) { update($0,false) }
+            .background(WindowReader { window=$0;isFullScreen=$0?.isStreamFullScreen == true })
+            .onReceive(NotificationCenter.default.publisher(for:NSWindow.didEnterFullScreenNotification)) { update($0) }
+            .onReceive(NotificationCenter.default.publisher(for:NSWindow.didExitFullScreenNotification)) { update($0) }
+            .onReceive(NotificationCenter.default.publisher(for:NotchFullScreen.didChangeNotification)) { update($0) }
             .focusedSceneValue(\.fullScreenToggle,window.map { window in
                 FullScreenToggle(isFullScreen:isFullScreen) { [weak window] in window?.toggleFullScreen(nil) }
             })
