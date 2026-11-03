@@ -43,7 +43,7 @@ No live host or physical controller was available for this change.
 
 ## Nightjar 4.0.1 sync (2026-10-30)
 
-Mystic now pins Nightjar `461e403b0a1fde4a1e447f73c65c505ab61e84ea`, matching
+Mystic now pins Nightjar `f25e40b6ebacb7ab0d7fcea5f55f63006670df58`, matching
 the local Nightjar checkout. Its expanded Opus mapping is adapted to Mystic's
 existing eight-channel ABI; unsupported audio layouts/codecs fail before Swift
 callbacks. Automatic reconnect and opt-in bitrate adaptation now use the pinned

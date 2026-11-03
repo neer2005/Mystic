@@ -6,9 +6,10 @@ public enum OverlayHealth: UInt8, Sendable {
     case unknown, good, fair, poor
     /// A dot while the stream is fine, a triangle or a cross when not, so the shape says it too.
     public var glyph: String { switch self { case .fair: "▲";case .poor: "✕";default: "●" } }
-    public static func of(shownFps: Double?,receivedFps: Double?,networkMs: Double?,lossPercent: Double?,decodeMs: Double?) -> Self {
+    /// `refreshHz`: a stream faster than the screen is not a fault.
+    public static func of(shownFps: Double?,receivedFps: Double?,refreshHz: Double? = nil,networkMs: Double?,lossPercent: Double?,decodeMs: Double?) -> Self {
         func f(_ value: Double?) -> Float { value.map(Float.init) ?? .nan }
-        return Self(rawValue:mystic_overlay_health(f(shownFps),f(receivedFps),f(networkMs),f(lossPercent),f(decodeMs))) ?? .unknown
+        return Self(rawValue:mystic_overlay_health(f(shownFps),f(receivedFps),f(refreshHz),f(networkMs),f(lossPercent),f(decodeMs))) ?? .unknown
     }
 }
 
