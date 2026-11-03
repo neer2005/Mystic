@@ -132,3 +132,62 @@ public enum ControllerLeaveCombo: String, Codable, CaseIterable, Sendable {
         physical & ~previous != 0 && physical == mask
     }
 }
+
+/// Nightjar's Guide hold (`gamepad.rs`): held alone for the chosen time, Guide is Mystic's and
+/// never reaches the PC; Mystic gives the Mac its mouse and keyboard back there, its stand-in for
+/// Nightjar's stream menu. The press is kept from the PC until it is known to be short (then the
+/// PC gets a whole tap of `tapMillis`), part of a chord (then it goes through at once), or long.
+public struct GuideHold: Sendable, Equatable {
+    /// Nightjar's choices (`GUIDE_HOLD_MS`), 0 for off.
+    public static let choices: [Int]=[0,500,1000,1500,2000]
+    /// How long the PC sees a short press held (moonlight-android's minimum is 25 ms).
+    public static let tapMillis: UInt64=50
+    static let guide: UInt32=0x400
+    enum Phase: Sendable, Equatable { case up,held(UInt64),tapped(UInt64),passed,opened }
+    private(set) var phase=Phase.up
+    private var guideDown=false
+    public init() {}
+
+    /// A press waits on `tick`, so it should run often until it settles.
+    public var waiting: Bool { switch phase { case .held,.tapped: true;default: false } }
+
+    /// A new state of the pad's buttons, `holdMillis` the setting (0 off).
+    public mutating func observe(_ buttons: UInt32,holdMillis: Int,nowMillis: UInt64) {
+        let down=buttons & Self.guide != 0,others=buttons & ~Self.guide
+        defer { guideDown=down }
+        guard holdMillis > 0 else { phase = .up;return }
+        if down,!guideDown {
+            // A tap still going out ends here; Guide joining held buttons is a chord.
+            phase = others != 0 ? .passed : .held(nowMillis)
+        } else if !down,guideDown {
+            switch phase {
+            case .held: phase = .tapped(nowMillis)
+            case .tapped: break
+            default: phase = .up
+            }
+        } else if down,others != 0,case .held=phase {
+            // Another button while Guide is held: a chord for the PC (Steam's), Guide with it.
+            phase = .passed
+        }
+    }
+    /// The buttons the PC gets: Guide held back while it may still be Mystic's, a short press
+    /// sent whole after its release.
+    public func output(_ buttons: UInt32) -> UInt32 {
+        switch phase {
+        case .held,.opened: buttons & ~Self.guide
+        case .tapped: buttons | Self.guide
+        case .up,.passed: buttons
+        }
+    }
+    /// On a timer while `waiting`: `opened` when the hold is long enough, `resend` when the tap's
+    /// release is due and the pad's state should go out again.
+    public mutating func tick(holdMillis: Int,nowMillis: UInt64) -> (opened: Bool,resend: Bool) {
+        switch phase {
+        case .held(let at) where holdMillis > 0 && nowMillis >= at+UInt64(holdMillis):
+            phase = .opened;return (true,false)
+        case .tapped(let at) where nowMillis >= at+Self.tapMillis:
+            phase = guideDown ? .passed : .up;return (false,true)
+        default: return (false,false)
+        }
+    }
+}

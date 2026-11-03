@@ -82,3 +82,52 @@ struct ControllerMouseTests {
         #expect(back.leaveCombo == .lbRbXY && !back.controllerMouse)
     }
 }
+
+struct GuideHoldTests {
+    private let guide: UInt32=0x400,a: UInt32=0x1000
+    private func ticked(_ hold: inout GuideHold,_ now: UInt64) -> [Bool] {
+        let result=hold.tick(holdMillis:1000,nowMillis:now);return [result.opened,result.resend]
+    }
+
+    @Test func aLongHoldIsMysticsAndNeverReachesThePC() {
+        var hold=GuideHold()
+        hold.observe(guide,holdMillis:1000,nowMillis:0)
+        #expect(hold.output(guide) == 0 && hold.waiting)
+        #expect(ticked(&hold,999) == [false,false])
+        #expect(ticked(&hold,1000) == [true,false])
+        #expect(hold.output(guide) == 0,"still held: still Mystic's")
+        hold.observe(0,holdMillis:1000,nowMillis:1100)
+        #expect(hold.output(0) == 0 && !hold.waiting,"its release is Mystic's too")
+    }
+
+    @Test func aShortPressReachesThePCAsAWholeTap() {
+        var hold=GuideHold()
+        hold.observe(guide,holdMillis:1000,nowMillis:0)
+        hold.observe(0,holdMillis:1000,nowMillis:200)
+        #expect(hold.output(0) == guide,"down once known to be short")
+        #expect(ticked(&hold,249) == [false,false])
+        #expect(ticked(&hold,250) == [false,true])
+        #expect(hold.output(0) == 0 && !hold.waiting,"then up")
+    }
+
+    @Test func aChordGoesThroughAtOnceAndOffLeavesGuideAlone() {
+        var hold=GuideHold()
+        hold.observe(a,holdMillis:1000,nowMillis:0)
+        hold.observe(a | guide,holdMillis:1000,nowMillis:10)
+        #expect(hold.output(a | guide) == a | guide && !hold.waiting,"Guide joining held buttons")
+        hold=GuideHold()
+        hold.observe(guide,holdMillis:1000,nowMillis:0)
+        hold.observe(guide | a,holdMillis:1000,nowMillis:10)
+        #expect(hold.output(guide | a) == guide | a,"another button while Guide is held")
+        hold=GuideHold()
+        hold.observe(guide,holdMillis:0,nowMillis:0)
+        #expect(hold.output(guide) == guide && !hold.waiting)
+    }
+
+    @Test func onlyNightjarsChoicesAreKept() throws {
+        let odd=try JSONDecoder().decode(InputPreferences.self,from:Data(#"{"guideHoldMillis":700}"#.utf8))
+        #expect(odd.guideHoldMillis == 1000)
+        let off=try JSONDecoder().decode(InputPreferences.self,from:Data(#"{"guideHoldMillis":0}"#.utf8))
+        #expect(off.guideHoldMillis == 0)
+    }
+}

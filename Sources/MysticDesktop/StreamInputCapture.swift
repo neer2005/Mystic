@@ -107,6 +107,12 @@ public final class StreamInputCapture {
             })
             controllers?.settings=input
             controllers?.leave = { [weak self] in self?.leaveStream?() }
+            // Mystic's stand-in for Nightjar's stream menu: as ⌃⌥⇧Esc, so the window's controls are in reach.
+            controllers?.guideHeld = { [weak self] in
+                guard let self else { return }
+                failure("Guide held: input released to the Mac. Click the video to control the PC again.")
+                release()
+            }
             controllers?.mouseSwitched = { [weak self] on in
                 guard let self else { return }
                 controllerMouse=on

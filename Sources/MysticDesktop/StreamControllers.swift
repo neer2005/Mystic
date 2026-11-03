@@ -25,10 +25,13 @@ final class StreamControllers {
     private var mice: [Int:ControllerMouse] = [:]
     private var physical: [Int:UInt32] = [:]
     private var lastState: [Int:ControllerState] = [:]
+    private var guides: [Int:GuideHold] = [:]
     private var mouseTimer: Timer?
     private let nowMillis: () -> UInt64
     /// The leave combo was pressed.
     var leave: () -> Void = {}
+    /// Guide was held for the setting's time.
+    var guideHeld: () -> Void = {}
     /// Controller mouse mode switched on (true) or off (false).
     var mouseSwitched: (Bool) -> Void = { _ in }
     var mouseActive: Bool { mice.values.contains { $0.active } }
@@ -81,7 +84,7 @@ final class StreamControllers {
             devices.removeAll()
             // Capture's releaseAll lets go of the mouse's clicks too.
             let wasActive=mouseActive
-            mice.removeAll();physical.removeAll();lastState.removeAll();updateMouseTimer()
+            mice.removeAll();physical.removeAll();lastState.removeAll();guides.removeAll();updateMouseTimer()
             if wasActive { mouseSwitched(false) }
             // Capture's releaseAll neutralizes states actually accepted by the worker.
         }
@@ -107,7 +110,7 @@ final class StreamControllers {
             haptics.removeValue(forKey:slot)?.stop()
             extras.removeValue(forKey:slot)?.stop()
             devices.removeValue(forKey:slot);changed=true
-            physical.removeValue(forKey:slot);lastState.removeValue(forKey:slot)
+            physical.removeValue(forKey:slot);lastState.removeValue(forKey:slot);guides.removeValue(forKey:slot)
             if var mouse=mice.removeValue(forKey:slot) {
                 for event in mouse.release() { guard emit(event) else { return } }
                 if mouse.active { updateMouseTimer();mouseSwitched(mouseActive) }
@@ -217,6 +220,10 @@ final class StreamControllers {
         let state=Self.snapshot(pad,settings:settings)
         let raw=Self.physicalButtons(pad),previous=physical[slot] ?? 0
         physical[slot]=raw;lastState[slot]=state
+        var guide=guides[slot] ?? GuideHold()
+        guide.observe(state.buttons,holdMillis:settings.guideHoldMillis,nowMillis:nowMillis())
+        guides[slot]=guide
+        if guide.waiting { updateMouseTimer() }
         var mouse=mice[slot] ?? ControllerMouse()
         // As Nightjar: the combo's last press leaves the stream, with the pad neutral first.
         if settings.leaveCombo.completed(physical:raw,previous:previous) {
@@ -231,11 +238,18 @@ final class StreamControllers {
         for event in events { guard emit(event) else { return } }
         if switched != nil,mouseActive != wasActive { updateMouseTimer();mouseSwitched(mouseActive) }
         // While the mouse is on, the PC's controller sees nothing pressed.
-        _=emit(.controller(slot:UInt8(slot),activeMask:mask,state:mouse.active ? ControllerState() : state))
+        emitState(slot:slot)
+    }
+    /// The pad's last state as the PC gets it: nothing while the mouse is on, Guide as its hold says.
+    @discardableResult private func emitState(slot: Int) -> Bool {
+        guard var state=lastState[slot] else { return true }
+        if mice[slot]?.active == true { state=ControllerState() }
+        else if let guide=guides[slot] { state.buttons=guide.output(state.buttons) }
+        return emit(.controller(slot:UInt8(slot),activeMask:mask,state:state))
     }
     /// The sticks move the pointer between changes too, so a held stick keeps moving it.
     private func updateMouseTimer() {
-        guard enabled,mouseActive else { mouseTimer?.invalidate();mouseTimer=nil;return }
+        guard enabled,mouseActive || guides.values.contains(where: \.waiting) else { mouseTimer?.invalidate();mouseTimer=nil;return }
         guard mouseTimer == nil else { return }
         // Wakes more often than the mouse's 50 ms step, so steps don't slip to every other tick.
         mouseTimer=Timer.scheduledTimer(withTimeInterval:1.0/60,repeats:true) { [weak self] _ in
@@ -245,6 +259,15 @@ final class StreamControllers {
     func tickMice() {
         guard enabled else { return }
         let now=nowMillis()
+        for slot in guides.keys.sorted() {
+            guard var guide=guides[slot],guide.waiting else { continue }
+            let (opened,resend)=guide.tick(holdMillis:settings.guideHoldMillis,nowMillis:now)
+            guides[slot]=guide
+            if resend { guard emitState(slot:slot) else { return } }
+            // Gives the Mac its input back, which disables the controllers: nothing more this tick.
+            if opened { guideHeld();return }
+        }
+        updateMouseTimer()
         for slot in mice.keys.sorted() {
             guard var mouse=mice[slot],mouse.active else { continue }
             let events=mouse.tick(lastState[slot] ?? ControllerState(),scrollStick:settings.scrollStick,precise:settings.preciseControllerMouse,nowMillis:now)

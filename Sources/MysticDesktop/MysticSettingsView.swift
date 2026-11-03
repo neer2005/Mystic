@@ -74,6 +74,10 @@ public struct MysticSettingsView: View {
                         Toggle("Disable Vibration",isOn:$model.inputPreferences.disableVibration)
                         Stepper("Stick Dead Zone: \(model.inputPreferences.stickDeadZonePercent)%",value:$model.inputPreferences.stickDeadZonePercent,in:0...50)
                         Text("Each connected controller appears on the PC. The Nintendo layout swaps A with B and X with Y.").font(.caption).foregroundStyle(.secondary)
+                        Picker("Hold Guide to Release Input",selection:$model.inputPreferences.guideHoldMillis) {
+                            ForEach(GuideHold.choices,id:\.self) { ms in Text(ms == 0 ? "Off" : "\(Double(ms)/1000,format:.number) s").tag(ms) }
+                        }
+                        Text("Gives the Mac its mouse and keyboard back, as ⌃⌥⇧Esc does, so the window's controls are in reach. A short press still goes to the PC.").font(.caption).foregroundStyle(.secondary)
                         Picker("Buttons to Leave the Stream",selection:$model.inputPreferences.leaveCombo) {
                             ForEach(ControllerLeaveCombo.allCases,id:\.self) { Text($0.label).tag($0) }
                         }

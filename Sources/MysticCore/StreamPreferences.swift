@@ -242,10 +242,12 @@ public struct InputPreferences: Codable, Equatable, Sendable {
     public var preciseControllerMouse=false
     /// The buttons that leave the stream together.
     public var leaveCombo=ControllerLeaveCombo.startSelectLbRb
+    /// Holding Guide this long gives the Mac its input back (one of `GuideHold.choices`, 0 off).
+    public var guideHoldMillis=1000
     public init() {}
     private enum CodingKeys: String, CodingKey {
         case mouseSpeedPercent,mouseNavigationButtons,controllers,disableVibration,swapFaceButtons,controllerMotion,stickDeadZonePercent
-        case controllerMouse,scrollStick,preciseControllerMouse,leaveCombo
+        case controllerMouse,scrollStick,preciseControllerMouse,leaveCombo,guideHoldMillis
     }
     public init(from decoder: any Decoder) throws {
         let c=try decoder.container(keyedBy:CodingKeys.self)
@@ -261,6 +263,8 @@ public struct InputPreferences: Codable, Equatable, Sendable {
         scrollStick=(try? c.decodeIfPresent(ControllerMouse.ScrollStick.self,forKey:.scrollStick)) ?? .right
         preciseControllerMouse=try c.decodeIfPresent(Bool.self,forKey:.preciseControllerMouse) ?? false
         leaveCombo=(try? c.decodeIfPresent(ControllerLeaveCombo.self,forKey:.leaveCombo)) ?? .startSelectLbRb
+        let hold=(try? c.decodeIfPresent(Int.self,forKey:.guideHoldMillis)) ?? nil
+        guideHoldMillis=hold.flatMap { GuideHold.choices.contains($0) ? $0 : nil } ?? 1000
     }
     public func validated() -> Self {
         var value=self
