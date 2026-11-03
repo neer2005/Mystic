@@ -23,39 +23,38 @@ func draw(_ pixels: Int) -> Data {
     c.addPath(CGPath(roundedRect:tile.insetBy(dx:2,dy:2),cornerWidth:183,cornerHeight:183,transform:nil))
     c.setStrokeColor(color(1,1,1,0.14));c.setLineWidth(4);c.strokePath()
     // A white controller, drawn here: Apple's symbols may not be used in app icons.
-    // Shaped like an Xbox One controller: a flatter top, grips that taper, staggered sticks.
+    // Traced from a photo of an Xbox Series controller, 700 points wide: the outline's right half from
+    // the top centre, then the controls, mapped onto the icon and drawn as a smooth curve.
+    func mapped(_ x: CGFloat,_ y: CGFloat) -> CGPoint { CGPoint(x:512+(x-350)*1.22,y:512-(y-352)*1.22) }
+    let half: [(CGFloat,CGFloat)]=[(350,176),(430,176),(480,180),(520,190),(554,208),(578,238),(596,288),(608,350),
+        (618,420),(626,478),(628,514),(614,538),(588,546),(560,536),(528,508),(500,472),(470,448),(430,436),(390,432)]
+    let outline=half.map { mapped($0.0,$0.1) }+[mapped(350,430)]+half.dropFirst().reversed().map { mapped(700-$0.0,$0.1) }
     let pad=CGMutablePath()
-    let right: [(CGPoint,CGPoint,CGPoint)]=[
-        (CGPoint(x:580,y:688),CGPoint(x:640,y:702),CGPoint(x:690,y:704)),
-        (CGPoint(x:760,y:708),CGPoint(x:810,y:690),CGPoint(x:832,y:630)),
-        (CGPoint(x:856,y:560),CGPoint(x:874,y:460),CGPoint(x:864,y:380)),
-        (CGPoint(x:856,y:314),CGPoint(x:800,y:294),CGPoint(x:760,y:326)),
-        (CGPoint(x:726,y:354),CGPoint(x:700,y:404),CGPoint(x:656,y:426)),
-        (CGPoint(x:612,y:448),CGPoint(x:560,y:452),CGPoint(x:512,y:452))]
-    func mirrored(_ point: CGPoint) -> CGPoint { CGPoint(x:1024-point.x,y:point.y) }
-    pad.move(to:CGPoint(x:512,y:688))
-    for curve in right { pad.addCurve(to:curve.2,control1:curve.0,control2:curve.1) }
-    // Back up the left side, the same curves in reverse.
-    var ends=[CGPoint(x:512,y:688)]+right.map(\.2)
-    ends.removeLast()
-    for (curve,end) in zip(right,ends).reversed() {
-        pad.addCurve(to:mirrored(end),control1:mirrored(curve.1),control2:mirrored(curve.0))
+    // Catmull-Rom through every point, closed.
+    pad.move(to:outline[0])
+    for i in outline.indices {
+        let p0=outline[(i+outline.count-1)%outline.count],p1=outline[i],p2=outline[(i+1)%outline.count],p3=outline[(i+2)%outline.count]
+        pad.addCurve(to:p2,control1:CGPoint(x:p1.x+(p2.x-p0.x)/6,y:p1.y+(p2.y-p0.y)/6),
+                     control2:CGPoint(x:p2.x-(p3.x-p1.x)/6,y:p2.y-(p3.y-p1.y)/6))
     }
     pad.closeSubpath()
-    // Cut out: a ring for each stick, the D-pad, the four buttons, the guide button and View and Menu.
-    func circle(_ x: CGFloat,_ y: CGFloat,_ radius: CGFloat) { pad.addEllipse(in:CGRect(x:x-radius,y:y-radius,width:radius*2,height:radius*2)) }
-    circle(334,590,54);circle(334,590,30)
-    circle(610,500,46);circle(610,500,25)
-    let (dx,dy,arm,half): (CGFloat,CGFloat,CGFloat,CGFloat)=(414,500,44,16)
-    pad.addLines(between:[CGPoint(x:dx-half,y:dy+arm),CGPoint(x:dx+half,y:dy+arm),CGPoint(x:dx+half,y:dy+half),CGPoint(x:dx+arm,y:dy+half),
-                          CGPoint(x:dx+arm,y:dy-half),CGPoint(x:dx+half,y:dy-half),CGPoint(x:dx+half,y:dy-arm),CGPoint(x:dx-half,y:dy-arm),
-                          CGPoint(x:dx-half,y:dy-half),CGPoint(x:dx-arm,y:dy-half),CGPoint(x:dx-arm,y:dy+half),CGPoint(x:dx-half,y:dy+half)])
+    // Cut out: a ring for each stick, the D-pad, the four buttons, the guide button, and View, Menu and Share.
+    func circle(_ x: CGFloat,_ y: CGFloat,_ radius: CGFloat) {
+        let centre=mapped(x,y);pad.addEllipse(in:CGRect(x:centre.x-radius,y:centre.y-radius,width:radius*2,height:radius*2))
+    }
+    circle(212,262,46);circle(212,262,26)
+    circle(420,345,46);circle(420,345,26)
+    let d=mapped(272,355),(arm,width): (CGFloat,CGFloat)=(44,16)
+    pad.addLines(between:[CGPoint(x:d.x-width,y:d.y+arm),CGPoint(x:d.x+width,y:d.y+arm),CGPoint(x:d.x+width,y:d.y+width),CGPoint(x:d.x+arm,y:d.y+width),
+                          CGPoint(x:d.x+arm,y:d.y-width),CGPoint(x:d.x+width,y:d.y-width),CGPoint(x:d.x+width,y:d.y-arm),CGPoint(x:d.x-width,y:d.y-arm),
+                          CGPoint(x:d.x-width,y:d.y-width),CGPoint(x:d.x-arm,y:d.y-width),CGPoint(x:d.x-arm,y:d.y+width),CGPoint(x:d.x-width,y:d.y+width)])
     pad.closeSubpath()
-    for (x,y) in [(694.0,630.0),(694.0,550.0),(654.0,590.0),(734.0,590.0)] as [(CGFloat,CGFloat)] { circle(x,y,20) }
-    circle(512,642,26);circle(470,586,10);circle(554,586,10)
+    for (x,y) in [(490.0,229.0),(490.0,301.0),(454.0,265.0),(526.0,265.0)] as [(CGFloat,CGFloat)] { circle(x,y,21) }
+    circle(350,212,28)
+    circle(311,264,11);circle(389,264,11);circle(350,293,9)
     c.saveGState();c.addPath(pad);c.clip(using:.evenOdd)
     c.drawLinearGradient(CGGradient(colorsSpace:space,colors:[color(1,1,1),color(0.8,0.8,0.82)] as CFArray,locations:[0,1])!,
-                         start:CGPoint(x:512,y:712),end:CGPoint(x:512,y:290),options:[])
+                         start:CGPoint(x:512,y:730),end:CGPoint(x:512,y:280),options:[])
     c.restoreGState()
     NSGraphicsContext.restoreGraphicsState()
     return rep.representation(using:.png,properties:[:])!
