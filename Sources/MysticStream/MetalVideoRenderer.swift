@@ -172,7 +172,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
         // V-Sync on two, as SDL's double buffering on Windows: a shorter queue. Without V-Sync a
         // frame goes at once, and on two it could wait out a refresh for a drawable.
         layer.maximumDrawableCount=waitsForRefresh ? 2 : 3
-        // Off presents at once, as Nightjar's immediate mode; see METAL-RENDERER.md.
+        // Off presents at once, as Nightjar's immediate mode.
         layer.displaySyncEnabled=waitsForRefresh
         layer.pixelFormat = .bgra8Unorm
         layer.colorspace=CGColorSpace(name:CGColorSpace.itur_709)

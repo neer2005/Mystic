@@ -1,5 +1,5 @@
 # Builds, tests and publishes Mystic when a version tag is pushed, such as v0.2.0 or v0.2.0-beta.1.
-# See docs/RELEASING.md for the secrets it needs.
+# The README lists the secrets it needs.
 name: Release
 
 on:

@@ -16,8 +16,8 @@ and encrypted microphone setup diagnostics. New Nightjar application features
 still require their own Mystic integration.
 
 Mystic is on ABI 3, which added `network_grace_ms`, `video_fec` and `link_mbps` to
-`MysticStreamConfig` (see `docs/NETWORK.md`). The stream doctor functions
-(`mystic_session_health_*`, `mystic_session_trial_*`) are additive; see `docs/STREAM-HEALTH.md`. Audio is unchanged: Opus stereo, 5.1 and 7.1. The bridge copies the first eight
+`MysticStreamConfig`. The stream doctor functions
+(`mystic_session_health_*`, `mystic_session_trial_*`) are additive. Audio is unchanged: Opus stereo, 5.1 and 7.1. The bridge copies the first eight
 entries from Nightjar's expanded 12-entry mapping only for supported layouts and
 rejects 7.1.4 or passthrough setups before invoking Swift. Passthrough negotiation
 stays disabled. No C struct layout or Swift binding changes are required.
@@ -111,7 +111,7 @@ sample rate, and channel mapping. Build the archive and Swift wrapper together.
 The engine statically links bundled libopus through the pinned `opus`/`opusic-sys`
 crates. CMake and Rust 1.82+ are required; no system libopus install is needed.
 The PCM ring reader is allocation/lock free and is called by the AVAudioEngine
-source node. See `docs/AUDIO.md` from the repository root for lifecycle details.
+source node.
 
 The additive `mystic_pcm_ring_new_channels` and `mystic_pcm_ring_read_planar` symbols
 support 1–8 interleaved producer channels and planar render output. The original
@@ -134,7 +134,7 @@ wrap its adaptive controller and read real receiver counters plus frame timing.
 Call these on their owning actor/worker; no policy call is a real-time audio
 callback. No existing C layouts change. Swift serializes samples and applied
 rates on the session worker, and performs host HTTP requests separately. See
-`docs/NETWORK.md` from the repository root for defaults, behavior and limits.
+the Swift wrapper for defaults, behaviour and limits.
 
 ## Controller feedback (additive ABI 2)
 
@@ -155,4 +155,4 @@ HTTPS text endpoint and independently enforce current read/set permissions.
 bounded JSON, with a foreground baseline and at most one pending incoming text.
 It never holds the clipboard mutex while sending control messages. The old ABI
 layouts stay unchanged. Swift owns the pasteboard and discards stale results.
-See `docs/CLIPBOARD.md` for behavior and validation.
+
