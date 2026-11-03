@@ -148,7 +148,7 @@ public struct HostLibraryView: View {
             }.font(.caption).foregroundStyle(.secondary).padding(12)
         }
         .disabled(model.hasSession || model.isBusy)
-        .searchable(text:Bindable(model.library).query,placement:.toolbarPrincipal,prompt:"Search \(model.host?.name ?? "Apps")")
+        .searchable(text:Bindable(model.library).query,placement:.toolbar,prompt:"Search \(model.host?.name ?? "Apps")")
         .searchFocused($searchFocused)
         .focusedSceneValue(\.librarySearchAction, { searchFocused=true })
     }

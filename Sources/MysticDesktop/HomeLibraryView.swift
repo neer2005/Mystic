@@ -66,7 +66,7 @@ struct HomeLibraryContent: View {
                 Spacer();Text("\(filtered.count) \(filtered.count == 1 ? "game" : "games")")
             }.font(.caption).foregroundStyle(.secondary).padding(12)
         }
-        .searchable(text:$query,placement:.toolbarPrincipal,prompt:"Search Home")
+        .searchable(text:$query,placement:.toolbar,prompt:"Search Home")
         .searchFocused($searchFocused)
         .focusedSceneValue(\.librarySearchAction, { searchFocused=true })
         .onChange(of:filtered.map(\.id)) {
