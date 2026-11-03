@@ -5,7 +5,7 @@ implement a Rust trait.
 
 ## Nightjar revision
 
-Pinned to Nightjar 4.0.1, `461e403b0a1fde4a1e447f73c65c505ab61e84ea`
+Pinned to Nightjar 4.3.1, `f25e40b6ebacb7ab0d7fcea5f55f63006670df58`
 (synced 2026-10-30). `nightjar-core`, `rubylight-protocol`,
 and `nightjar-policy` must use the same revision; commit the updated `Cargo.lock`
 with all three pins.

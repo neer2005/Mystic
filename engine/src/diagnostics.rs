@@ -10,8 +10,8 @@ fn measured(value: f32) -> Option<f32> { (value.is_finite() && value >= 0.0).the
 
 /// The Compact line's mark: 0 unknown, 1 good, 2 fair, 3 poor. NaN for anything unmeasured.
 #[no_mangle]
-pub extern "C" fn mystic_overlay_health(shown_fps: f32, received_fps: f32, network_ms: f32, loss_percent: f32, decode_ms: f32) -> u8 {
-    match health(measured(shown_fps), measured(received_fps), measured(network_ms), measured(loss_percent), measured(decode_ms)) {
+pub extern "C" fn mystic_overlay_health(shown_fps: f32, received_fps: f32, refresh_hz: f32, network_ms: f32, loss_percent: f32, decode_ms: f32) -> u8 {
+    match health(measured(shown_fps), measured(received_fps), measured(refresh_hz), measured(network_ms), measured(loss_percent), measured(decode_ms)) {
         Health::Unknown => 0,
         Health::Good => 1,
         Health::Fair => 2,
@@ -118,10 +118,12 @@ mod tests {
 
     #[test]
     fn health_follows_nightjar_and_nan_is_unmeasured() {
-        assert_eq!(mystic_overlay_health(f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN), 0);
-        assert_eq!(mystic_overlay_health(60.0, 60.0, 8.0, 0.1, 2.0), 1);
-        assert_eq!(mystic_overlay_health(f32::NAN, f32::NAN, 40.0, f32::NAN, f32::NAN), 2);
-        assert_eq!(mystic_overlay_health(f32::NAN, f32::NAN, f32::NAN, 5.0, f32::NAN), 3);
+        assert_eq!(mystic_overlay_health(f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN), 0);
+        assert_eq!(mystic_overlay_health(60.0, 60.0, 120.0, 8.0, 0.1, 2.0), 1);
+        // A stream faster than the screen is not a fault.
+        assert_eq!(mystic_overlay_health(60.0, 120.0, 60.0, 8.0, 0.1, 2.0), 1);
+        assert_eq!(mystic_overlay_health(f32::NAN, f32::NAN, f32::NAN, 40.0, f32::NAN, f32::NAN), 2);
+        assert_eq!(mystic_overlay_health(f32::NAN, f32::NAN, f32::NAN, f32::NAN, 5.0, f32::NAN), 3);
     }
 
     #[test]

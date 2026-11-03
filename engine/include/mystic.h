@@ -469,7 +469,7 @@ int32_t mystic_session_text(MysticSession *session, const char *utf8);
  * kind 0 a sample, 1 failed, 2 the host offers none, and returns whether to show the sample.
  * Owner-thread calls. Redaction removes PC names and addresses added as secrets, IDs, keys and
  * PINs from a log line; free the result with mystic_string_free. */
-uint8_t mystic_overlay_health(float shown_fps, float received_fps, float network_ms, float loss_percent, float decode_ms);
+uint8_t mystic_overlay_health(float shown_fps, float received_fps, float refresh_hz, float network_ms, float loss_percent, float decode_ms);
 typedef struct MysticHardwarePoll MysticHardwarePoll;
 MysticHardwarePoll *mystic_hardware_poll_new(void);
 void mystic_hardware_poll_free(MysticHardwarePoll *poll);

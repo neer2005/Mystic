@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import SwiftUI
@@ -39,7 +40,7 @@ enum OverlayText {
         if let fps=m.renderedFps { values.append(String(format:"%.1f FPS",fps)) }
         if let ms=m.networkMs { values.append(String(format:"%.0f ms RTT",ms)) }
         if let loss=m.lossPercent { values.append(String(format:"%.1f%% loss",loss)) }
-        return (OverlayHealth.of(shownFps:m.renderedFps,receivedFps:m.receivedFps,networkMs:m.networkMs,lossPercent:m.lossPercent,decodeMs:m.decodeMs),
+        return (OverlayHealth.of(shownFps:m.renderedFps,receivedFps:m.receivedFps,refreshHz:NSScreen.main.map(DisplayRefresh.hertz),networkMs:m.networkMs,lossPercent:m.lossPercent,decodeMs:m.decodeMs),
                 values.joined(separator:" · "))
     }
     static func value(_ value: Double?,_ decimals: Int) -> String {

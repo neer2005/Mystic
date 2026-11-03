@@ -126,7 +126,7 @@ int main(void) {
     CHECK(mystic_session_keyboard_layout(handle, 2, 0, "de DE") == MYSTIC_ERR_INVALID_ARGUMENT,
           "a layout tag the wire cannot carry is refused");
     CHECK(mystic_session_text(handle, "a") == MYSTIC_ERR_NOT_STARTED, "text before start is refused");
-    CHECK(mystic_overlay_health(60, 60, 8, 0.1f, 2) == 1, "overlay health is Nightjar's");
+    CHECK(mystic_overlay_health(60, 60, 120, 8, 0.1f, 2) == 1, "overlay health is Nightjar's");
     MysticHardwarePoll *poll = mystic_hardware_poll_new();
     CHECK(poll != NULL && mystic_hardware_poll_due(poll, 0, true) == 0 && mystic_hardware_poll_due(poll, 1, true) == -1,
           "the hardware poll asks once at a time");

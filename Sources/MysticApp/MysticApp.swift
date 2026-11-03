@@ -14,7 +14,7 @@ struct MysticApp: App {
         case .launch(let launch): startup = launch
         case .version:
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development build"
-            print("Mystic \(version) (Nightjar 4.0.1 engine)");exit(0)
+            print("Mystic \(version) (Nightjar 4.3.1 engine)");exit(0)
         case .help: print(ShortcutLaunch.usage);exit(0)
         case .invalid(let message): FileHandle.standardError.write(Data((message + "\n").utf8));exit(64)
         }

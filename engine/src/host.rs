@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 /// Nightjar's release at the pinned revision (Cargo.toml). Hosts see the engine they talk to;
 /// the suffix says it runs inside Mystic.
-const NIGHTJAR_RELEASE: &str = "4.0.1";
+const NIGHTJAR_RELEASE: &str = "4.3.1";
 pub(crate) fn app_version() -> String {
     format!("{NIGHTJAR_RELEASE}+mystic.{}", env!("CARGO_PKG_VERSION"))
 }
@@ -734,7 +734,7 @@ mod tests {
     #[test]
     fn hosts_see_the_engine_release_and_mystic() {
         let version = app_version();
-        assert_eq!(version, format!("4.0.1+mystic.{}", env!("CARGO_PKG_VERSION")));
+        assert_eq!(version, format!("4.3.1+mystic.{}", env!("CARGO_PKG_VERSION")));
         // The engine keeps printable ASCII only; nothing of the version may be dropped.
         assert!(version.chars().all(|c| c.is_ascii_graphic()));
     }
