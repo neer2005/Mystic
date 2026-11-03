@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/library.jpg" width="860" alt="Mystic's Home library: a grid of game covers from a paired PC, with the selected game's details and a Play button beside it">
+  <img src=".github/assets/library.png" width="860" alt="Mystic's Home library: saved PCs in the sidebar, a grid of game covers, and the selected game's details with a Play button">
 </p>
 
 ---
