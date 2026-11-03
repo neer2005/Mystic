@@ -47,7 +47,8 @@ stream over Wi-Fi reached the screen about 34 ms after the PC drew each frame, d
 
 **Controllers, audio and sharing**
 - Xbox, PlayStation and Nintendo controllers, with rumble, motion, battery and light
-- Hold Start to drive the PC's pointer with a controller, and hold Start + Select + LB + RB to leave the stream
+- Hold Start to drive the PC's pointer with a controller, hold Guide to get your Mac's input back, and
+  hold Start + Select + LB + RB to leave the stream
 - Stereo, 5.1 and 7.1 sound, uncompressed from Rubylight hosts if you choose, and your Mac's microphone
 - Clipboard text and images both ways, file transfer and shared folders on Rubylight hosts
 - The host's night mode and headphone surround, from the stream window
