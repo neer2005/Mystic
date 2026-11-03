@@ -411,6 +411,8 @@ public final class ConnectionModel {
         try StreamSession(inputFailure:$0,recoveryFailure:$1)
     }
     @ObservationIgnored var sleepForRecovery: @Sendable (UInt64) async throws -> Void = { try await Task.sleep(for:.milliseconds($0)) }
+    /// How long the message of a stream the PC failed waits for the PC's reason.
+    @ObservationIgnored var waitForHostReason: @Sendable () async throws -> Void = { try await Task.sleep(for:.seconds(5)) }
     @ObservationIgnored var nowMillis: @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds/1_000_000 }
 
     public init(vault: any CredentialsStorage = CredentialsVault(), rememberHost: Bool = true,
@@ -1073,9 +1075,10 @@ public final class ConnectionModel {
     /// Called after the generation check; the video flag survives attempts in one recovery chain.
     func connectionEnded(code: Int32, videoStarted: Bool) {
         if sessionControls.busy { sessionControls.streamTerminated();inputCapture?.setAvailable(false);return }
-        let message="The host ended the stream (code \(code))."
+        let message=StreamRecovery.terminationText(code:code) ?? "The host ended the stream."
         guard plan?.reconnect == true, StreamRecovery.recovers(code:code,videoStarted:videoStarted || hadVideo) else {
-            endRecovery(message);return
+            guard StreamRecovery.hostEndedStream(code:code),let connection else { endRecovery(message);return }
+            endWithHostReason(message,connection:connection);return
         }
         hadVideo = true
         scheduleRecovery(message)
@@ -1140,6 +1143,24 @@ public final class ConnectionModel {
                 if (error as? HostConnectionError)?.retryable == true { self.scheduleRecovery(error.localizedDescription) }
                 else { self.endRecovery(error.localizedDescription) }
             }
+        }
+    }
+    /// The PC ended the stream on an error: the message waits briefly for its next serverinfo,
+    /// which carries the PC's own words where it says them.
+    private func endWithHostReason(_ message: String,connection: any HostService) {
+        let token=generation
+        inputCapture?.setAvailable(false);status="Asking the PC what happened…"
+        var finished=false
+        let finish: @MainActor (String?) -> Void={ [weak self] reason in
+            guard !finished else { return };finished=true
+            guard let self,self.generation == token else { return }
+            self.endRecovery(reason.map { "\(message)\n\nThe PC reported: \($0)" } ?? message)
+        }
+        Task { @MainActor in finish(try? await connection.serverInfo().lastFailure) }
+        let wait=waitForHostReason
+        Task { @MainActor in
+            try? await wait()
+            finish(nil)
         }
     }
     private func endRecovery(_ message: String) {

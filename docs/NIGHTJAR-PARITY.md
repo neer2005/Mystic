@@ -17,6 +17,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | Discovery, manual host, PIN pairing, saved hosts | Implemented | Desktop pairing/restart verified on Big Dawg; broader host coverage pending |
 | Wake-on-LAN | Implemented | Nightjar's plan (every interface's broadcast, IPv6 `ff02::1`, its port set, three bursts) and wait (resend every 8 s, 90 s limit); see HOME.md. Real wake of a sleeping PC pending |
 | Pairing links and one-time PINs | Implemented, live validation pending | Nightjar's `rubylight://pair` link, typed or pasted, and a host's PIN and passphrase; see HOSTS.md. Refusals and a host's error seen on Big Dawg; a successful pairing not yet tried. QR scanning has no Mac flow, as on Nightjar's desktop |
+| PC's error reason | Implemented | When the PC ends a stream on an error, Nightjar 4.3.1's wording plus "The PC reported: …" from its next serverinfo, waiting at most 5 s. Not triggered on a real host yet |
 | Client identification | Implemented | Requests carry `Nightjar/4.3.1+mystic.<version>`: the engine release, marked as Mystic |
 | Native library, artwork, store/title search | Implemented for connected host | Big Dawg browsing/search/refresh verified |
 | Combined Home, favourites, recent games | Implemented | Multi-PC merge/routing tests and Big Dawg live Home verified; store filter present, separate store shelves pending |
@@ -66,9 +67,9 @@ must be investigated and documented before a feature is marked inapplicable.
 | Audio clock drift trim | Implemented | Nightjar 4.3.1's `playout.rs` rule, simulated at 35 and 300 ppm; see AUDIO.md. No trim seen live yet |
 | 5.1/7.1 discrete PCM | Implemented, physical validation pending | Speaker identity and downmix checks |
 | 7.1.4/passthrough | Pending | Mac output capability investigation |
-| Microphone | Implemented | Live host input-meter response verified previously |
+| Microphone | Implemented | Nightjar 4.3.1's encoder settings: 64 kb/s speech with in-band FEC for 10% loss. Host input-meter response verified previously, before this change |
 | Microphone echo cancellation | Deferred (2026-10-31) | macOS voice processing removes only what plays through the same audio engine as the microphone; Mystic plays and records on separate engines. Doing it means playing the stream through the microphone's engine while it is on, which likely limits surround to stereo and applies voice processing to game sound. If taken up: Nightjar's Automatic (off with headphones), On and Off |
-| Keyboard/mouse and fullscreen | Implemented | User verified on Big Dawg |
+| Keyboard/mouse and fullscreen | Implemented | User verified on Big Dawg. Nightjar 4.3.1's 0.5 ms relative motion floor merges a 4 or 8 kHz mouse |
 | Display stays awake while streaming | Implemented | `DisplayWake` holds an idle-display-sleep activity for the stream, as SDL keeps Nightjar's screen saver off |
 | Keyboard layout report | Implemented, live validation pending | Nightjar's `text_field.rs`: the Mac's layout at start and on every switch (0x553E), as the matching Windows layout or the BCP-47 language; see INPUT.md |
 | Host text fields | Implemented for Mac, live validation pending | Nightjar opens an on-screen keyboard on a raise (0x553B); a Mac has none, so a focused field takes emoji picker, Character Viewer and dictation text as UTF-8. IME composition pending |

@@ -30,6 +30,8 @@ public struct HostInfo: Codable, Sendable, Equatable {
     public var otpPairing: HostFeatureAvailability? = nil
     /// The host software, such as "Rubylight 3.2.1".
     public var software: String? = nil
+    /// Why this device's latest stream on the host failed, in the host's words.
+    public var lastFailure: String? = nil
     public var nativeAPI: Bool? = nil
     /// What the host lets this device do; nil when paired hosts report no permissions.
     public var permissions: [String]? = nil

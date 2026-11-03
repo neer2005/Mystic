@@ -9,7 +9,10 @@ pub struct MysticMic {
 pub extern "C" fn mystic_mic_new(max_queued: u32) -> *mut MysticMic {
     if !(960..=32768).contains(&max_queued) { return std::ptr::null_mut(); }
     let Ok(mut encoder)=opus::Encoder::new(48000,opus::Channels::Mono,opus::Application::Voip) else { return std::ptr::null_mut(); };
-    if encoder.set_bitrate(opus::Bitrate::Bits(32000)).is_err() { return std::ptr::null_mut(); }
+    // Nightjar's settings: speech at 64 kb/s with in-band FEC for 10 % loss, so the PC recovers a
+    // lost packet from the next one. Frame sizes are unchanged, so this adds no delay.
+    if encoder.set_bitrate(opus::Bitrate::Bits(64000)).is_err() || encoder.set_signal(opus::Signal::Voice).is_err()
+        || encoder.set_inband_fec(true).is_err() || encoder.set_packet_loss_perc(10).is_err() { return std::ptr::null_mut(); }
     Box::into_raw(Box::new(MysticMic { samples:(0..65536).map(|_|AtomicU64::new(0)).collect(),
         write:AtomicU64::new(0),read:AtomicU64::new(0),max_queued:u64::from(max_queued),epoch:AtomicU32::new(0),muted:AtomicBool::new(false),encoder:UnsafeCell::new(encoder) }))
 }
@@ -61,6 +64,14 @@ pub unsafe extern "C" fn mystic_mic_encode(p:*mut MysticMic,pcm:*const f32,frame
 pub unsafe extern "C" fn mystic_mic_free(p:*mut MysticMic) { if !p.is_null() { drop(Box::from_raw(p)); } }
 #[cfg(test)] mod tests {
     use super::*;
+    #[test] fn the_encoder_has_nightjars_settings() { unsafe {
+        let m=mystic_mic_new(9600);
+        let encoder=&mut *(*m).encoder.get();
+        assert_eq!(encoder.get_bitrate().unwrap(),opus::Bitrate::Bits(64000));
+        assert!(encoder.get_inband_fec().unwrap());
+        assert_eq!(encoder.get_packet_loss_perc().unwrap(),10);
+        mystic_mic_free(m);
+    } }
     #[test] fn bounded_capture_mute_and_opus_round_trip() { unsafe {
         let mic=mystic_mic_new(1920);assert!(!mic.is_null());
         let input=vec![0.25f32;8192];mystic_mic_write(mic,input.as_ptr(),8192,1);

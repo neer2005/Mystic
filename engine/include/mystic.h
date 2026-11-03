@@ -261,6 +261,9 @@ char *mystic_folders_request(const MysticFolders *folders, const char *operation
 void mystic_folders_free(MysticFolders *folders);
 /* The offer for 4:4:4 and 10-bit SDR, as JSON {formats,yuv444,sdr10,yuv444Refusal,sdr10Refusal}. */
 char *mystic_color_offer(uint32_t base, uint32_t decodable, uint32_t scm, bool hdr, bool yuv444, bool sdr10, const char *decoder_reason);
+/* Whether the PC ended the stream on an error, and Nightjar's words for an end (NULL when clean; mystic_string_free). */
+bool mystic_host_ended_stream(int32_t code);
+char *mystic_termination_text(int32_t code);
 void mystic_host_cancel(const MysticHost *host);
 void mystic_host_free(MysticHost *host);
 

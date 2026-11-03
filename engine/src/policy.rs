@@ -59,6 +59,32 @@ pub unsafe extern "C" fn mystic_recovery_free(p: *mut MysticRecovery) {
         drop(Box::from_raw(p));
     }
 }
+/// Whether the PC itself ended the stream on an error, so its next serverinfo may say why.
+#[no_mangle]
+pub extern "C" fn mystic_host_ended_stream(code: i32) -> bool {
+    use nightjar_core::session::error;
+    matches!(code, error::UNEXPECTED_EARLY | error::PROTECTED_CONTENT | error::FRAME_CONVERSION)
+}
+/// Nightjar's words for why a stream ended, freed with `mystic_string_free`; null for a clean end.
+#[no_mangle]
+pub extern "C" fn mystic_termination_text(code: i32) -> *mut std::ffi::c_char {
+    let Some(text) = termination_text(code) else { return std::ptr::null_mut() };
+    std::ffi::CString::new(text).map_or(std::ptr::null_mut(), std::ffi::CString::into_raw)
+}
+fn termination_text(code: i32) -> Option<String> {
+    use nightjar_core::session::error;
+    Some(match code {
+        error::GRACEFUL => return None,
+        error::NO_VIDEO_TRAFFIC => "No video arrived from the PC. A firewall may be blocking UDP ports 47998-48000.".into(),
+        error::NO_VIDEO_FRAME => "Video arrived but no complete picture could be assembled.".into(),
+        // Often the game simply exited before its first picture.
+        error::UNEXPECTED_EARLY => "The PC ended the stream before the first picture. The game may have closed; start it again.".into(),
+        error::PROTECTED_CONTENT => "The PC stopped streaming protected content.".into(),
+        error::FRAME_CONVERSION => "The PC could not convert the picture for streaming.".into(),
+        error::DISCONNECTED => "The connection to the PC was lost.".into(),
+        other => format!("The stream ended unexpectedly (error {other})."),
+    })
+}
 #[no_mangle]
 pub extern "C" fn mystic_recovers_termination(code: i32, video_started: bool) -> bool {
     recovery::recovers_termination(code, video_started)
@@ -386,5 +412,22 @@ mod color_tests {
         let hdr = offer(ALL, SCM, true, true, true);
         assert_eq!((hdr["yuv444"].as_bool(), hdr["sdr10"].as_bool()), (Some(false), Some(false)));
         assert!(hdr["yuv444Refusal"].is_null() && hdr["sdr10Refusal"].is_null());
+    }
+}
+
+#[cfg(test)]
+mod termination_tests {
+    use super::*;
+    use nightjar_core::session::error;
+    #[test]
+    fn only_terminations_the_pc_sent_ask_it_for_the_reason() {
+        for code in [error::UNEXPECTED_EARLY, error::PROTECTED_CONTENT, error::FRAME_CONVERSION] { assert!(mystic_host_ended_stream(code)); }
+        for code in [error::GRACEFUL, error::NO_VIDEO_TRAFFIC, error::DISCONNECTED] { assert!(!mystic_host_ended_stream(code)); }
+    }
+    #[test]
+    fn terminations_read_well() {
+        assert!(termination_text(0).is_none());
+        assert!(termination_text(error::NO_VIDEO_TRAFFIC).unwrap().contains("UDP"));
+        assert!(termination_text(error::UNEXPECTED_EARLY).unwrap().contains("The game may have closed"));
     }
 }

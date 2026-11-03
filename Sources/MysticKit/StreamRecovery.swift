@@ -19,6 +19,14 @@ public final class StreamRecovery {
     public func remaining(nowMillis: UInt64) -> UInt64 { mystic_recovery_remaining(handle,nowMillis) }
     /// The next attempt starts without its delay (the network came back); it still spends one.
     public func retryNow() { mystic_recovery_retry_now(handle) }
+    /// Whether the PC ended the stream on an error, so its next serverinfo may say why.
+    public static func hostEndedStream(code: Int32) -> Bool { mystic_host_ended_stream(code) }
+    /// Nightjar's words for why a stream ended; nil for a clean end.
+    public static func terminationText(code: Int32) -> String? {
+        guard let text=mystic_termination_text(code) else { return nil }
+        defer { mystic_string_free(text) }
+        return String(cString:text)
+    }
     /// Nightjar's rule for a network back after the stream's was lost: reconnect now.
     public static func reconnectsAtOnce(cannotContinue: Bool,metered: Bool,meteredAllowed: Bool,
                                         automaticReconnect: Bool,networkGraceMs: UInt32) -> Bool {

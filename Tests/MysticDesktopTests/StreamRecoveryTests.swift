@@ -297,6 +297,24 @@ final class StreamRecoveryTests: XCTestCase {
             XCTAssertEqual(host.launches.count,1)
         }
     }
+    func testAStreamThePCEndedOnAnErrorSaysThePCsReason() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
+        let model=try await running(host,sessions,clock)
+        model.waitForHostReason={ try await Task.sleep(for:.seconds(30)) }
+        host.lastFailure="HDR is on, but the display is not in HDR"
+        sessions.all[0].emit(.terminated(code:-104))
+        try await wait { model.phase == .idle }
+        XCTAssertEqual(model.errorMessage?.hasSuffix("The PC reported: HDR is on, but the display is not in HDR"),true)
+    }
+    func testAPCThatDoesNotAnswerDoesNotHoldTheMessageBack() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
+        let model=try await running(host,sessions,clock)
+        host.holdInfo=true
+        model.waitForHostReason={}
+        sessions.all[0].emit(.terminated(code:-104))
+        try await wait { model.phase == .idle }
+        XCTAssertEqual(model.errorMessage?.contains("The PC reported"),false)
+    }
     func testRecoveryChainExhaustsBudgetEvenWhenNewAttemptHasNoPicture() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock()
         let model=try await running(host,sessions,clock)
@@ -778,6 +796,7 @@ private final class RecoveryHost: HostService,@unchecked Sendable {
     private var quitCount=0
     var quits:Int { lock.withLock { quitCount } }
     func quitApp(expected:HostInfo) async throws { lock.withLock { quitCount+=1;currentApp=0 } }
+    var lastFailure:String?,holdInfo=false
     /// The host's hardware readings, when set.
     var hardware:HostHardware?
     private var hardwareCount=0
@@ -803,8 +822,11 @@ private final class RecoveryHost: HostService,@unchecked Sendable {
     func serverInfo() async throws -> HostInfo {
         let failure=lock.withLock { let value=infoFailure;infoFailure=nil;return value }
         if let failure { throw HostConnectionError("Connection check failed",retryable:failure) }
+        if holdInfo { try await Task.sleep(for:.seconds(30)) }
         let (id,app)=lock.withLock { (hostID,currentApp) }
-        return try recoveryDecode("{\"name\":\"PC\",\"uniqueID\":\"\(id)\",\"paired\":true,\"appVersion\":\"7.1.431.-1\",\"codecSupport\":1,\"currentGame\":\(app)}")
+        var info: HostInfo=try recoveryDecode("{\"name\":\"PC\",\"uniqueID\":\"\(id)\",\"paired\":true,\"appVersion\":\"7.1.431.-1\",\"codecSupport\":1,\"currentGame\":\(app)}")
+        info.lastFailure=lastFailure
+        return info
     }
     func apps() async throws -> [HostApp] { try recoveryDecode("[{\"id\":1,\"name\":\"Desktop\",\"uuid\":\"app1\",\"hdrSupported\":false}]") }
     func pair(pin:String) async throws -> PairedHost { throw HostConnectionError("not used") }
