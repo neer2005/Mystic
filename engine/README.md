@@ -32,6 +32,10 @@ input" (on in `MysticStreamConfig`'s default, as in Nightjar), and `MYSTIC_AUDIO
 for `audio_capabilities`: `audio_play` then runs on the engine's receive thread, as in
 Nightjar's desktop app, so it must not block.
 
+ABI 6 also adds Nightjar's "Lower bitrate when frames are lost" (`mystic_session_rate_hint_begin`,
+ticked by `mystic_session_health_tick`, whose envelope carries its state and the frames' mean
+decode-queue wait) and the `probeLink` host request for "Test the link before starting".
+
 ## What it does
 
 `nightjar-core` exposes Rust traits — `VideoDecoder`, `AudioRenderer`, `Listener` — and a

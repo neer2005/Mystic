@@ -35,6 +35,7 @@ stream over Wi-Fi reached the screen about 34 ms after the PC drew each frame, d
 - Lowest Latency, Balanced, frame-limited and Smoothest pacing, V-Sync on or off, and an optional
   Metal renderer
 - Automatic bitrate, and live changes of bitrate and frame rate mid-stream on hosts that allow it
+- On Rubylight hosts, optionally test the link before a stream and lower the bitrate as soon as frames are lost
 - Can keep AirDrop's Wi-Fi link quiet during a stream, a common cause of stutter on Macs
 
 **Feels like a Mac app**

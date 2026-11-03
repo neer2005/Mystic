@@ -439,6 +439,52 @@ final class StreamRecoveryTests: XCTestCase {
         XCTAssertFalse(plain.unbatchedInput)
         other.disconnect()
     }
+    func testTheLinkTestLowersANewStreamAtTheRecommendedBitrateOnly() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        host.changeApp(0);host.probe=LinkProbe(mbps:8,startKbps:5000)
+        let model=try await running(host,sessions,RecoveryClock(),configure:{ model in
+            model.testLinkBeforeStart=true;model.settings.update { $0.bitrateMbps=StreamPreferences.recommendedBitrate }
+        })
+        XCTAssertEqual(host.probes.count,1)
+        XCTAssertEqual(sessions.all[0].configuration?.bitrateKbps,5000,"starts no higher than the link holds")
+        XCTAssertEqual(model.rates.launchKbps,5000,"automatic bitrate's ceiling is where the stream started")
+        model.disconnect()
+
+        let fixed=RecoveryHost(),fixedSessions=RecoverySessions()
+        fixed.changeApp(0);fixed.probe=LinkProbe(mbps:8,startKbps:5000)
+        let other=try await running(fixed,fixedSessions,RecoveryClock(),configure:{ $0.testLinkBeforeStart=true })
+        XCTAssertEqual(fixed.probes,[],"a bitrate chosen by hand is never tested")
+        XCTAssertEqual(fixedSessions.all[0].configuration?.bitrateKbps,20_000)
+        other.disconnect()
+
+        let resume=RecoveryHost(),resumeSessions=RecoverySessions()
+        resume.probe=LinkProbe(mbps:8,startKbps:5000)
+        let resumed=try await running(resume,resumeSessions,RecoveryClock(),configure:{ model in
+            model.testLinkBeforeStart=true;model.settings.update { $0.bitrateMbps=StreamPreferences.recommendedBitrate }
+        })
+        XCTAssertEqual(resume.probes,[],"a resume keeps the running session's bitrate")
+        resumed.disconnect()
+    }
+    func testLossBasedBitrateReplacesAutomaticBitrateWhereTheStreamTakesRateChanges() async throws {
+        let sessions=RecoverySessions();sessions.lossSupported=true
+        let model=try await running(RecoveryHost(),sessions,RecoveryClock(),adaptive:true,configure:{ $0.lowerBitrateOnLoss=true })
+        try await wait { model.rates.status.hasPrefix("Loss-based bitrate: 20") }
+        XCTAssertEqual(sessions.all[0].lossBegins,[20_000])
+        XCTAssertTrue(model.rates.automaticActive,"the doctor offers no trial while it steers")
+        model.rates.lossTick(LossBitrateState(active:true,kbps:14_000,stopped:nil))
+        XCTAssertEqual(model.rates.currentKbps,14_000)
+        model.rates.lossTick(LossBitrateState(active:false,kbps:14_000,stopped:"Loss-based bitrate stopped: the PC's limit"))
+        XCTAssertEqual(model.rates.status,"Loss-based bitrate stopped: the PC's limit")
+        XCTAssertFalse(model.rates.lossBitrate)
+        model.disconnect()
+
+        let plain=RecoverySessions()
+        let other=try await running(RecoveryHost(),plain,RecoveryClock(),adaptive:true,configure:{ $0.lowerBitrateOnLoss=true })
+        try await wait { !other.rates.status.hasPrefix("Loss-based") }
+        XCTAssertEqual(plain.all[0].lossBegins,[20_000])
+        XCTAssertTrue(other.rates.status.hasPrefix("Automatic bitrate"),"a stream without rate changes keeps automatic bitrate")
+        other.disconnect()
+    }
     func testANetworkBackOnANewAddressReconnectsAtOnceOnlyWhenTheStreamCannotContinue() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions(),clock=RecoveryClock(),events=WatchEvents()
         let model=try await running(host,sessions,clock,configure:{ $0.startNetworkWatch=events.start })
@@ -721,7 +767,10 @@ private final class RecoverySessions: @unchecked Sendable {
     var all:[RecoverySession] { lock.withLock { values } }
     var qualityUnsupported: Bool { get { lock.withLock { unsupported } } set { lock.withLock { unsupported=newValue } } }
     private var unsupported=false
-    func make() -> RecoverySession { lock.withLock { let s=RecoverySession(startup:failure,qualityUnsupported:unsupported);failure=nil;values.append(s);return s } }
+    /// The streams take live rate changes, so loss-based bitrate can start.
+    var lossSupported: Bool { get { lock.withLock { loss } } set { lock.withLock { loss=newValue } } }
+    private var loss=false
+    func make() -> RecoverySession { lock.withLock { let s=RecoverySession(startup:failure,qualityUnsupported:unsupported);s.lossSupported=loss;failure=nil;values.append(s);return s } }
 }
 private final class RecoverySession: StreamSessionService, @unchecked Sendable {
     private let startup:StreamStartFailure?
@@ -790,6 +839,10 @@ private final class RecoverySession: StreamSessionService, @unchecked Sendable {
     var sentInput:[RemoteInputEvent] { lock.withLock { inputs } }
     func send(_ event:RemoteInputEvent)->Bool { lock.withLock { inputs.append(event) };return true }
     func beginAdaptiveBitrate(ceiling:UInt32,current:UInt32) async -> Bool { lock.withLock { beginCount+=1 };return true }
+    var lossSupported=false
+    private var lossStarts:[UInt32]=[]
+    var lossBegins:[UInt32] { lock.withLock { lossStarts } }
+    func beginLossBitrate(kbps:UInt32) async -> Bool { lock.withLock { lossStarts.append(kbps);return lossSupported } }
     func suggestedBitrate(decodeMillis:Float) async -> UInt32? { lock.withLock { let r=rate;rate=nil;return r } }
     func appliedBitrate(requested:UInt32,applied:UInt32) async {}
     private var reportOffer="none",trialRefusal:TrialRefusal?,steps:[UInt32]=[]
@@ -854,6 +907,11 @@ private final class RecoveryHost: HostService,@unchecked Sendable {
         lock.withLock { options.append(value) }
         return try recoveryDecode("{\"rtspURL\":null,\"appVersion\":\"7.1.431.-1\",\"codecSupport\":1,\"key\":[],\"iv\":[],\"runtimeBitrate\":\(supportsBitrate),\"keyboardLayout\":\(keyboardExtras),\"textFields\":\(keyboardExtras)}")
     }
+    /// The link test's answer; nil when the PC offers none.
+    var probe:LinkProbe?
+    private var probeAsks:[UInt32]=[]
+    var probes:[UInt32] { lock.withLock { probeAsks } }
+    func probeLink(kbps:UInt32) async throws -> LinkProbe? { lock.withLock { probeAsks.append(kbps) };return probe }
     func setBitrate(kbps:UInt32) async throws -> UInt32 {
         lock.withLock { requests.append(kbps) }
         if rejectRate { throw HostConnectionError("Host refused bitrate") }

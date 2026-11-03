@@ -413,6 +413,8 @@ impl VideoDecoder for VideoAdapter {
             let mut network = self.network.lock().unwrap_or_else(|e| e.into_inner());
             network.frame(frame.rtp_timestamp, frame.receive_time_us, u32::from(frame.host_processing_latency) * 100);
             network.received_bytes += frame.data().len() as u64;
+            network.queue_us += nightjar_core::session::now_us().saturating_sub(frame.enqueue_time_us);
+            network.queue_samples += 1;
         }
         let Some(f) = self.callbacks.video_submit else {
             return DecodeStatus::Ok;

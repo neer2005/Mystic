@@ -395,6 +395,12 @@ int32_t mystic_frame_buffers(const MysticFrame *frame, MysticFrameBuffer *out, s
  * (this Mac's). Sends Nightjar's plan; owned response freed with mystic_string_free. */
 char *mystic_wake(const char *request_json);
 char *mystic_session_rates(const MysticSession *session, uint32_t kbps, uint32_t fps_millihz);
+/* ABI 6: Nightjar's "Lower bitrate when frames are lost" on a stream that takes live rate changes,
+ * from its bitrate kbps under this client's cap limit_kbps (0 for none). It ticks with
+ * mystic_session_health_tick, whose envelope then carries "hint": {active, kbps, stopped}.
+ * Returns 0, or MYSTIC_ERR_UNIMPLEMENTED when the stream takes no rate changes. */
+int32_t mystic_session_rate_hint_begin(const MysticSession *session, uint32_t kbps, uint32_t limit_kbps,
+                                       uint64_t now_ms);
 
 /* ABI 4: the stream display's EDR headroom (peak over SDR white; 1 or less is SDR). The host
  * gets a luminance estimated from it. Returns 1 when sent, 0 when the host already has these

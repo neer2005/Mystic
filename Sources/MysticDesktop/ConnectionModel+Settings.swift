@@ -123,6 +123,16 @@ extension ConnectionModel {
         get { settings.value.playAudioOnHost ?? false }
         set { settings.update { $0.playAudioOnHost=newValue } }
     }
+    /// Nightjar's "Lower bitrate when frames are lost": loss-based bitrate over live rate changes.
+    public var lowerBitrateOnLoss: Bool {
+        get { settings.value.lowerBitrateOnLoss ?? false }
+        set { settings.update { $0.lowerBitrateOnLoss=newValue } }
+    }
+    /// Nightjar's "Test the link before starting" (off there: it measured worse).
+    public var testLinkBeforeStart: Bool {
+        get { settings.value.testLinkBeforeStart ?? false }
+        set { settings.update { $0.testLinkBeforeStart=newValue } }
+    }
     /// Nightjar's "Instant mouse and pen input": motion leaves at once, not in 1 ms batches.
     public var instantMouseInput: Bool {
         get { settings.value.instantMouseInput ?? true }

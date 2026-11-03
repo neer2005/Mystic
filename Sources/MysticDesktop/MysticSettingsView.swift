@@ -98,6 +98,14 @@ public struct MysticSettingsView: View {
                         Text("Extra data the PC sends so lost packets can be rebuilt. Automatic follows the loss this Mac sees. PCs that don't take the request keep their own setting.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
+                    Section("Bitrate") {
+                        Toggle("Lower Bitrate When Frames Are Lost",isOn:$model.lowerBitrateOnLoss)
+                        Text("Turns the bitrate down as soon as frames go missing, and back up after a few clean seconds. Works with PCs that can change the bitrate during a stream, and replaces Automatic Bitrate there.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Toggle("Test the Link Before Starting",isOn:$model.testLinkBeforeStart)
+                        Text("A new stream at the Recommended bitrate first measures the connection to the PC and starts no higher than it holds. Works with PCs that support it.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }.disabled(model.hasSession || model.isBusy)
                     Section("Link Hints") {
                         Toggle("Tell the Host When on Wi-Fi",isOn:$model.tellHostWireless)
                         Toggle("Tell the Host the Wired Link Speed",isOn:$model.tellHostLinkSpeed)

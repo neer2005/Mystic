@@ -64,6 +64,7 @@ pub unsafe extern "C" fn mystic_session_health_tick(
         let mut network = p.network.lock().unwrap_or_else(|e| e.into_inner());
         let received = std::mem::take(&mut network.received);
         let received_bytes = std::mem::take(&mut network.received_bytes);
+        let queue_ms = network.take_queue_ms();
         let seconds = f64::from(interval_ms.max(1)) / 1000.0;
         let tick = Stats {
             now_ms,
@@ -79,10 +80,25 @@ pub unsafe extern "C" fn mystic_session_health_tick(
             released_fps: measured(released_fps),
             shown_fps: measured(shown_fps),
             late_frames: Some(network.late.tick()),
+            queue_ms,
             thermal_level,
             ..Stats::default()
         };
+        drop(network);
         doctor.health.add(&tick);
+        // Nightjar's loss-based bitrate ticks with these figures, when the app started it.
+        let hint = {
+            let mut rates = p.rates.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(request) = rates.hint_tick(&Stats {
+                now_ms, recent_video: tick.recent_video, poor_connection: tick.poor_connection,
+                loss_percent: tick.loss_percent, queue_ms, ..Stats::default()
+            }) {
+                if let Err(error) = session.send(nightjar_core::control::ClientMessage::RateChange(request)) {
+                    rates.hint_send_failed(&error.to_string());
+                }
+            }
+            rates.hint_state()
+        };
         p.last_tick = Some(tick);
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
         Ok(json!({
@@ -92,6 +108,9 @@ pub unsafe extern "C" fn mystic_session_health_tick(
             // This tick's frames, for the report a Foundation host's bitrate controller takes.
             "completedFrames": completed, "droppedFrames": drops,
             "videoMbps": received_bytes as f64 * 8.0 / seconds / 1_000_000.0,
+            "queueMs": tick.queue_ms,
+            // Loss-based bitrate (`mystic_session_rate_hint_begin`): null when not started.
+            "hint": hint.map(|h| json!({"active": h.active, "kbps": h.kbps, "stopped": h.stopped})),
         }))
     })())
 }

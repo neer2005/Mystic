@@ -118,6 +118,13 @@ public struct LaunchedStream: Codable, Sendable {
     public var keyboardLayout: Bool? = nil
     public var textFields: Bool? = nil
 }
+/// Nightjar's "Test the link before starting": one timed download from the PC.
+public struct LinkProbe: Codable, Sendable, Equatable {
+    public let mbps: Double
+    /// The first bitrate the measured link allows, never above the one asked about.
+    public let startKbps: UInt32
+    public init(mbps: Double,startKbps: UInt32) { self.mbps=mbps;self.startKbps=startKbps }
+}
 /// The host's bitrate controller is on.
 public struct HostBitrateStart: Codable, Sendable, Equatable {
     /// Where the controller starts, in kbps; 0 for the stream's bitrate.
@@ -171,6 +178,8 @@ public protocol HostService: AnyObject, Sendable {
     func hardwareMetrics() async throws -> HostHardware
     /// Android's remote access check; blocks for up to about 20 seconds.
     func remoteCheck(uniqueID: String) async throws -> RemoteCheckResult
+    /// Times the link to a paired PC before a stream at `kbps`; nil when the PC offers no test.
+    func probeLink(kbps: UInt32) async throws -> LinkProbe?
     func clipboardText() async throws -> String
     func sendClipboardText(_ text: String) async throws
     /// The PNG on the PC's clipboard; nil while it holds no image.
@@ -203,6 +212,7 @@ public extension HostService {
     func hostBitrateFeedback(_ feedback: HostBitrateFeedback) async throws -> HostBitrateAction { throw HostConnectionError("This host runs no bitrate controller.") }
     func hardwareMetrics() async throws -> HostHardware { HostHardware(available:false) }
     func remoteCheck(uniqueID: String) async throws -> RemoteCheckResult { RemoteCheckResult(outcome:.unreachable,error:"Unavailable.") }
+    func probeLink(kbps: UInt32) async throws -> LinkProbe? { nil }
     func clipboardText() async throws -> String { throw HostConnectionError("This host does not support clipboard text transfer.") }
     func sendClipboardText(_ text: String) async throws { throw HostConnectionError("This host does not support clipboard text transfer.") }
     func clipboardImage() async throws -> Data? { throw HostConnectionError("This host does not support clipboard images.") }
@@ -310,6 +320,12 @@ public final class HostConnection: HostService, @unchecked Sendable {
         try await request("launch", json: String(decoding: JSONEncoder().encode(options), as: UTF8.self))
     }
     public func hardwareMetrics() async throws -> HostHardware { try await request("hardwareMetrics",json:"{}") }
+    public func probeLink(kbps: UInt32) async throws -> LinkProbe? {
+        struct Answer: Decodable, Sendable { let offered: Bool;let mbps: Double?;let startKbps: UInt32? }
+        let answer: Answer = try await request("probeLink",json:String(decoding:JSONEncoder().encode(["kbps":kbps]),as:UTF8.self))
+        guard answer.offered,let mbps=answer.mbps,let start=answer.startKbps else { return nil }
+        return LinkProbe(mbps:mbps,startKbps:start)
+    }
     public func remoteCheck(uniqueID: String) async throws -> RemoteCheckResult {
         try await request("remoteCheck",json:String(decoding:JSONEncoder().encode(["uniqueID":uniqueID]),as:UTF8.self))
     }

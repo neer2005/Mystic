@@ -381,6 +381,9 @@ public final class ConnectionModel {
         var qualityMinFps: UInt32=30
         var renderer: VideoRendererKind = .displayLayer
         var color: ColorOffer? = nil
+        /// Nightjar's link test runs before a new stream at the recommended bitrate.
+        var probeLink=false
+        var lossBitrate=false
     }
     @ObservationIgnored private(set) var plan: StreamPlan?
     /// The headroom of the screen the stream will open on, read when a plan is made.
@@ -684,12 +687,15 @@ public final class ConnectionModel {
             let correction=ErrorCorrection(rawValue:settings.value.errorCorrection ?? "") ?? .host
             options.fec=correction.engineValue; config.videoFEC=correction.engineValue
             config.networkGraceMs=(NetworkGrace(rawValue:settings.value.networkGraceSeconds ?? 0) ?? .off).milliseconds
-            return StreamPlan(app:app,options:options,configuration:config,
+            var plan=StreamPlan(app:app,options:options,configuration:config,
                 adaptive:video.adaptiveBitrate,reconnect:settings.value.automaticReconnect ?? true,
                 hostID:host?.uniqueID ?? "",framePacing:video.framePacing,
                 tellWireless:tellHostWireless,tellLinkSpeed:tellHostLinkSpeed,
                 roaming:clientRoaming,roamingMetered:roamingOnMeteredNetworks,quality:video.automaticQuality,
                 qualityMinShortEdge:video.qualityMinShortEdge,qualityMinFps:video.qualityMinFps,renderer:videoRenderer,color:color)
+            plan.probeLink=testLinkBeforeStart && video.bitrateMbps == StreamPreferences.recommendedBitrate
+            plan.lossBitrate=lowerBitrateOnLoss
+            return plan
     }
     private func startPreparedPlan(_ plan: StreamPlan,connection: any HostService,capabilities: VideoCapabilities) {
         recovery=StreamRecovery();recovering=false;hadVideo=false;connectedAt=nil
@@ -768,9 +774,29 @@ public final class ConnectionModel {
                 let hints=NetworkRoute.hints(route,tellWireless:plan.tellWireless,tellLinkSpeed:plan.tellLinkSpeed)
                 var options=options
                 options.clientWireless=hints.wireless
+                // Nightjar's link test: a new stream at the recommended bitrate starts no higher than
+                // the link holds. A resume keeps the running session's bitrate; a failed test starts
+                // the stream as asked.
+                var startKbps=config.bitrateKbps
+                if plan.probeLink,!options.resumeOnly,self.host?.currentGame != app.id {
+                    self.status="Testing the link to \(self.host?.name ?? "the PC")…"
+                    do {
+                        if let probe=try await connection.probeLink(kbps:UInt32(clamping:config.bitrateKbps)) {
+                            startKbps=Int32(clamping:probe.startKbps)
+                            self.record(String(format:"Link test: %.1f Mbit/s, starting at %d kbps.",probe.mbps,startKbps),token:token)
+                        } else {
+                            self.record("Link test: the PC does not offer it.",token:token)
+                        }
+                    } catch {
+                        self.record("Link test failed, starting at \(startKbps) kbps: \(error.localizedDescription)",token:token)
+                    }
+                    guard self.generation == token else { return }
+                    self.status="Launching \(app.name)…"
+                }
                 let launch = try await connection.launch(options)
                 guard self.generation == token else { return }
                 var config = config
+                config.bitrateKbps=startKbps
                 config.remoteInputAESKey = launch.key; config.remoteInputAESIV = launch.iv
                 config.clientWireless = launch.clientWireless == true
                 config.linkMbps = hints.linkMbps
@@ -842,7 +868,7 @@ public final class ConnectionModel {
                 self.record(launch.imageClipboard == true ? "The host offers its image clipboard." : "The host does not offer an image clipboard.",token:token)
                 self.hostCursorOffered=launch.cursorShapes == true
                 self.hostKeyboardLayout=launch.keyboardLayout == true;self.hostTextFields=launch.textFields == true
-                self.rates.streamStarted(launch:launch,adaptive:adaptive,configuration:config)
+                self.rates.streamStarted(launch:launch,adaptive:adaptive,lossBased:plan.lossBitrate,configuration:config)
                 self.monitorMedia(audio, telemetry:telemetry,token: token)
             } catch {
                 guard let self,self.generation == token else { return }

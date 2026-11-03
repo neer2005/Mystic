@@ -35,6 +35,7 @@ public final class StreamHealthModel {
         let measured=await session.healthTick(timings)
         guard model.generation == token else { return }
         measures=measured
+        model.rates.lossTick(measured?.hint)
     }
     nonisolated static func thermalLevel(_ state: ProcessInfo.ThermalState) -> UInt32 {
         switch state {

@@ -46,6 +46,8 @@ protocol StreamSessionService: AnyObject, Sendable {
     func setMicrophoneMuted(_ muted: Bool)
     func send(_ event: RemoteInputEvent) -> Bool
     func beginAdaptiveBitrate(ceiling: UInt32, current: UInt32) async -> Bool
+    /// Starts loss-based bitrate; false when the stream takes no live rate changes.
+    func beginLossBitrate(kbps: UInt32) async -> Bool
     func suggestedBitrate(decodeMillis: Float) async -> UInt32?
     func appliedBitrate(requested: UInt32, applied: UInt32) async
     func healthTick(_ timings: HealthTimings) async -> NetworkMeasures?
@@ -87,6 +89,7 @@ extension StreamSessionService {
     func trialBegin(undo: Bool,liveKbps: UInt32) async -> Result<UInt32,TrialRefusal> { .failure(.unavailable) }
     func trialApplied(undo: Bool,previousKbps: UInt32,appliedKbps: UInt32) async {}
     func trialClear() async {}
+    func beginLossBitrate(kbps: UInt32) async -> Bool { false }
     func reportDisplay(headroom: Float) async -> DisplayReport { .unsupported }
     func phaseSample(readyMicros: UInt64,nowMicros: UInt64,latchMicros: Int64,periodNanos: Int64) async -> Int32? { nil }
     func clockSync() async -> (offsetMicros: Int64,roundTripMicros: Int64,clockNowMicros: UInt64)? { nil }
@@ -160,6 +163,11 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
     func beginAdaptiveBitrate(ceiling: UInt32, current: UInt32) async -> Bool {
         await withCheckedContinuation { continuation in queue.async { [self] in
             continuation.resume(returning:acceptingInput && engine.beginAdaptiveBitrate(ceiling:ceiling,current:current,nowMillis:Self.nowMillis()))
+        } }
+    }
+    func beginLossBitrate(kbps: UInt32) async -> Bool {
+        await withCheckedContinuation { continuation in queue.async { [self] in
+            continuation.resume(returning:acceptingInput && engine.lossBitrateBegin(kbps:kbps,limitKbps:0,nowMillis:Self.nowMillis()))
         } }
     }
     func suggestedBitrate(decodeMillis: Float) async -> UInt32? {

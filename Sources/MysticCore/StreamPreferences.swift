@@ -34,6 +34,8 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public var playAudioOnHost: Bool? = nil // Missing in older documents; defaults off.
     public var uncompressedAudio: Bool? = nil // Missing in older documents; defaults off, as Nightjar.
     public var instantMouseInput: Bool? = nil // Missing in older documents; defaults on, as Nightjar.
+    public var lowerBitrateOnLoss: Bool? = nil // Missing in older documents; defaults off, as Nightjar.
+    public var testLinkBeforeStart: Bool? = nil // Missing in older documents; defaults off, as Nightjar.
     public var input: InputPreferences? = nil // Missing in older documents; Nightjar's defaults.
     public var clipboardSync: Bool? = nil // Missing in older documents; defaults off.
     public var microphoneEnabled: Bool? = nil // Missing in older documents; defaults off.
