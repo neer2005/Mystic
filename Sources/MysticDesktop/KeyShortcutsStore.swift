@@ -21,7 +21,7 @@ public final class KeyShortcutsStore {
     public func save(id: String? = nil,name: String,chord: String) -> Bool {
         change { try $0.save(id:id,name:name,chord:chord) }
     }
-    public func remove(id: String) { change { $0.remove(id:id) } }
+    public func remove(id: String) { _=change { $0.remove(id:id) } }
     /// Replaces every shortcut with the file's; an invalid file changes nothing.
     @discardableResult
     public func importFile(_ url: URL) -> Bool {

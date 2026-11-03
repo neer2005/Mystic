@@ -1,7 +1,7 @@
 import AVFoundation
 import CoreMedia
 import CoreVideo
-import Metal
+@preconcurrency import Metal
 import QuartzCore
 import MysticCore
 
@@ -134,9 +134,14 @@ final class MetalFrameDrawer: @unchecked Sendable {
         encoder.setFragmentBytes(&values,length:MemoryLayout<Float>.stride*values.count,index:0)
         encoder.drawPrimitives(type:.triangle,vertexStart:0,vertexCount:3)
         encoder.endEncoding()
-        commands.addCompletedHandler { _ in withExtendedLifetime((luma.0,chroma.0,image)) {} }
+        // Metal reads the planes until the GPU is done; nothing else touches them meanwhile.
+        let inUse=KeptAlive(value:(luma.0,chroma.0,image))
+        commands.addCompletedHandler { _ in withExtendedLifetime(inUse) {} }
     }
 }
+
+/// Holds objects until a GPU completion handler runs.
+private struct KeptAlive<Value>: @unchecked Sendable { let value: Value }
 
 /// Stands where the display layer's receiver does, so the presenter's pacing, resets and failures
 /// are the same on either path. Drawing and waits for a drawable stay off the main actor.

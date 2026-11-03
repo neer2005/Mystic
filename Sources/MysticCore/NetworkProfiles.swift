@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// What kind of network a stream would run over, from the route toward the PC. Nightjar's
 /// desktop client tells home Wi-Fi from other Wi-Fi by the network's name; macOS gives an app

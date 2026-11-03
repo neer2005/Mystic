@@ -42,7 +42,8 @@ struct GameGrid<Item: Identifiable,Card: View,Menu: View,Footer: View>: View whe
                     footer()
                 }.padding(spacing)
             }
-            .onGeometryChange(for:CGFloat.self) { $0.size.width-spacing*2 } action: { width=$0 }
+            // The inset alone, not the view: the measuring closure must be Sendable.
+            .onGeometryChange(for:CGFloat.self) { [inset=spacing*2] in $0.size.width-inset } action: { width=$0 }
             // Keys go through an AppKit responder: SwiftUI focus could not move into the grid
             // from the sidebar list, so arrow keys stopped working after choosing a host.
             .background {
