@@ -3,7 +3,7 @@ import MysticCore
 
 struct HomeLibraryContent: View {
     @Bindable var model: ConnectionModel
-    @FocusState private var searchFocused: Bool
+    @State private var searchFocus=0
     @Environment(\.openWindow) private var openWindow
     @State private var query=""
     @State private var shelf="all"
@@ -27,7 +27,7 @@ struct HomeLibraryContent: View {
     var body: some View {
         VStack(spacing:0) {
             HStack {
-                Text("Library").font(.headline)
+                LibrarySearchField(text:$query,prompt:"Search Home",focus:searchFocus).frame(maxWidth:320)
                 Spacer()
                 homeActions
             }.padding(.horizontal,12).padding(.top,12)
@@ -66,9 +66,7 @@ struct HomeLibraryContent: View {
                 Spacer();Text("\(filtered.count) \(filtered.count == 1 ? "game" : "games")")
             }.font(.caption).foregroundStyle(.secondary).padding(12)
         }
-        .searchable(text:$query,placement:.toolbar,prompt:"Search Home")
-        .searchFocused($searchFocused)
-        .focusedSceneValue(\.librarySearchAction, { searchFocused=true })
+        .focusedSceneValue(\.librarySearchAction, { searchFocus+=1 })
         .onChange(of:filtered.map(\.id)) {
             if let id=model.selectedHomeGameID,!filtered.contains(where: { $0.id == id }) { model.selectedHomeGameID=filtered.first?.id }
         }

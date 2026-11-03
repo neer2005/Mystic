@@ -10,7 +10,7 @@ public struct HostLibraryView: View {
     @State private var showingHostDetails=false
     @State private var filesModel: FilesModel?
     @State private var foldersModel: SharedFoldersModel?
-    @FocusState private var searchFocused: Bool
+    @State private var searchFocus=0
     @Environment(\.openWindow) private var openWindow
     /// A stream asked for on the command line, started once the library appears.
     private let startup: ShortcutLaunch?
@@ -148,14 +148,13 @@ public struct HostLibraryView: View {
             }.font(.caption).foregroundStyle(.secondary).padding(12)
         }
         .disabled(model.hasSession || model.isBusy)
-        .searchable(text:Bindable(model.library).query,placement:.toolbar,prompt:"Search \(model.host?.name ?? "Apps")")
-        .searchFocused($searchFocused)
-        .focusedSceneValue(\.librarySearchAction, { searchFocused=true })
+        .focusedSceneValue(\.librarySearchAction, { searchFocus+=1 })
     }
     private var hostLibraryHeader: some View {
         VStack(spacing:12) {
             HStack {
-                Text("Library").font(.headline)
+                LibrarySearchField(text:Bindable(model.library).query,prompt:"Search \(model.host?.name ?? "Games")",focus:searchFocus)
+                    .frame(maxWidth:320)
                 Spacer()
                 HStack(spacing:8) {
                     Picker("Library View",selection:setting(\.libraryLayout)) {

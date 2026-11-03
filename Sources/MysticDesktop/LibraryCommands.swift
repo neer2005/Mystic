@@ -28,7 +28,7 @@ public struct LibraryCommands: Commands {
     public init() {}
     public var body: some Commands {
         CommandGroup(after:.textEditing) {
-            Button("Find Apps") { findApps?() }
+            Button("Find Games") { findApps?() }
                 .keyboardShortcut("f",modifiers:.command)
                 .disabled(findApps == nil)
         }
