@@ -583,6 +583,17 @@ final class StreamRecoveryTests: XCTestCase {
         try await wait { sessions.all[1].displayReports == [8] }
         model.disconnect()
     }
+    func testDisplayReportsReachTheHostInTheOrderTheScreensChanged() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        let model=try await running(host,sessions,RecoveryClock())
+        sessions.all[0].slowDisplayReport=2.5
+        let presenter=try XCTUnwrap(model.presenter)
+        presenter.updateDisplay(name:"Studio Display",currentHeadroom:1,potentialHeadroom:2.5)
+        presenter.updateDisplay(name:"Built-in Display",currentHeadroom:1,potentialHeadroom:8)
+        try await wait { sessions.all[0].displayReports.count == 2 }
+        XCTAssertEqual(sessions.all[0].displayReports,[2.5,8],"the screen the stream is on now is the last the host hears")
+        model.disconnect()
+    }
     func testFractionalDisplayRateGoesToTheLaunchAndStream() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions()
         let model=try await running(host,sessions,RecoveryClock(),configure:{ $0.launchRefreshRate={ 59.94 } })
@@ -671,8 +682,7 @@ final class StreamRecoveryTests: XCTestCase {
         for _ in 0..<count { telemetry.decode(startMicros:1000,endMicros:3000) }
         return telemetry.snapshot(nowMicros:10000)
     }
-    // Generous: the whole suite running at once starves these waits.
-    private func wait(seconds: Double = 6,_ done: () -> Bool) async throws {
+    private func wait(seconds: Double = 2,_ done: () -> Bool) async throws {
         for _ in 0..<Int(seconds*200) { if done() { return };try await Task.sleep(for:.milliseconds(5)) }
         XCTFail("Timed out waiting for stream state")
     }
@@ -764,7 +774,12 @@ private final class RecoverySession: StreamSessionService, @unchecked Sendable {
     func networkChanged(metered:Bool) async -> NetworkChange? { lock.withLock { networkResults.append(metered);return nextChange } }
     private var reports:[Float]=[]
     var displayReports:[Float] { lock.withLock { reports } }
-    func reportDisplay(headroom:Float) async -> DisplayReport { lock.withLock { reports.append(headroom) };return .sent }
+    /// A report of this value takes a while, as one on a busy session queue does.
+    var slowDisplayReport:Float?
+    func reportDisplay(headroom:Float) async -> DisplayReport {
+        if headroom == slowDisplayReport { try? await Task.sleep(for:.milliseconds(50)) }
+        lock.withLock { reports.append(headroom) };return .sent
+    }
     func requestVideoRecovery() {}
     func setMicrophoneMuted(_ muted:Bool) {}
     private var inputs:[RemoteInputEvent]=[]
