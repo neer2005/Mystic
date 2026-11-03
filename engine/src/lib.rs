@@ -189,7 +189,15 @@ pub struct MysticStreamConfig {
     /// A host that does not offer it for the channel count sends Opus, and the audio setup's
     /// `codec` says which arrived.
     pub uncompressed_audio: bool,
+    /// ABI 6. Nightjar's "Instant mouse and pen input" (on by default there): mouse and pen
+    /// motion leaves at once instead of in 1 ms batches.
+    pub unbatched_input: bool,
 }
+
+/// `MysticStreamConfig::audio_capabilities`: audio packets go to `audio_play` on the engine's
+/// receive thread instead of through a queue and a second thread, as Nightjar's desktop app
+/// asks. `audio_play` then holds up receiving while it runs, so it must not block.
+pub const MYSTIC_AUDIO_DIRECT_SUBMIT: u32 = nightjar_core::sdp::CAPABILITY_DIRECT_SUBMIT;
 
 pub const MYSTIC_LOCATION_AUTO: u8 = 0;
 pub const MYSTIC_LOCATION_LOCAL: u8 = 1;
@@ -245,6 +253,7 @@ impl Default for MysticStreamConfig {
             roaming_metered: false,
             network_hints: false,
             uncompressed_audio: false,
+            unbatched_input: true,
         }
     }
 }
@@ -262,6 +271,7 @@ impl MysticStreamConfig {
                 _ => Location::Auto,
             },
             network_grace: std::time::Duration::from_millis(u64::from(self.network_grace_ms)),
+            unbatched_input: self.unbatched_input,
             roaming: RoamingConfig {
                 enabled: self.client_roaming && (self.network_hints || self.roaming_metered),
                 metered: self.roaming_metered,
@@ -1209,6 +1219,17 @@ mod tests {
         assert_eq!(captured.samples_per_frame, 96);
         pcm.configuration = AudioConfiguration::SURROUND_714;
         assert_eq!(adapter.init(&pcm), Err(MYSTIC_ERR_UNIMPLEMENTED));
+    }
+
+    #[test]
+    fn input_and_audio_follow_nightjars_desktop_defaults() {
+        let mut config = MysticStreamConfig::default();
+        assert!(config.unbatched_input, "instant mouse input is on by default, as Nightjar");
+        assert!(config.session().unbatched_input);
+        config.unbatched_input = false;
+        assert!(!config.session().unbatched_input);
+        config.audio_capabilities = MYSTIC_AUDIO_DIRECT_SUBMIT;
+        assert_eq!(config.to_engine().audio_capabilities, nightjar_core::sdp::CAPABILITY_DIRECT_SUBMIT);
     }
 
     #[test]

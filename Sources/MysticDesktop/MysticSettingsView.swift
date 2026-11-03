@@ -64,6 +64,8 @@ public struct MysticSettingsView: View {
                         Stepper("Mouse Speed: \(model.inputPreferences.mouseSpeedPercent)%",value:$model.inputPreferences.mouseSpeedPercent,in:25...400,step:25)
                         Toggle("Send Back and Forward Buttons",isOn:$model.inputPreferences.mouseNavigationButtons)
                         Text("Mouse Speed applies to a captured mouse. Controlling the desktop follows the Mac's pointer speed.").font(.caption).foregroundStyle(.secondary)
+                        Toggle("Instant Mouse Input",isOn:$model.instantMouseInput).disabled(model.hasSession || model.isBusy)
+                        Text("Sends mouse movement right away instead of in small batches.").font(.caption).foregroundStyle(.secondary)
                     }
                     Section("Controllers") {
                         Toggle("Use Controllers",isOn:$model.inputPreferences.controllers)

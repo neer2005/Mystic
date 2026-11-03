@@ -679,6 +679,7 @@ public final class ConnectionModel {
             config.clientRefreshRateX100 = Int32(options.clientRefreshRateX100)
             config.microphone = microphoneEnabled
             config.uncompressedAudio = uncompressedAudio
+            config.unbatchedInput = instantMouseInput
             config.channelCount = options.channelCount; config.channelMask = options.channelMask
             let correction=ErrorCorrection(rawValue:settings.value.errorCorrection ?? "") ?? .host
             options.fec=correction.engineValue; config.videoFEC=correction.engineValue

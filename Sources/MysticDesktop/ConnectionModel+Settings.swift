@@ -123,6 +123,11 @@ extension ConnectionModel {
         get { settings.value.playAudioOnHost ?? false }
         set { settings.update { $0.playAudioOnHost=newValue } }
     }
+    /// Nightjar's "Instant mouse and pen input": motion leaves at once, not in 1 ms batches.
+    public var instantMouseInput: Bool {
+        get { settings.value.instantMouseInput ?? true }
+        set { settings.update { $0.instantMouseInput=newValue } }
+    }
     /// Nightjar's "Uncompressed audio": ask a Rubylight PC for PCM instead of Opus.
     public var uncompressedAudio: Bool {
         get { settings.value.uncompressedAudio ?? false }

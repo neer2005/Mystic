@@ -27,6 +27,11 @@ expanded 12-entry Opus mapping, and rejects 7.1.4, AC3 and E-AC3 setups before i
 Swift: like Nightjar's desktop app, Mystic opens no output that passes an encoded
 stream through.
 
+ABI 6 also adds `MysticStreamConfig::unbatched_input`, Nightjar's "Instant mouse and pen
+input" (on in `MysticStreamConfig`'s default, as in Nightjar), and `MYSTIC_AUDIO_DIRECT_SUBMIT`
+for `audio_capabilities`: `audio_play` then runs on the engine's receive thread, as in
+Nightjar's desktop app, so it must not block.
+
 ## What it does
 
 `nightjar-core` exposes Rust traits — `VideoDecoder`, `AudioRenderer`, `Listener` — and a

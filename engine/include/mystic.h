@@ -139,7 +139,14 @@ typedef struct {
     /* ABI 6. Nightjar's "Uncompressed audio": ask a Rubylight host for PCM instead of Opus. A
      * host that does not offer it sends Opus; MysticAudioSetup::codec says which arrived. */
     bool uncompressed_audio;
+    /* ABI 6. Nightjar's "Instant mouse and pen input": motion leaves at once, not in 1 ms batches. */
+    bool unbatched_input;
 } MysticStreamConfig;
+
+/* MysticStreamConfig::audio_capabilities: audio_play runs on the engine's receive thread instead of
+ * behind a queue and a second thread, as Nightjar's desktop app asks. It holds up receiving while
+ * it runs, so it must not block. */
+#define MYSTIC_AUDIO_DIRECT_SUBMIT 0x1
 
 #define MYSTIC_LOCATION_AUTO 0
 #define MYSTIC_LOCATION_LOCAL 1
