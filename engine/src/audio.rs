@@ -74,7 +74,7 @@ pub struct MysticPCMRing {
     samples: Box<[AtomicU32]>,
     channels: usize,
     capacity: u64,
-    max_queued: u64,
+    max_queued: AtomicU64,
     write: AtomicU64,
     read: AtomicU64,
     gain: AtomicU32,
@@ -117,7 +117,7 @@ pub extern "C" fn mystic_pcm_ring_new_channels(
             .collect(),
         channels: channels as usize,
         capacity: u64::from(capacity),
-        max_queued: u64::from(max_queued),
+        max_queued: AtomicU64::new(u64::from(max_queued)),
         gain: AtomicU32::new(1f32.to_bits()),
         current_gain: AtomicU32::new(1f32.to_bits()),
         write: AtomicU64::new(0),
@@ -193,10 +193,11 @@ pub unsafe extern "C" fn mystic_pcm_ring_read_planar(
     let write = r.write.load(Acquire);
     let mut read = r.read.load(Relaxed);
     let mut available = write.wrapping_sub(read);
-    if available > r.max_queued {
-        let skip = available - r.max_queued;
+    let max_queued = r.max_queued.load(Relaxed);
+    if available > max_queued {
+        let skip = available - max_queued;
         read = read.wrapping_add(skip);
-        available = r.max_queued;
+        available = max_queued;
         r.dropped.fetch_add(skip, Relaxed);
     }
     let count = available.min(u64::from(frames));
@@ -219,6 +220,16 @@ pub unsafe extern "C" fn mystic_pcm_ring_read_planar(
     r.rendered.fetch_add(count, Relaxed);
     r.underrun.fetch_add(u64::from(frames) - count, Relaxed);
     count as u32
+}
+/// The most frames kept before the oldest are dropped: a device with a long read needs room above
+/// the drift trim's line. Ignored past the ring's capacity.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_pcm_ring_set_max_queued(p: *mut MysticPCMRing, frames: u32) {
+    if let Some(r) = p.as_ref() {
+        if frames > 0 && u64::from(frames) <= r.capacity {
+            r.max_queued.store(u64::from(frames), Relaxed);
+        }
+    }
 }
 #[no_mangle]
 pub unsafe extern "C" fn mystic_pcm_ring_set_gain(p: *mut MysticPCMRing, gain: f32) {

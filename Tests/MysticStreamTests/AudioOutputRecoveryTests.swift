@@ -200,6 +200,83 @@ private final class TestAudioOutputMonitor: AudioOutputMonitoring,@unchecked Sen
 }
 final class AudioPlayoutTests: XCTestCase {
     private let ms: UInt64=1_000_000
+    /// Nightjar's drift simulation: pairs of 5 ms packets every 10 ms, a device reading `read`
+    /// frames with its clock `ppm` slow, on a 0.1 ms step.
+    private func drift(seconds: UInt64,ppm: Double,read: Int,held: (Int) -> UInt64 = { _ in 0 }) -> (trims: UInt64,peak: Int) {
+        var playout=AudioPlayout(packetMs:5,outputFrames:read)
+        let end=seconds*1_000_000,period=Double(read)*1000/48*(1+ppm/1e6)
+        var network: [UInt64]=[],head=0,queued=0,started=false,pair=0,peak=0
+        var nextPair: UInt64=0,released: UInt64=0,at: UInt64=0,pulls=0.0
+        while at < end {
+            while nextPair <= at {
+                released=max(released,nextPair+held(pair)*1000)
+                network += [released,released];pair += 1;nextPair += 10_000
+            }
+            while head < network.count,network[head] <= at {
+                head += 1
+                switch playout.packet(lost:false,queued:queued,nowNanos:at*1000) {
+                case .play(let lead): queued += lead+240;started=true
+                case .trim,.skip: break
+                }
+            }
+            if head > 4096 { network.removeFirst(head);head=0 }
+            if started { queued += playout.tick(queued:queued,nowNanos:at*1000)*240 }
+            if started,Double(at) >= pulls*period { pulls += 1;queued -= min(queued,read) }
+            peak=max(peak,queued)
+            at += 100
+        }
+        return (playout.trimmed,peak)
+    }
+    func testASlowDeviceClockIsTrimmedAPacketAtATimeBeforeTheRingsLimit() {
+        for read in [512,1024] {
+            for (seconds,ppm) in [(1200,35.0),(300,300.0)] as [(UInt64,Double)] {
+                let run=drift(seconds:seconds,ppm:ppm,read:read)
+                let surplus=UInt64(Double(seconds)*ppm/1e6*1000/5)
+                XCTAssertGreaterThan(run.trims,0,"\(read), \(ppm) ppm")
+                XCTAssertLessThanOrEqual(run.trims,surplus+1,"\(read), \(ppm) ppm")
+                XCTAssertLessThan(run.peak,AudioPlayout(packetMs:5,outputFrames:read).ringLimit,"\(read), \(ppm) ppm: never reaches the ring's limit")
+            }
+        }
+    }
+    func testSteadyStateFastDevicesAndJitterBurstsAreNeverTrimmed() {
+        let jitter: (Int) -> UInt64={ pair in pair%300 == 7 ? 30 : pair%50 == 3 ? 12 : 0 }
+        for read in [512,1024] {
+            for ppm in [0.0,-35.0,-300.0] {
+                XCTAssertEqual(drift(seconds:300,ppm:ppm,read:read).trims,0,"\(read), \(ppm) ppm")
+                // A fast device that runs dry in a burst is led again with the burst's packets on top:
+                // real surplus, taken off 2 s later. Mystic's lead sits past a read, so this shows at
+                // 300 ppm only.
+                let bursts=drift(seconds:300,ppm:ppm,read:read,held:jitter).trims
+                if ppm == -300 { XCTAssertLessThanOrEqual(bursts,8,"\(read), bursts") }
+                else { XCTAssertEqual(bursts,0,"\(read), \(ppm) ppm, bursts") }
+            }
+        }
+    }
+    func testAPacketIsTrimmedOnlyAfterTwoSecondsAboveTheLine() {
+        var playout=AudioPlayout(packetMs:5)
+        let line=playout.lead+240
+        XCTAssertEqual(playout.packet(lost:false,queued:0,nowNanos:0),.play(lead:992))
+        for n in 1..<400 { XCTAssertEqual(playout.packet(lost:false,queued:line+1,nowNanos:UInt64(n)*5*ms),.play(lead:0)) }
+        XCTAssertEqual(playout.packet(lost:false,queued:line+1,nowNanos:2000*ms),.trim)
+        XCTAssertEqual(playout.trimmed,1)
+        for n in 0..<399 { XCTAssertEqual(playout.packet(lost:false,queued:line+1,nowNanos:UInt64(2005+n*5)*ms),.play(lead:0)) }
+        XCTAssertEqual(playout.packet(lost:false,queued:line,nowNanos:4000*ms),.play(lead:0),"at the line the count starts again")
+        XCTAssertEqual(playout.packet(lost:false,queued:line+1,nowNanos:4005*ms),.play(lead:0))
+    }
+    func testATrimmedPacketFadesIntoTheNextWithoutAClick() {
+        let tone: (Int,Int) -> [Float]={ start,count in (start..<start+count).flatMap { i -> [Float] in
+            let value=0.5*sin(2*Float.pi*440*Float(i)/48000);return [value,value] } }
+        // Played up to frame 240; the packet at 240 is trimmed, and the next goes on from 480.
+        var out=tone(0,240)
+        let head=Array(tone(240,240).prefix(240*2))
+        var next=tone(480,240)
+        AudioPlayout.crossfade(from:head,into:&next,channels:2)
+        out += next
+        let natural=0.5*2*Float.pi*440/48000
+        let left=stride(from:0,to:out.count,by:2).map { out[$0] }
+        let worst=zip(left,left.dropFirst()).map { abs($1-$0) }.max() ?? 0
+        XCTAssertLessThanOrEqual(worst,natural*1.5)
+    }
     func testAnEmptyQueueIsLedWithSilenceAndALatePacketConcealedOnlyBeforeTheOutputStarves() {
         var playout=AudioPlayout(packetMs:5)
         XCTAssertEqual(playout.lowWater,512,"the output's usual read")
