@@ -88,7 +88,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | USB | Parked | Big Dawg does not offer it, so it could not be tested. Nightjar's engine and libusb would carry most of it; on macOS, devices held by a system driver need root or the `com.apple.vm.device-access` entitlement |
 | Session graphics / Radeon controls | Implemented | Big Dawg GPU/settings and permission gating verified; live writes/restore pending Host control permission; see GRAPHICS.md |
 | Accessibility and system appearance | Partial | SwiftUI/accessibility labels present; systematic audit pending |
-| Release packaging, CI, notarization | Pending | Signed local app exists; distribution and release checks remain |
+| Release packaging, CI, notarization | Implemented, first run pending | Tag-driven GitHub Actions release with disk image, checksum and notarization; see RELEASING.md. Needs Developer ID secrets |
 | Update check | Implemented | Nightjar's `update_check.rs` against Mystic's GitHub releases, once per launch; offers nothing until a release is published; see SETTINGS.md |
 | Redacted session log | Implemented | Nightjar's `logfile.rs` rules: this run and the last, 4 MiB cap, each line redacted by `report::redact`; Help → Show Session Log in Finder |
 | Crash records | Implemented by macOS | macOS writes crash reports (Console → Crash Reports); Nightjar's `crash_dump.rs` exists for Windows minidumps. A problem report that bundles them is pending |
