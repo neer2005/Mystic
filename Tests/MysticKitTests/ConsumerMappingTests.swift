@@ -83,6 +83,28 @@ struct ConsumerMappingTests {
         #expect(info.mapping == [0,4,1,5,2,3])
     }
 
+    @Test("audio setup carries the codec that arrived")
+    func audioSetupCodec() {
+        var c = MysticAudioSetup()
+        c.channel_count = 2
+        c.codec = UInt8(MYSTIC_AUDIO_CODEC_OPUS)
+        #expect(AudioSetupInfo(c).codec == .opus)
+        c.codec = UInt8(MYSTIC_AUDIO_CODEC_PCM)
+        #expect(AudioSetupInfo(c).codec == .pcm)
+        #expect(AudioSetupInfo(c).codec.description == "PCM")
+        c.codec = 4
+        #expect(AudioSetupInfo(c).codec.rawValue == 4)
+        #expect(AudioSetupInfo(channelCount: 2, channelMask: 3, packetDurationMs: 5, samplesPerFrame: 240).codec == .opus)
+    }
+
+    @Test("uncompressed audio reaches the engine config, off by default")
+    func uncompressedAudioConfig() throws {
+        var config = StreamConfiguration()
+        #expect(try config.cConfiguration().uncompressed_audio == false)
+        config.uncompressedAudio = true
+        #expect(try config.cConfiguration().uncompressed_audio == true)
+    }
+
     @Test("frame type becomes isKeyFrame")
     func frameTypeMapping() {
         var idr = MysticFrame()

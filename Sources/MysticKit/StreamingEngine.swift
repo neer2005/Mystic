@@ -73,6 +73,9 @@ public struct StreamConfiguration: Sendable, Equatable {
     public var roamingMetered = false
     /// The app reports every network change with `networkChanged(metered:)`.
     public var networkHints = false
+    /// Nightjar's "Uncompressed audio": ask a Rubylight host for PCM instead of Opus. A host that
+    /// does not offer it sends Opus; the audio setup's `codec` says which arrived.
+    public var uncompressedAudio = false
 
     public init() {}
 }
@@ -141,7 +144,7 @@ public enum EngineEvent: Sendable, Equatable {
 /// ``start(host:configuration:onEvent:)``.
 public final class StreamingEngine {
     /// The ABI this Swift layer was written against.
-    public static let expectedABI: UInt32 = 5
+    public static let expectedABI: UInt32 = 6
 
     private var handle: OpaquePointer?
     var clipboardHandle: OpaquePointer? { handle }
@@ -561,6 +564,7 @@ extension StreamConfiguration {
         config.client_roaming = self.clientRoaming
         config.roaming_metered = self.roamingMetered
         config.network_hints = self.networkHints
+        config.uncompressed_audio = self.uncompressedAudio
 
         return config
     }

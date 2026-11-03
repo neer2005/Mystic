@@ -207,6 +207,9 @@ struct AudioPreferencesView: View {
         Toggle("Mute",isOn:$model.muted)
         Slider(value:$model.volume,in:0...1) { Text("Volume") }
         Toggle("Play Audio on the PC Too",isOn:$model.playAudioOnHost).disabled(model.hasSession || model.isBusy)
+        Toggle("Uncompressed Audio",isOn:$model.uncompressedAudio).disabled(model.hasSession || model.isBusy)
+        Text("Asks the PC for lossless sound instead of compressed audio. Uses 1.5 Mbps for stereo, up to 6 Mbps for 7.1. PCs that don't support it keep sending compressed audio.")
+            .font(.caption).foregroundStyle(.secondary)
         Toggle("Use Mac Microphone",isOn:$model.microphoneEnabled).disabled(model.hasSession || model.isBusy)
         if model.microphoneEnabled {
             Toggle("Mute Microphone",isOn:$model.microphoneMuted)

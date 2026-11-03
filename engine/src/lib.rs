@@ -53,7 +53,7 @@ use nightjar_core::video::{Frame, FrameType};
 
 /// Bumped whenever a struct layout or function signature changes. The Swift side refuses
 /// to run against a mismatch rather than misreading memory.
-pub const MYSTIC_ABI_VERSION: u32 = 5;
+pub const MYSTIC_ABI_VERSION: u32 = 6;
 
 // ---------------------------------------------------------------------------
 // Result codes
@@ -97,7 +97,16 @@ pub struct MysticAudioSetup {
     pub streams: u8,
     pub coupled_streams: u8,
     pub mapping: [u8; 8],
+    /// ABI 6. `MYSTIC_AUDIO_CODEC_*`: the codec of the packets `audio_play` gets. The Opus
+    /// fields above are still the negotiated ones, and unused for PCM.
+    pub codec: u8,
 }
+
+/// `MysticAudioSetup::codec`: Opus packets, decoded with `mystic_opus_decode`.
+pub const MYSTIC_AUDIO_CODEC_OPUS: u8 = rubylight_protocol::audio_ext::CODEC_OPUS;
+/// `MysticAudioSetup::codec`: s16le interleaved samples in the same channel order as decoded
+/// Opus, from a Rubylight host when `uncompressed_audio` was asked for and offered.
+pub const MYSTIC_AUDIO_CODEC_PCM: u8 = rubylight_protocol::audio_ext::CODEC_PCM;
 
 /// Borrowed view of one completed frame. `data` points into engine memory and is valid
 /// only for the duration of the `submit` call — copy what you need.
@@ -176,6 +185,10 @@ pub struct MysticStreamConfig {
     pub roaming_metered: bool,
     /// The app reports every network change with `mystic_session_network_changed`.
     pub network_hints: bool,
+    /// ABI 6. Nightjar's "Uncompressed audio": ask a Rubylight host for PCM instead of Opus.
+    /// A host that does not offer it for the channel count sends Opus, and the audio setup's
+    /// `codec` says which arrived.
+    pub uncompressed_audio: bool,
 }
 
 pub const MYSTIC_LOCATION_AUTO: u8 = 0;
@@ -231,6 +244,7 @@ impl Default for MysticStreamConfig {
             client_roaming: false,
             roaming_metered: false,
             network_hints: false,
+            uncompressed_audio: false,
         }
     }
 }
@@ -279,8 +293,13 @@ impl MysticStreamConfig {
             remote_input_aes_iv: self.remote_input_aes_iv,
             video_capabilities: self.video_capabilities,
             audio_capabilities: self.audio_capabilities,
-            // ABI 2 carries Opus configuration only; passthrough needs a new ABI.
-            audio_passthrough: 0,
+            // PCM only, as Nightjar's desktop app: AC3 and E-AC3 need an output that passes
+            // the encoded stream through, which Mystic does not open.
+            audio_passthrough: if self.uncompressed_audio {
+                rubylight_protocol::audio_ext::CODEC_PCM
+            } else {
+                0
+            },
             haptics_pcm: self.haptics_pcm,
             microphone: self.microphone,
             pyrowave_records_supported: self.pyrowave_records_supported,
@@ -432,12 +451,16 @@ struct AudioAdapter {
 
 impl AudioRenderer for AudioAdapter {
     fn init(&mut self, setup: &AudioSetup) -> Result<(), i32> {
-        // Nightjar supports 12-channel audio; ABI 2 and the Swift renderer support up to 8.
-        // Never truncate an active channel or feed passthrough packets to the Opus decoder.
-        if setup.codec != rubylight_protocol::audio_ext::CODEC_OPUS
-            || !matches!(setup.configuration.channel_count, 2 | 6 | 8)
-            || setup.opus.channel_count != setup.configuration.channel_count
-        {
+        // Nightjar supports 12-channel audio; the ABI and the Swift renderer support up to 8.
+        // Never truncate an active channel. Only Opus and PCM are ever asked for; refuse AC3
+        // or E-AC3 rather than play noise, as Nightjar does.
+        let channels_supported = matches!(setup.configuration.channel_count, 2 | 6 | 8);
+        let codec_supported = match setup.codec {
+            MYSTIC_AUDIO_CODEC_OPUS => setup.opus.channel_count == setup.configuration.channel_count,
+            MYSTIC_AUDIO_CODEC_PCM => true,
+            _ => false,
+        };
+        if !channels_supported || !codec_supported {
             return Err(MYSTIC_ERR_UNIMPLEMENTED);
         }
         let mut mapping = [0; 8];
@@ -451,6 +474,7 @@ impl AudioRenderer for AudioAdapter {
             streams: setup.opus.streams,
             coupled_streams: setup.opus.coupled_streams,
             mapping,
+            codec: setup.codec,
         };
         match self.callbacks.audio_init {
             Some(f) => match unsafe { f(self.callbacks.user, &plain) } {
@@ -1164,14 +1188,35 @@ mod tests {
         unsupported.configuration = AudioConfiguration::SURROUND_714;
         unsupported.opus.channel_count = 12;
         assert_eq!(adapter.init(&unsupported), Err(MYSTIC_ERR_UNIMPLEMENTED));
-        for codec in [rubylight_protocol::audio_ext::CODEC_PCM,
-                      rubylight_protocol::audio_ext::CODEC_AC3,
+        for codec in [rubylight_protocol::audio_ext::CODEC_AC3,
                       rubylight_protocol::audio_ext::CODEC_EAC3] {
             unsupported = setup;
             unsupported.codec = codec;
             assert_eq!(adapter.init(&unsupported), Err(MYSTIC_ERR_UNIMPLEMENTED));
         }
         assert_eq!(captured.channel_count, 8, "unsupported setups must not reach Swift");
+        assert_eq!(captured.codec, MYSTIC_AUDIO_CODEC_OPUS);
+
+        // PCM from a Rubylight host: 2 ms packets for 5.1, with the Opus fields still filled.
+        let mut pcm = setup;
+        pcm.codec = rubylight_protocol::audio_ext::CODEC_PCM;
+        pcm.packet_duration_ms = 2;
+        pcm.samples_per_frame = 96;
+        assert_eq!(adapter.init(&pcm), Ok(()));
+        assert_eq!(captured.codec, MYSTIC_AUDIO_CODEC_PCM);
+        assert_eq!(captured.channel_count, 6);
+        assert_eq!(captured.packet_duration_ms, 2);
+        assert_eq!(captured.samples_per_frame, 96);
+        pcm.configuration = AudioConfiguration::SURROUND_714;
+        assert_eq!(adapter.init(&pcm), Err(MYSTIC_ERR_UNIMPLEMENTED));
+    }
+
+    #[test]
+    fn uncompressed_audio_asks_for_pcm_only() {
+        let mut config = MysticStreamConfig::default();
+        assert_eq!(config.to_engine().audio_passthrough, 0, "off by default, as Nightjar");
+        config.uncompressed_audio = true;
+        assert_eq!(config.to_engine().audio_passthrough, rubylight_protocol::audio_ext::CODEC_PCM);
     }
 
     #[test]

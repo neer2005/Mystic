@@ -101,7 +101,25 @@ public protocol VideoConsumer: AnyObject {
 }
 
 /// What the host negotiated for audio.
+/// The codec of the packets the engine pushes, `MYSTIC_AUDIO_CODEC_*`. Anything else is refused
+/// by the engine before it reaches Swift; an unknown value is kept so a renderer can refuse it too.
+public struct AudioCodec: RawRepresentable, Sendable, Equatable, Hashable, CustomStringConvertible {
+    public let rawValue: UInt8
+    public init(rawValue: UInt8) { self.rawValue = rawValue }
+    public static let opus = AudioCodec(rawValue: UInt8(MYSTIC_AUDIO_CODEC_OPUS))
+    /// Rubylight's uncompressed audio: s16le samples, interleaved in decoded Opus's channel order.
+    public static let pcm = AudioCodec(rawValue: UInt8(MYSTIC_AUDIO_CODEC_PCM))
+    public var description: String {
+        switch self {
+        case .opus: "Opus"
+        case .pcm: "PCM"
+        default: "codec \(rawValue)"
+        }
+    }
+}
+
 public struct AudioSetupInfo: Sendable, Equatable {
+    public var codec: AudioCodec
     public var channelCount: UInt8
     public var channelMask: UInt16
     public var packetDurationMs: UInt32
@@ -114,7 +132,8 @@ public struct AudioSetupInfo: Sendable, Equatable {
 
     public init(channelCount: UInt8, channelMask: UInt16, packetDurationMs: UInt32, samplesPerFrame: UInt32,
                 sampleRate: UInt32 = 48000, streams: UInt8 = 1, coupledStreams: UInt8 = 1,
-                mapping: [UInt8] = [0, 1]) {
+                mapping: [UInt8] = [0, 1], codec: AudioCodec = .opus) {
+        self.codec = codec
         self.channelCount = channelCount
         self.channelMask = channelMask
         self.packetDurationMs = packetDurationMs
@@ -126,7 +145,7 @@ public struct AudioSetupInfo: Sendable, Equatable {
     }
 }
 
-/// An audio sink the engine pushes Opus packets into.
+/// An audio sink the engine pushes Opus or PCM packets into (`AudioSetupInfo.codec`).
 public protocol AudioConsumer: AnyObject {
     func setup(_ info: AudioSetupInfo) throws
     func start()
@@ -189,7 +208,8 @@ extension AudioSetupInfo {
             sampleRate: cValue.sample_rate,
             streams: cValue.streams,
             coupledStreams: cValue.coupled_streams,
-            mapping: withUnsafeBytes(of: cValue.mapping) { Array($0.prefix(Int(cValue.channel_count))) }
+            mapping: withUnsafeBytes(of: cValue.mapping) { Array($0.prefix(Int(cValue.channel_count))) },
+            codec: AudioCodec(rawValue: cValue.codec)
         )
     }
 }

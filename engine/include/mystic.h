@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 /* Bump-matched with MYSTIC_ABI_VERSION in lib.rs. The Swift side must refuse a mismatch. */
-#define MYSTIC_ABI_VERSION 5
+#define MYSTIC_ABI_VERSION 6
 
 /* Result codes. */
 #define MYSTIC_OK 0
@@ -67,7 +67,15 @@ typedef struct {
     uint8_t streams;
     uint8_t coupled_streams;
     uint8_t mapping[8];
+    /* ABI 6. MYSTIC_AUDIO_CODEC_*: the codec of the packets audio_play gets. The Opus fields
+     * above stay the negotiated ones and are unused for PCM. */
+    uint8_t codec;
 } MysticAudioSetup;
+
+/* MysticAudioSetup::codec. PCM packets are s16le, interleaved in decoded Opus's channel order;
+ * a lost one plays as silence. */
+#define MYSTIC_AUDIO_CODEC_OPUS 1
+#define MYSTIC_AUDIO_CODEC_PCM 2
 
 /* Borrowed view of a frame. `data` is valid only during the submit callback. */
 typedef struct {
@@ -128,6 +136,9 @@ typedef struct {
     bool roaming_metered;
     /* The app reports every network change with mystic_session_network_changed. */
     bool network_hints;
+    /* ABI 6. Nightjar's "Uncompressed audio": ask a Rubylight host for PCM instead of Opus. A
+     * host that does not offer it sends Opus; MysticAudioSetup::codec says which arrived. */
+    bool uncompressed_audio;
 } MysticStreamConfig;
 
 #define MYSTIC_LOCATION_AUTO 0

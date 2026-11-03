@@ -123,6 +123,11 @@ extension ConnectionModel {
         get { settings.value.playAudioOnHost ?? false }
         set { settings.update { $0.playAudioOnHost=newValue } }
     }
+    /// Nightjar's "Uncompressed audio": ask a Rubylight PC for PCM instead of Opus.
+    public var uncompressedAudio: Bool {
+        get { settings.value.uncompressedAudio ?? false }
+        set { settings.update { $0.uncompressedAudio=newValue } }
+    }
     public var inputPreferences: InputPreferences {
         get { settings.value.input ?? InputPreferences() }
         set { settings.update { $0.input=newValue } }

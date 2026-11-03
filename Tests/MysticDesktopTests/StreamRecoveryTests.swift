@@ -424,15 +424,17 @@ final class StreamRecoveryTests: XCTestCase {
         let config=try XCTUnwrap(sessions.all[0].configuration)
         XCTAssertEqual(config.location,.remote);XCTAssertEqual(config.packetSize,1024)
         XCTAssertTrue(config.clientRoaming,"roaming is on by default, as Nightjar")
+        XCTAssertFalse(config.uncompressedAudio,"uncompressed audio is off by default, as Nightjar")
         XCTAssertFalse(config.networkHints,"no watcher, so no hints and the engine's roaming stays off")
         model.disconnect()
         let lan=RecoverySessions(),events=WatchEvents()
         let other=try await running(RecoveryHost(),lan,RecoveryClock(),configure:{ model in
-            model.clientRoaming=false;model.startNetworkWatch=events.start
+            model.clientRoaming=false;model.uncompressedAudio=true;model.startNetworkWatch=events.start
         })
         let plain=try XCTUnwrap(lan.all[0].configuration)
         XCTAssertEqual(plain.location,.automatic);XCTAssertEqual(plain.packetSize,1392)
         XCTAssertFalse(plain.clientRoaming)
+        XCTAssertTrue(plain.uncompressedAudio,"the setting asks the PC for PCM")
         other.disconnect()
     }
     func testANetworkBackOnANewAddressReconnectsAtOnceOnlyWhenTheStreamCannotContinue() async throws {

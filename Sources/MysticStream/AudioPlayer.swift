@@ -34,6 +34,8 @@ public struct AudioPlaybackStats: Sendable {
     public let outputLayout: String?
     public let stereoFallbackReason: String?
     public let discardedOutputFrames: UInt64
+    /// What the PC sends this stream, once audio is set up.
+    public let codec: AudioCodec?
 }
 
 protocol AudioOutputPipeline: AnyObject, Sendable {
@@ -56,9 +58,9 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
     private let monitor: any AudioOutputMonitoring
     private let makeOutput: @Sendable (AudioSetupInfo,Float,String?,@escaping @Sendable () -> Void) throws -> any AudioOutputPipeline
     private let retryDelay: TimeInterval,routeDelay: TimeInterval
-    private var decoder: OpusAudioDecoder?
+    private var decoder: (any StreamAudioDecoder)?
     private var pipeline: (any AudioOutputPipeline)?
-    // Desired playback remains true while output is unavailable, so Opus state keeps advancing.
+    // Desired playback remains true while output is unavailable, so decoder state keeps advancing.
     private var running=false
     private var volume: Float=0.8,muted=false
     private var generation: UInt64=0,outputRevision: UInt64=0,recoveryRevision: UInt64=0
@@ -89,9 +91,9 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
         try queue.sync {
             stopLocked();decoder=nil
             decoded=0;concealed=0;errors=0;starts=0;discarded=0;retired=MysticPCMStats()
-            decoder=try OpusAudioDecoder(info)
+            decoder=try makeStreamAudioDecoder(info)
             playout=AudioPlayout(packetMs:Int(info.packetDurationMs))
-            log("Audio setup: Opus \(info.channelCount) channels at \(info.sampleRate) Hz, \(info.samplesPerFrame) samples/packet")
+            log("Audio setup: \(info.codec) \(info.channelCount) channels at \(info.sampleRate) Hz, \(info.samplesPerFrame) samples/packet")
         }
     }
     public func start() {
@@ -128,7 +130,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
         guard let packets=playout?.tick(queued:queued,nowNanos:clock()),packets > 0 else { return }
         for _ in 0..<packets {
             do { try decode(decoder,packet:nil);concealed += 1 }
-            catch { errors += 1;if errors <= 3 { log("Opus concealment failed: \(error.localizedDescription)") };return }
+            catch { errors += 1;if errors <= 3 { log("Audio concealment failed: \(error.localizedDescription)") };return }
         }
     }
     public func play(_ packet: UnsafeRawBufferPointer?) {
@@ -157,7 +159,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
                 if errors <= 3 || errors % 100 == 0 { log(error.localizedDescription) }
                 if packet != nil {
                     do { try decode(decoder,packet:nil);concealed += 1 }
-                    catch { if errors <= 3 { log("Opus concealment failed: \(error.localizedDescription)") } }
+                    catch { if errors <= 3 { log("Audio concealment failed: \(error.localizedDescription)") } }
                 }
             }
         }
@@ -167,7 +169,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
         let silence=[Float](repeating:0,count:frames*render.channels)
         silence.withUnsafeBufferPointer { _=mystic_pcm_ring_write(render.ring,$0.baseAddress,UInt32(frames)) }
     }
-    private func decode(_ decoder: OpusAudioDecoder,packet: UnsafeRawBufferPointer?,fades: Bool = false) throws {
+    private func decode(_ decoder: any StreamAudioDecoder,packet: UnsafeRawBufferPointer?,fades: Bool = false) throws {
         try decoder.decode(packet,routing:pipeline?.routing) { samples,frames in
             guard let pipeline else { discarded += UInt64(frames);return }
             if fades,!trimHead.isEmpty {
@@ -203,7 +205,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
                 outputStatus:status,outputDevice:pipeline?.device?.name,
                 outputSampleRate:sampleRate.flatMap { $0.isFinite && $0 > 0 ? $0 : nil },
                 outputRestarts:starts > 0 ? starts-1 : 0,outputLayout:pipeline?.routing.label,
-                stereoFallbackReason:pipeline?.routing.fallbackReason,discardedOutputFrames:discarded)
+                stereoFallbackReason:pipeline?.routing.fallbackReason,discardedOutputFrames:discarded,codec:decoder?.info.codec)
         }
     }
     private func beginRecovery(delay: TimeInterval) {

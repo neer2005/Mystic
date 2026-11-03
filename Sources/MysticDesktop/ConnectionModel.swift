@@ -678,6 +678,7 @@ public final class ConnectionModel {
             config.colorSpace = video.hdr ? 2 : 1; config.colorRange = 0
             config.clientRefreshRateX100 = Int32(options.clientRefreshRateX100)
             config.microphone = microphoneEnabled
+            config.uncompressedAudio = uncompressedAudio
             config.channelCount = options.channelCount; config.channelMask = options.channelMask
             let correction=ErrorCorrection(rawValue:settings.value.errorCorrection ?? "") ?? .host
             options.fec=correction.engineValue; config.videoFEC=correction.engineValue
@@ -896,6 +897,7 @@ public final class ConnectionModel {
     private func monitorMedia(_ player: AudioPlayer, telemetry: VideoTelemetry, token: UUID) {
         statisticsMonitor?.cancel()
         statisticsMonitor = Task { [weak self, weak player] in
+            var toldOpus=false
             while !Task.isCancelled {
                 guard let self, let player, self.generation == token else { return }
                 let snapshot = telemetry.snapshot()
@@ -915,7 +917,14 @@ public final class ConnectionModel {
                 let rate=stats.outputSampleRate.map { String(format:" · %.1f kHz",$0/1000) } ?? ""
                 let layout=stats.outputLayout.map { " · "+$0 } ?? ""
                 let fallback=stats.stereoFallbackReason.map { " ("+$0+")" } ?? ""
-                self.audioStatus = "\(stats.outputStatus.label)\(route)\(rate)\(layout)\(fallback): \(stats.decodedPackets) packets, \(stats.concealedPackets) concealed, \(stats.skippedLatePackets) late skipped, \(stats.renderedFrames) frames rendered, \(stats.queuedFrames/48) ms queued · \(stats.outputRestarts) output restarts · \(stats.discardedOutputFrames) frames discarded during output changes"
+                // Nightjar's notice when uncompressed audio was asked for and the PC sends Opus.
+                let opusInstead=stats.codec == .opus && self.plan?.configuration.uncompressedAudio == true
+                if opusInstead,!toldOpus {
+                    toldOpus=true
+                    self.record("The PC did not offer PCM audio. This stream plays Opus.",token:token)
+                }
+                let codec=stats.codec.map { " · "+$0.description+(opusInstead ? " (the PC did not offer PCM)" : "") } ?? ""
+                self.audioStatus = "\(stats.outputStatus.label)\(codec)\(route)\(rate)\(layout)\(fallback): \(stats.decodedPackets) packets, \(stats.concealedPackets) concealed, \(stats.skippedLatePackets) late skipped, \(stats.renderedFrames) frames rendered, \(stats.queuedFrames/48) ms queued · \(stats.outputRestarts) output restarts · \(stats.discardedOutputFrames) frames discarded during output changes"
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
         }

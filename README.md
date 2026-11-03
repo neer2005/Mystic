@@ -46,7 +46,7 @@ stream over Wi-Fi reached the screen about 34 ms after the PC drew each frame, d
 
 **Controllers, audio and sharing**
 - Xbox, PlayStation and Nintendo controllers, with rumble, motion, battery and light
-- Stereo, 5.1 and 7.1 sound, and your Mac's microphone
+- Stereo, 5.1 and 7.1 sound, uncompressed from Rubylight hosts if you choose, and your Mac's microphone
 - Clipboard text and images both ways, file transfer and shared folders on Rubylight hosts
 - The host's night mode and headphone surround, from the stream window
 
