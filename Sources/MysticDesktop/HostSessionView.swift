@@ -11,25 +11,30 @@ struct HostSessionView: View {
     @State private var confirmationContext: UUID?
     var body: some View {
         VStack(alignment:.leading,spacing:16) {
-            HStack {
-                Text("Session and Graphics").font(.title2)
-                Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
-            }
+            Text("Host Controls").font(.title2)
             Picker("Panel",selection:$tab) {
                 Text("Session").tag("session")
                 Text("Graphics").tag("graphics")
                 Text("Stream").tag("stream")
-            }.pickerStyle(.segmented)
+            }.pickerStyle(.segmented).labelsHidden()
             ScrollView {
                 VStack(alignment:.leading,spacing:16) {
                     if tab == "stream" { LiveRatesView(model:model);HostAudioView(audio:model.hostAudioControls) }
                     else if tab == "graphics" { HostGraphicsView(model:model) }
                     else { sessionContent }
                 }.frame(maxWidth:.infinity,alignment:.leading)
-            }.frame(maxHeight:520)
+            }
+            HStack {
+                if tab == "session" {
+                    Button("Refresh",systemImage:"arrow.clockwise") { Task { await model.sessionControls.refresh() } }
+                        .disabled(model.isBusy || (model.phase != .ready && model.phase != .streaming))
+                }
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
         }
-        .padding(24).frame(width:460)
+        // One size for every panel, so the sheet doesn't jump between them.
+        .padding(24).frame(width:480,height:560)
         .confirmationDialog(confirmation?.title ?? "Host Session",isPresented:Binding(get:{confirmation != nil},set:{if !$0 { confirmation=nil }}),titleVisibility:.visible) {
             if let action=confirmation,let expected=confirmationSession,let context=confirmationContext {
                 Button(action.title,role:action == .closeGame ? .destructive : nil) {
@@ -51,7 +56,7 @@ struct HostSessionView: View {
     private var sessionContent: some View {
         VStack(alignment:.leading,spacing:16) {
             if let session=model.sessionControls.snapshot {
-                LabeledContent("Game",value:session.app?.title ?? "No game")
+                LabeledContent("Game",value:session.app?.title ?? model.library.runningApp?.name ?? "No game")
                 LabeledContent("State",value:session.state.capitalized)
                 LabeledContent("Owner",value:session.owner == "you" ? "This device" : session.owner.capitalized)
                 if model.phase == .ready,let id=session.app?.app_id,model.library.apps.contains(where: { $0.id == id }) {
@@ -79,9 +84,6 @@ struct HostSessionView: View {
             }
             HStack {
                 if model.sessionControls.busy { ProgressView().controlSize(.small);Text("Waiting for host…") }
-                Spacer()
-                Button("Refresh",systemImage:"arrow.clockwise") { Task { await model.sessionControls.refresh() } }
-                    .disabled(model.isBusy || (model.phase != .ready && model.phase != .streaming))
             }
         }
     }

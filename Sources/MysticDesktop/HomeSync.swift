@@ -33,7 +33,7 @@ public final class HomeSync {
         cancel();let epoch=epoch
         let savedHosts=model.savedHosts
         home.reconcile(savedHosts.hosts);busy=true;message="Refreshing paired PCs…"
-        defer { if self.epoch == epoch { busy=false;message="Home shows live games where reachable and cached games elsewhere." } }
+        defer { if self.epoch == epoch { busy=false;message="" } }
         var seen=Set<String>()
         let hosts=savedHosts.hosts,factory=model.makeHost,vault=model.vault
         for saved in hosts {

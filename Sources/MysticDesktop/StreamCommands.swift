@@ -100,7 +100,7 @@ public struct StreamCommands: Commands {
             }
             Divider()
             Button("Host Details…") { showHostDetails?() }.disabled(showHostDetails == nil)
-            Button("Session and Graphics…") { showHostSession?() }
+            Button("Host Controls…") { showHostSession?() }
                 .keyboardShortcut("i",modifiers:.command)
                 .disabled(showHostSession == nil)
             Button("Why Did My Stream Stutter?…") { showHealth?() }

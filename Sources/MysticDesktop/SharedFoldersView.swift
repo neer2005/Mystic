@@ -62,7 +62,7 @@ struct SharedFoldersView: View {
     }
     /// Where the browser is, as a path under the folder's name.
     private var place: String {
-        guard let snapshot=model.snapshot,let folder=snapshot.folder else { return "Shared Folders" }
+        guard let snapshot=model.snapshot,let folder=snapshot.folder else { return "Shared Folders on \(hostName)" }
         return snapshot.path.isEmpty ? folder.name : "\(folder.name)/\(snapshot.path)"
     }
     var body: some View {
@@ -78,7 +78,10 @@ struct SharedFoldersView: View {
                     .labelStyle(.iconOnly).disabled(model.snapshot?.loading != false)
             }.padding(12)
             Divider()
-            Form {
+            if let refusal=model.snapshot?.refusal {
+                ContentUnavailableView("No Shared Folders",systemImage:"externaldrive.badge.questionmark",description:Text(refusal))
+                    .frame(maxHeight:.infinity)
+            } else { Form {
                 status
                 if let snapshot=model.snapshot,snapshot.refusal == nil {
                     if snapshot.folder == nil { folders(snapshot) } else { entries(snapshot) }
@@ -87,9 +90,10 @@ struct SharedFoldersView: View {
             .formStyle(.grouped)
             .overlay { if dropTargeted { RoundedRectangle(cornerRadius:8).strokeBorder(Color.accentColor,lineWidth:3).padding(4).allowsHitTesting(false) } }
             .onDrop(of:[.fileURL],isTargeted:$dropTargeted,perform:dropped)
+            }
             Divider()
             HStack {
-                Text(model.snapshot?.transfer == nil ? "One transfer at a time." : "Closing cancels the transfer.").font(.caption).foregroundStyle(.secondary)
+                Text(model.snapshot?.transfer == nil ? "" : "Closing cancels the transfer.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 if writable { Button("Upload File…",action:chooseUpload).disabled(model.snapshot?.transfer != nil) }
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
@@ -101,7 +105,7 @@ struct SharedFoldersView: View {
         .onDisappear { model.stop() }
     }
     @ViewBuilder private var status: some View {
-        if let message=model.problem ?? model.snapshot?.refusal ?? model.snapshot?.error { Section { Text(message).foregroundStyle(.red) } }
+        if let message=model.problem ?? model.snapshot?.error { Section { Text(message).foregroundStyle(.red) } }
         if let transfer=model.snapshot?.transfer {
             Section {
                 LabeledContent {

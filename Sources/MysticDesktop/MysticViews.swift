@@ -60,12 +60,12 @@ public struct StreamingView: View {
         }.defaultCustomization(.hidden)
         ToolbarItem(id:"latency") {
             Toggle(isOn:$model.showLatencyHUD) { Label("Performance Overlay",systemImage:"chart.bar.xaxis") }
-                .help("Show the stream's frame rate, round trip and loss; Settings → General chooses how much")
+                .help("Show the stream's frame rate, network delay and loss. Settings → General chooses how much.")
         }.defaultCustomization(.hidden)
         ToolbarItem(id:"session") {
-            Button("Session and Graphics",systemImage:"rectangle.connected.to.line.below",action:showHostSession)
+            Button("Host Controls",systemImage:"slider.horizontal.3",action:showHostSession)
                 .disabled(!streaming)
-                .help("Session, graphics and stream rates")
+                .help("Session, graphics, stream rates and sound")
         }
         ToolbarItem(id:"disconnect") {
             Button("Disconnect",systemImage:"xmark.circle") { model.leave() }
@@ -85,6 +85,7 @@ public struct StreamingView: View {
                                 LatencyHUD(snapshot:model.videoTelemetry,mode:presenter.pacingMode,output:presenter.videoOutput,bitrate:model.rates.status,network:model.health.measures)
                             }
                             .padding(12).allowsHitTesting(false)
+                            .transition(.opacity)
                         }
                     }
                     .overlay(alignment:.bottom) {
@@ -100,7 +101,7 @@ public struct StreamingView: View {
                 ZStack {
                     Color.black
                     if model.isBusy { ProgressView(model.status).tint(.white).foregroundStyle(.white) }
-                    else { Text(model.errorMessage ?? model.status).foregroundStyle(.white).padding() }
+                    else { Text(model.errorMessage ?? "Not connected").foregroundStyle(.white).multilineTextAlignment(.center).padding() }
                 }
             }
         }

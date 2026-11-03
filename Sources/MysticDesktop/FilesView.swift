@@ -70,7 +70,13 @@ struct FilesView: View {
     private var active: Bool { model.snapshot?.active == true }
     var body: some View {
         VStack(spacing:0) {
-            Form {
+            Text("Files on \(hostName)").font(.headline).frame(maxWidth:.infinity,alignment:.leading).padding(12)
+            Divider()
+            if let snapshot=model.snapshot,snapshot.access == "known",!snapshot.mayUpload,!snapshot.mayDownload {
+                ContentUnavailableView("No File Transfer",systemImage:"folder.badge.questionmark",
+                    description:Text("\(hostName) doesn't offer file transfer to this Mac. You can turn it on in the PC's web UI, under Devices."))
+                    .frame(maxHeight:.infinity)
+            } else { Form {
                 if let problem=model.problem { Text(problem).foregroundStyle(.red) }
                 switch model.snapshot?.access {
                 case "known": known
@@ -86,13 +92,14 @@ struct FilesView: View {
             .formStyle(.grouped)
             .overlay { if dropTargeted { RoundedRectangle(cornerRadius:8).strokeBorder(Color.accentColor,lineWidth:3).padding(4).allowsHitTesting(false) } }
             .onDrop(of:[.fileURL],isTargeted:$dropTargeted,perform:dropped)
+            }
             Divider()
             HStack {
-                Text(active ? "Closing cancels the transfers that have not finished." : "A transfer tried again starts from its first byte.")
+                Text(active ? "Closing cancels unfinished transfers." : "")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Clear Finished") { model.clearFinished() }.disabled(!model.hasFinished)
-                Button("Send Files…",action:choose).disabled(model.snapshot?.mayUpload != true)
+                if model.hasFinished { Button("Clear Finished") { model.clearFinished() } }
+                if model.snapshot?.mayUpload == true { Button("Send Files…",action:choose) }
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }.padding(12)
         }

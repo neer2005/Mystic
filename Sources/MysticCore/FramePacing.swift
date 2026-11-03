@@ -14,10 +14,10 @@ public enum FramePacingMode: String, CaseIterable, Hashable, Sendable {
     }
     public var detail: String {
         switch self {
-        case .lowLatency: "The newest picture at each refresh, or each picture at once with V-Sync off. Adds no delay."
-        case .balanced: "V-Sync whatever the V-Sync setting says: the newest picture at each refresh, no tearing."
-        case .fpsLimit: "V-Sync, and no more pictures a second than the stream's rate: an early picture waits up to one frame."
-        case .smoothest: "V-Sync, every picture in turn, one a refresh: a picture is skipped only once it is over a frame old."
+        case .lowLatency: "Shows the newest picture as soon as it can. Adds no delay."
+        case .balanced: "Always waits for the display, so the picture never tears."
+        case .fpsLimit: "Waits for the display and limits frames to the stream's rate. Can add up to a frame of delay."
+        case .smoothest: "Shows every picture in turn. The smoothest motion, with the most delay."
         }
     }
     /// Every mode but the lowest latency waits for the refresh.

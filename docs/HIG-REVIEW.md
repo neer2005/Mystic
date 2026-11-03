@@ -16,7 +16,7 @@ Work on a `codex/` feature branch. Run relevant checks, commit the completed wor
 - [x] **Associate search with the library.** Make its placement and scope clear rather than appearing tied to the inspector.
 - [x] **Consolidate sidebar connection information.** Reduce repeated host names and group pairing status and connection actions clearly.
 - [x] **Review context menus.** Hide unavailable contextual actions where appropriate under Apple’s guidance.
-- [ ] **Inspect the streaming interface visually.** Check toolbar crowding, overflow, input-release discoverability, and full-screen behavior.
+- [x] **Inspect the streaming interface visually.** Check toolbar crowding, overflow, input-release discoverability, and full-screen behavior.
 - [ ] **Validate layout and appearance.** Check compact windows, long titles and values, expanded settings, light/dark appearance, and increased accessibility contrast.
 
 ## Acceptance criteria
@@ -89,3 +89,13 @@ Work on a `codex/` feature branch. Run relevant checks, commit the completed wor
 ## Review scope
 
 The library and General/Video Settings were visually inspected on October 31, 2026. Streaming, full-screen behavior, and VoiceOver remain unverified. Treat visual suggestions as findings to validate, and preserve working behavior.
+
+## Polish pass, 2026-11-02
+
+Checked in the running app: Home, a host's library, Settings, Host Controls, Files, Shared Folders and a stream, windowed and full
+screen, in light and dark appearance, with the library at a small window size. Changed: app icon (`scripts/make-app-icon.swift`), no
+empty stream window at launch, plain wording, a PC menu for host actions, one sheet size, empty states, simpler game cards, a larger
+Settings window with Restore Defaults on General, and a lighter overlay.
+
+Not checked: Statistics and Debug overlays on screen, the pairing screens (no unpaired PC), Increase Contrast, and a real VoiceOver
+pass; toolbar and card accessibility names were only read from the accessibility tree.

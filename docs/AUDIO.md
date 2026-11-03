@@ -185,4 +185,4 @@ input meter responds to the Mac mic on Big Dawg. See [MICROPHONE.md](MICROPHONE.
 
 ## Sound on the PC
 
-Session and Graphics → Stream shows the host's **Night Mode** and **Headphone Surround** when it offers them to this device. They are read when the panel opens and change this stream only; nothing is saved. A setting the host applies later says so, such as Headphone Surround's "Applies next stream".
+Host Controls → Stream shows the host's **Night Mode** and **Headphone Surround** when it offers them to this device. They are read when the panel opens and change this stream only; nothing is saved. A setting the host applies later says so, such as Headphone Surround's "Applies next stream".

@@ -132,7 +132,7 @@ public struct HostLibraryView: View {
                     VStack(spacing:8) {
                         GameArtwork(data:model.library.artwork[app.id],desktop:app.name == "Desktop")
                             .aspectRatio(GameArtwork.aspect,contentMode:.fit)
-                        Text(app.name).font(.callout).lineLimit(2).frame(maxWidth:.infinity)
+                        Text(app.name).font(.callout).lineLimit(2,reservesSpace:true).multilineTextAlignment(.center).frame(maxWidth:.infinity)
                         if let store=model.library.game(app)?.store { Text(store.name).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                         if model.library.isRunning(app) { Label("Running",systemImage:"play.fill").font(.caption).foregroundStyle(.green) }
                     }
@@ -144,7 +144,7 @@ public struct HostLibraryView: View {
                 if model.isBusy { ProgressView().controlSize(.small) }
                 Text(model.status).lineLimit(2)
                 Spacer()
-                if !model.library.apps.isEmpty { Text("\(model.library.filtered.count) \(model.library.filtered.count == 1 ? "app" : "apps")") }
+                if !model.library.apps.isEmpty { Text("\(model.library.filtered.count) \(model.library.filtered.count == 1 ? "game" : "games")") }
             }.font(.caption).foregroundStyle(.secondary).padding(12)
         }
         .disabled(model.hasSession || model.isBusy)
@@ -158,38 +158,33 @@ public struct HostLibraryView: View {
                 Text("Library").font(.headline)
                 Spacer()
                 HStack(spacing:8) {
-                    Button("Host Details",systemImage:"info.circle") { showingHostDetails=true }
-                        .disabled(!canShowHostDetails)
-                        .help("The host's software, permissions and web UI")
-                    if model.host?.nativeAPI == true {
-                        Button("Files",systemImage:"folder") { filesModel=model.openFiles() }
-                            .disabled(!canShowHostDetails)
-                            .help("Send files to this PC and download from its transfer folder")
-                        Button("Shared Folders",systemImage:"externaldrive.connected.to.line.below") { foldersModel=model.openSharedFolders() }
-                            .disabled(!canShowHostDetails)
-                            .help("Browse the folders this PC shares with this Mac")
-                    }
-                    Button("Session and Graphics",systemImage:"rectangle.connected.to.line.below") { showingHostSession=true }
-                        .disabled(!canShowHostSession)
-                        .help("Session and graphics controls")
+                    Picker("Library View",selection:setting(\.libraryLayout)) {
+                        Label("Grid",systemImage:"square.grid.2x2").tag("grid")
+                        Label("List",systemImage:"list.bullet").tag("list")
+                    }.pickerStyle(.segmented).labelsHidden().help("Show games as a grid or a list")
                     Button("Refresh Library",systemImage:"arrow.clockwise") { model.refreshLibrary() }
                         .disabled(model.phase != .ready || model.host?.paired != true)
                         .help("Refresh this PC's library")
                     Menu("Filter and Sort",systemImage:"line.3.horizontal.decrease") {
-                        Toggle("HDR Apps Only",isOn:Bindable(model.library).hdrOnly)
-                        Picker("Sort Apps",selection:setting(\.librarySort)) {
-                            Text("Name").tag("name");Text("Host Order").tag("host")
+                        Toggle("HDR Games Only",isOn:Bindable(model.library).hdrOnly)
+                        Picker("Sort Games",selection:setting(\.librarySort)) {
+                            Text("Name").tag("name");Text("PC's Order").tag("host")
                         }
-                    }.help("Filter and sort apps")
+                    }.help("Filter and sort games")
+                    Menu("PC",systemImage:"ellipsis") {
+                        Button("Host Controls…",systemImage:"slider.horizontal.3") { showingHostSession=true }
+                            .disabled(!canShowHostSession)
+                        if model.host?.nativeAPI == true {
+                            Button("Files…",systemImage:"folder") { filesModel=model.openFiles() }
+                                .disabled(!canShowHostDetails)
+                            Button("Shared Folders…",systemImage:"externaldrive.connected.to.line.below") { foldersModel=model.openSharedFolders() }
+                                .disabled(!canShowHostDetails)
+                        }
+                        Divider()
+                        Button("Host Details…",systemImage:"info.circle") { showingHostDetails=true }
+                            .disabled(!canShowHostDetails)
+                    }.help("Host controls, files and details")
                 }.labelStyle(.iconOnly).buttonStyle(.bordered).controlSize(.small)
-            }
-            HStack {
-                Text("View").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Picker("Library View",selection:setting(\.libraryLayout)) {
-                    Label("Grid",systemImage:"square.grid.2x2").tag("grid")
-                    Label("List",systemImage:"list.bullet").tag("list")
-                }.pickerStyle(.segmented).labelsHidden().frame(width:100).help("Choose Grid or List")
             }
         }.padding(12)
     }
@@ -347,8 +342,8 @@ public struct HostLibraryView: View {
                     Text("Disconnecting from this game's stream also quits it on the PC. A lost connection never does.").font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Audio") { AudioPreferencesView(model:model) }
-                Section { Text("Video settings are saved per game for future streams. Audio, microphone and clipboard settings are shared by all games. Video and channel layout are fixed while streaming.").font(.caption).foregroundStyle(.secondary) }
-            } else { Section { Text("Select an app to see stream options.").foregroundStyle(.secondary) } }
+                Section { Text("Video settings are saved for each game. Audio settings are shared by all games.").font(.caption).foregroundStyle(.secondary) }
+            } else { Section { Text("Select a game to see its options.").foregroundStyle(.secondary) } }
             Section("Controls") {
                 Text("Click the video to control the host. Capture Mouse enables relative movement for games.")
                 LabeledContent("Release Input",value:"⌃⌥⇧Esc")
@@ -404,8 +399,9 @@ private struct HostSidebar: View {
                     hostRow(host.name,endpoint:host.endpoint,id:host.id)
                 }
                 Text(model.discovery.status).font(.caption).foregroundStyle(.secondary)
-                Button("Refresh Discovery",systemImage:"arrow.clockwise") { model.discovery.refresh() }
-                    .disabled(!model.settings.value.discoveryEnabled)
+                if model.settings.value.discoveryEnabled {
+                    Button("Search Again") { model.discovery.refresh() }.buttonStyle(.link).font(.caption)
+                }
             }
             Section {
                 DisclosureGroup("Add Host",isExpanded:$addingHost) {
