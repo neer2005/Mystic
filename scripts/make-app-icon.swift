@@ -15,29 +15,41 @@ func draw(_ pixels: Int) -> Data {
     let shape=CGPath(roundedRect:tile,cornerWidth:185,cornerHeight:185,transform:nil)
     let space=CGColorSpaceCreateDeviceRGB()
     func color(_ r: CGFloat,_ g: CGFloat,_ b: CGFloat,_ a: CGFloat = 1) -> CGColor { CGColor(colorSpace:space,components:[r,g,b,a])! }
+    // Near black, a little lighter at the top, with a fine light edge.
     c.saveGState();c.addPath(shape);c.clip()
-    c.drawLinearGradient(CGGradient(colorsSpace:space,colors:[color(0.27,0.14,0.62),color(0.07,0.05,0.22)] as CFArray,locations:[0,1])!,
+    c.drawLinearGradient(CGGradient(colorsSpace:space,colors:[color(0.17,0.17,0.18),color(0.03,0.03,0.04)] as CFArray,locations:[0,1])!,
                          start:CGPoint(x:512,y:924),end:CGPoint(x:512,y:100),options:[])
-    // The glow of the orb on the tile.
-    c.drawRadialGradient(CGGradient(colorsSpace:space,colors:[color(0.45,0.55,1,0.45),color(0.45,0.55,1,0)] as CFArray,locations:[0,1])!,
-                         startCenter:CGPoint(x:512,y:520),startRadius:0,endCenter:CGPoint(x:512,y:520),endRadius:430,options:[])
     c.restoreGState()
-    // The orb.
-    let orb=CGRect(x:252,y:260,width:520,height:520)
-    c.saveGState();c.addEllipse(in:orb);c.clip()
-    c.drawRadialGradient(CGGradient(colorsSpace:space,colors:[color(0.62,0.82,1),color(0.36,0.32,0.95),color(0.16,0.08,0.5)] as CFArray,locations:[0,0.55,1])!,
-                         startCenter:CGPoint(x:440,y:640),startRadius:10,endCenter:CGPoint(x:512,y:520),endRadius:270,options:[])
+    c.addPath(CGPath(roundedRect:tile.insetBy(dx:2,dy:2),cornerWidth:183,cornerHeight:183,transform:nil))
+    c.setStrokeColor(color(1,1,1,0.14));c.setLineWidth(4);c.strokePath()
+    // A white controller, drawn here: Apple's symbols may not be used in app icons.
+    let pad=CGMutablePath()
+    pad.move(to:CGPoint(x:356,y:712));pad.addLine(to:CGPoint(x:668,y:712))
+    pad.addCurve(to:CGPoint(x:806,y:598),control1:CGPoint(x:744,y:712),control2:CGPoint(x:788,y:668))
+    pad.addLine(to:CGPoint(x:852,y:408))
+    pad.addCurve(to:CGPoint(x:782,y:298),control1:CGPoint(x:872,y:326),control2:CGPoint(x:830,y:288))
+    pad.addCurve(to:CGPoint(x:690,y:402),control1:CGPoint(x:746,y:306),control2:CGPoint(x:718,y:346))
+    pad.addCurve(to:CGPoint(x:620,y:456),control1:CGPoint(x:674,y:436),control2:CGPoint(x:652,y:456))
+    pad.addLine(to:CGPoint(x:404,y:456))
+    pad.addCurve(to:CGPoint(x:334,y:402),control1:CGPoint(x:372,y:456),control2:CGPoint(x:350,y:436))
+    pad.addCurve(to:CGPoint(x:242,y:298),control1:CGPoint(x:306,y:346),control2:CGPoint(x:278,y:306))
+    pad.addCurve(to:CGPoint(x:172,y:408),control1:CGPoint(x:194,y:288),control2:CGPoint(x:152,y:326))
+    pad.addLine(to:CGPoint(x:218,y:598))
+    pad.addCurve(to:CGPoint(x:356,y:712),control1:CGPoint(x:236,y:668),control2:CGPoint(x:280,y:712))
+    pad.closeSubpath()
+    // The D-pad and the four buttons, cut out.
+    let (dx,dy,arm,half): (CGFloat,CGFloat,CGFloat,CGFloat)=(372,590,66,23)
+    pad.addLines(between:[CGPoint(x:dx-half,y:dy+arm),CGPoint(x:dx+half,y:dy+arm),CGPoint(x:dx+half,y:dy+half),CGPoint(x:dx+arm,y:dy+half),
+                          CGPoint(x:dx+arm,y:dy-half),CGPoint(x:dx+half,y:dy-half),CGPoint(x:dx+half,y:dy-arm),CGPoint(x:dx-half,y:dy-arm),
+                          CGPoint(x:dx-half,y:dy-half),CGPoint(x:dx-arm,y:dy-half),CGPoint(x:dx-arm,y:dy+half),CGPoint(x:dx-half,y:dy+half)])
+    pad.closeSubpath()
+    for (x,y) in [(652.0,644.0),(652.0,536.0),(598.0,590.0),(706.0,590.0)] as [(CGFloat,CGFloat)] {
+        pad.addEllipse(in:CGRect(x:x-27,y:y-27,width:54,height:54))
+    }
+    c.saveGState();c.addPath(pad);c.clip(using:.evenOdd)
+    c.drawLinearGradient(CGGradient(colorsSpace:space,colors:[color(1,1,1),color(0.8,0.8,0.82)] as CFArray,locations:[0,1])!,
+                         start:CGPoint(x:512,y:712),end:CGPoint(x:512,y:298),options:[])
     c.restoreGState()
-    c.setStrokeColor(color(1,1,1,0.28));c.setLineWidth(6);c.strokeEllipse(in:orb)
-    // Play, inside the orb.
-    let play=CGMutablePath()
-    play.move(to:CGPoint(x:448,y:412));play.addLine(to:CGPoint(x:448,y:628));play.addLine(to:CGPoint(x:632,y:520));play.closeSubpath()
-    c.setLineJoin(.round);c.setLineWidth(34)
-    c.setFillColor(color(1,1,1));c.setStrokeColor(color(1,1,1))
-    c.addPath(play);c.drawPath(using:.fillStroke)
-    // The orb's stand.
-    let base=CGPath(roundedRect:CGRect(x:372,y:186,width:280,height:58),cornerWidth:29,cornerHeight:29,transform:nil)
-    c.addPath(base);c.setFillColor(color(0.78,0.74,1));c.fillPath()
     NSGraphicsContext.restoreGraphicsState()
     return rep.representation(using:.png,properties:[:])!
 }
