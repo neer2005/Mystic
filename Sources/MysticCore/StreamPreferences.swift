@@ -1,6 +1,6 @@
 public import Foundation
 #if canImport(CoreGraphics)
-public import CoreGraphics
+import CoreGraphics
 #endif
 
 /// Shared defaults, never connection credentials or live-session state.

@@ -31,7 +31,7 @@ final class AWDLMonitor: @unchecked Sendable {
     private func apply() {
         var request=ifreq()
         withUnsafeMutableBytes(of:&request.ifr_name) { bytes in
-            _=AWDLHold.interface.utf8CString.withUnsafeBytes { bytes.copyBytes(from:$0) }
+            AWDLHold.interface.utf8CString.withUnsafeBytes { bytes.copyBytes(from:$0) }
         }
         guard ioctl(flagsSocket,SIOCGIFFLAGS,&request) == 0 else { return }
         guard let flags=AWDLHold.flags(current:Int32(request.ifr_ifru.ifru_flags),held:held) else { return }

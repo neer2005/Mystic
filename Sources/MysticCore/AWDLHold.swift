@@ -1,5 +1,5 @@
 #if canImport(ObjectiveC)
-public import Foundation
+import Foundation
 #endif
 
 /// Holding Apple Wireless Direct Link down during a stream: AirDrop's Wi-Fi link hops channels,
