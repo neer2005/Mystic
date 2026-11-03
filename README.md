@@ -15,6 +15,10 @@
   <a href="https://github.com/neer2005/Mystic/issues">Report a problem</a>
 </p>
 
+<p align="center">
+  <img src=".github/assets/library.jpg" width="860" alt="Mystic's Home library: a grid of game covers from a paired PC, with the selected game's details and a Play button beside it">
+</p>
+
 ---
 
 Mystic streams games from your gaming PC to your Mac over your home network. It's written for macOS
