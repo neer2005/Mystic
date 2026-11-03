@@ -115,7 +115,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
             attemptOutput(generation:token,recovery:recoveryRevision,retries:3)
             if concealTimer,let decoder {
                 let timer=DispatchSource.makeTimerSource(queue:queue)
-                let interval=DispatchTimeInterval.milliseconds(Int(decoder.info.packetDurationMs))
+                let interval=DispatchTimeInterval.milliseconds(AudioPlayout.tickMs(packetMs:Int(decoder.info.packetDurationMs)))
                 timer.schedule(deadline:.now()+interval,repeating:interval,leeway:.microseconds(500))
                 timer.setEventHandler { [weak self] in self?.concealLateLocked() }
                 timer.resume();lateTimer=timer
