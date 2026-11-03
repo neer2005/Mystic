@@ -167,3 +167,11 @@ including renderer metrics and clearing on stop. The in-order modes have automat
 policy, mailbox and Metal slot; only PC Frame Times has been seen on a stream. These checks do not establish
 smoothness on a visible panel, sustained gaming latency or HDR fidelity. See
 [PLAYTEST.md](PLAYTEST.md) for live checks.
+
+## Nightjar 4.3.1's decoder pool fix
+
+Not ported, because it does not apply yet. It stops pictures held by "PC's frame times" from using up a hardware decoder's fixed
+surface pool. Mystic never selects that pacing, since it has no check that a Mac display refreshes on present, and VideoToolbox has
+no such fixed pool here. When host-time pacing is enabled, revisit `mailboxLimit`: 8 pictures hold about 33 ms at 240 fps, less
+than the present clock's 50 ms hold, and the mailbox drops its oldest past that. Nightjar's answer is to make the oldest held
+picture due early rather than drop it.
