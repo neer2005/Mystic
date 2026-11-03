@@ -134,7 +134,7 @@ wrap its adaptive controller and read real receiver counters plus frame timing.
 Call these on their owning actor/worker; no policy call is a real-time audio
 callback. No existing C layouts change. Swift serializes samples and applied
 rates on the session worker, and performs host HTTP requests separately. See
-the Swift wrapper for defaults, behaviour and limits.
+the Swift wrapper for defaults, behavior and limits.
 
 ## Controller feedback (additive ABI 2)
 

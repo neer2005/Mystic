@@ -269,7 +269,7 @@ fn folder_error(error: &FileError) -> String {
             _ => None,
         },
         FileError::Local(_) => Some("The file on this Mac could not be read or written."),
-        FileError::Host(Error::Cancelled) => return "Transfer cancelled.".into(),
+        FileError::Host(Error::Cancelled) => return "Transfer canceled.".into(),
         FileError::Host(_) => None,
     };
     match why {
@@ -386,7 +386,7 @@ mod tests {
         assert_eq!(second["transferError"], "Another transfer is still running.");
         page.request("cancel", &json!({})).unwrap();
         let ended = until(&mut page, |s| s["transfer"].is_null());
-        assert_eq!(ended["transferError"], "Transfer cancelled.");
+        assert_eq!(ended["transferError"], "Transfer canceled.");
     }
     #[test]
     fn a_refused_device_hears_why_and_lists_nothing() {

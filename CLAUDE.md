@@ -12,7 +12,7 @@ Mystic has two developers: its owner and Claude. These are the working rules.
 - **Live tests** use the owner's PC, Big Dawg, with testufo.com open in its Desktop app. Leave
   their settings as found: `defaults export com.mystic.streaming` before, `import` after. Ask
   before closing a Mystic window that isn't yours.
-- **Nightjar parity.** Mystic follows Nightjar's behaviour unless the Mac needs otherwise. When
+- **Nightjar parity.** Mystic follows Nightjar's behavior unless the Mac needs otherwise. When
   moving the engine pin, rebuild, run the tests and compare a TestUFO run before and after.
 - **Docs.** Keep the README current. Explain the non-obvious in code comments next to it,
   not in separate documents.

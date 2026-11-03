@@ -122,7 +122,7 @@ impl Page {
         self.pump();
     }
     fn download(&mut self, name: &str, size: u64) {
-        // A cancelled or failed download keeps its name too: trying it again writes to it.
+        // A canceled or failed download keeps its name too: trying it again writes to it.
         let taken: Vec<&str> = self.transfers.items().iter().filter(|t| t.direction == Direction::Download).map(|t| t.local_name.as_str()).collect();
         let local = free_name(&self.folder, &upload_name(name), &taken);
         self.transfers.queue_download(name, &local, size);
@@ -318,14 +318,14 @@ fn status(transfer: &Transfer, folder: &Path) -> String {
     let verb = if upload { "Sending" } else { "Downloading" };
     match &transfer.state {
         State::Queued => "Waiting".into(),
-        State::Running { .. } if transfer.is_cancelling() => "Cancelling…".into(),
+        State::Running { .. } if transfer.is_cancelling() => "Canceling…".into(),
         State::Running { done, total } if *total > 0 => format!("{verb} · {} % ({} of {})", (transfer.fraction().unwrap_or(0.0) * 100.0) as u32, size(*done), size(*total)),
         State::Running { done, .. } => format!("{verb} · {}", size(*done)),
         State::Done { name, .. } if upload && *name == transfer.name => "Sent".into(),
         State::Done { name, .. } if upload => format!("Sent as {name}"),
         State::Done { name, .. } => format!("Saved to {}", folder.join(name).display()),
         State::Failed { problem, .. } => problem_text(*problem).into(),
-        State::Cancelled => "Cancelled".into(),
+        State::Cancelled => "Canceled".into(),
     }
 }
 fn title(transfer: &Transfer) -> String {

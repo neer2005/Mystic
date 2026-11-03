@@ -10,7 +10,7 @@ struct GameCardDescription {
 
 /// The keyboard model shared by Home and the host library: arrow keys move the
 /// selection, the selection scrolls into view, and Return or a double-click opens it.
-/// Like Finder, the selection is drawn in the accent colour only while the grid has focus.
+/// Like Finder, the selection is drawn in the accent color only while the grid has focus.
 struct GameGrid<Item: Identifiable,Card: View,Menu: View,Footer: View>: View where Item.ID: Hashable {
     let items: [Item]
     @Binding var selection: Item.ID?

@@ -187,7 +187,7 @@ pub const MYSTIC_FEC_HOST: i16 = -1;
 /// `MysticStreamConfig::video_fec`: error correction that follows this client's loss reports.
 pub const MYSTIC_FEC_AUTO: i16 = -2;
 
-/// The FEC choice a `video_fec` value names; anything unrecognised leaves it to the host.
+/// The FEC choice a `video_fec` value names; anything unrecognized leaves it to the host.
 pub fn fec_choice(value: i16) -> rubylight_protocol::fec_report::FecChoice {
     use rubylight_protocol::fec_report::FecChoice;
     match value {

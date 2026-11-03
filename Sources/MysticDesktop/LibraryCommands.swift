@@ -47,7 +47,7 @@ public struct LibraryCommands: Commands {
         CommandMenu("Library") {
             Button(actions?.play?.title ?? "Start Stream") { actions?.play?.action() }
                 .disabled(actions?.play == nil)
-            Button(actions?.favourite?.isFavourite == true ? "Remove from Favourites" : "Add to Favourites") { actions?.favourite?.toggle() }
+            Button(actions?.favourite?.isFavourite == true ? "Remove from Favorites" : "Add to Favorites") { actions?.favourite?.toggle() }
                 .disabled(actions?.favourite == nil)
             Divider()
             Button("Refresh Library") { actions?.refresh?() }

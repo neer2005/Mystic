@@ -76,7 +76,7 @@ public struct ControllerBattery: Sendable, Equatable {
 }
 
 /// An owned snapshot of the host's latest request for one controller output: motor
-/// amplitudes, the light colour (`first` red << 8 | green, `second` blue), or a motion
+/// amplitudes, the light color (`first` red << 8 | green, `second` blue), or a motion
 /// sensor's report rate in Hz (`first`; zero stops it).
 public struct ControllerFeedback: Sendable, Equatable {
     public enum Kind: UInt8, Sendable { case rumble=1, triggerRumble=2, light=3, accelerometerRate=4, gyroscopeRate=5 }
