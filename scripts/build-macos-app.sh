@@ -16,7 +16,7 @@ if [[ -z "$signing_identity" ]]; then
         printf '%s\n' 'Choose a persistent signing certificate before building Mystic.' \
             'Run: security find-identity -v -p codesigning' \
             'Then: git config --local mystic.signingIdentity <certificate-SHA-1>' \
-            'See docs/SIGNING.md for setup and explicit ad-hoc builds.' >&2
+            'Or set MYSTIC_SIGNING_IDENTITY=- for an ad-hoc build.' >&2
         exit 1
     fi
     signing_identity="${development_identities[0]}"
