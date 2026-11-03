@@ -51,6 +51,8 @@ extension AudioOutputPipeline { var outputFrames: Int { 0 } }
 public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
     private let queue = DispatchQueue(label:"Mystic.Audio")
     private let log: @Sendable (String) -> Void
+    /// The start of the packet trimmed last, which the next one fades in from.
+    private var trimHead: [Float]=[]
     private let monitor: any AudioOutputMonitoring
     private let makeOutput: @Sendable (AudioSetupInfo,Float,String?,@escaping @Sendable () -> Void) throws -> any AudioOutputPipeline
     private let retryDelay: TimeInterval,routeDelay: TimeInterval
@@ -133,10 +135,22 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
         queue.sync {
             guard running,let decoder else { return }
             let queued=pipeline.map { Int(mystic_pcm_ring_stats($0.render.ring).queued_frames) } ?? 0
-            guard case let .play(lead)=playout?.packet(lost:packet == nil,queued:queued,nowNanos:clock()) else { return }
-            if lead > 0,let pipeline { writeSilence(lead,pipeline.render) }
+            let lead: Int
+            switch playout?.packet(lost:packet == nil,queued:queued,nowNanos:clock()) {
+            case .play(let value): lead=value
+            case .trim:
+                trimHead=[]
+                try? decoder.decode(packet,routing:pipeline?.routing) { samples,frames in
+                    let channels=samples.count/max(1,frames)
+                    trimHead=Array(samples.prefix(min(frames,48*AudioPlayout.fadeMs)*channels))
+                }
+                log(String(format:"Audio clock drift: trimmed a packet with %.1f ms queued.",Double(queued)/48))
+                return
+            default: return
+            }
+            if lead > 0,let pipeline { writeSilence(lead,pipeline.render);trimHead=[] }
             do {
-                try decode(decoder,packet:packet)
+                try decode(decoder,packet:packet,fades:true)
                 if packet == nil { concealed += 1 } else { decoded += 1 }
             } catch {
                 errors += 1
@@ -153,10 +167,15 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
         let silence=[Float](repeating:0,count:frames*render.channels)
         silence.withUnsafeBufferPointer { _=mystic_pcm_ring_write(render.ring,$0.baseAddress,UInt32(frames)) }
     }
-    private func decode(_ decoder: OpusAudioDecoder,packet: UnsafeRawBufferPointer?) throws {
+    private func decode(_ decoder: OpusAudioDecoder,packet: UnsafeRawBufferPointer?,fades: Bool = false) throws {
         try decoder.decode(packet,routing:pipeline?.routing) { samples,frames in
-            if let pipeline { _=mystic_pcm_ring_write(pipeline.render.ring,samples.baseAddress,UInt32(frames)) }
-            else { discarded += UInt64(frames) }
+            guard let pipeline else { discarded += UInt64(frames);return }
+            if fades,!trimHead.isEmpty {
+                var faded=Array(samples)
+                AudioPlayout.crossfade(from:trimHead,into:&faded,channels:pipeline.render.channels)
+                trimHead=[]
+                faded.withUnsafeBufferPointer { _=mystic_pcm_ring_write(pipeline.render.ring,$0.baseAddress,UInt32(frames)) }
+            } else { _=mystic_pcm_ring_write(pipeline.render.ring,samples.baseAddress,UInt32(frames)) }
         }
     }
     public func stop() { queue.sync { stopLocked() } }
@@ -213,6 +232,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
             }
             pipeline=output;starts += 1;status = .playing
             playout?.outputFrames=output.outputFrames
+            if let limit=playout?.ringLimit { mystic_pcm_ring_set_max_queued(output.render.ring,UInt32(limit)) }
             log("Audio output ready: \(output.device?.name ?? "system output"), \(output.sampleRate) Hz · \(output.routing.label).")
         } catch {
             if decoder.info.channelCount > 2,!forceStereo {
@@ -231,7 +251,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
     }
     private func retireOutput() {
         outputRevision &+= 1
-        playout?.reset()
+        playout?.reset();trimHead=[]
         guard let pipeline else { return }
         pipeline.stop()
         let stats=mystic_pcm_ring_stats(pipeline.render.ring)

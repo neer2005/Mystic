@@ -63,6 +63,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | Bandwidth test | Pending | Nightjar's `network_test.rs` (Rubylight and Foundation probes) |
 | Input latency test | Implemented | Stream menu → Measure Input Latency, Nightjar's Android `LatencyProbe` (its desktop has none). Input is released first so the host's pointer is in the video. Not yet measured: Big Dawg (host 7.1.431) sends about 20 frames a second on a still desktop, so the screen never counts as still and the test reports it couldn't measure |
 | Stereo playback, mute, output changes | Implemented | User verified on Big Dawg. Late packets are filled with Opus concealment and skipped on arrival, Nightjar's playout rule run on the decode side; see AUDIO.md |
+| Audio clock drift trim | Implemented | Nightjar 4.3.1's `playout.rs` rule, simulated at 35 and 300 ppm; see AUDIO.md. No trim seen live yet |
 | 5.1/7.1 discrete PCM | Implemented, physical validation pending | Speaker identity and downmix checks |
 | 7.1.4/passthrough | Pending | Mac output capability investigation |
 | Microphone | Implemented | Live host input-meter response verified previously |

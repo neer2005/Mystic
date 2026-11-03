@@ -75,6 +75,13 @@ with Opus concealment. The packet whose time concealment played is skipped when 
 a late burst never adds latency; the HUD's audio line counts them as "late skipped".
 Concealment stops after 100 ms of outage, and what arrives after that is new, not late.
 
+A device clock slower than the host's builds up a surplus. When the queue stays more than a packet
+above the lead for 2 s of packets, one packet is decoded but not played and the next fades in from
+its first 5 ms, as Nightjar 4.3.1 does; the session log says each time. The ring's limit stays as
+the last resort; it is now the larger of 60 ms and twice the lead plus two packets, so a device with a
+long read does not hit it before the trim. A packet played on an empty queue with a burst behind it also
+leaves a surplus, which the same rule takes off 2 s later.
+
 The first version had no lead and concealed below 10 ms. A Mac's output reads 512 frames at a
 time, so the ring sat below that mark most of the time, and any 5 ms packet arriving a little
 late was replaced by concealment and then thrown away: with 3 ms of Wi-Fi jitter, about 12

@@ -288,6 +288,7 @@ uint32_t mystic_pcm_ring_read(MysticPCMRing *ring, float *left, float *right, ui
 /* planes contains channels non-NULL pointers, each with capacity for frames floats.
  * channels must match the ring. A mismatched valid plane list is zero-filled. */
 uint32_t mystic_pcm_ring_read_planar(MysticPCMRing *ring, float *const *planes, uint32_t channels, uint32_t frames);
+void mystic_pcm_ring_set_max_queued(MysticPCMRing *ring, uint32_t frames);
 void mystic_pcm_ring_set_gain(MysticPCMRing *ring, float gain);
 MysticPCMStats mystic_pcm_ring_stats(const MysticPCMRing *ring);
 /* Free only after both producer and audio render callback have stopped. */
