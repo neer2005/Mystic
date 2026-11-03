@@ -256,7 +256,7 @@ impl MysticStreamConfig {
             ..SessionConfig::default()
         }
     }
-    fn to_engine(&self) -> StreamConfig {
+    fn to_engine(self) -> StreamConfig {
         StreamConfig {
             width: self.width,
             height: self.height,
@@ -993,12 +993,18 @@ pub unsafe extern "C" fn mystic_session_request_idr(handle: *mut MysticSession) 
 }
 
 /// Horizontal scroll in 1/120 of a click. The caller must hold a live session handle.
+///
+/// # Safety
+/// `handle` must be null or a live handle.
 #[no_mangle]
 pub unsafe extern "C" fn mystic_session_horizontal_scroll(handle: *mut MysticSession, amount: i16) -> i32 {
     with_input(handle, |q| q.send_high_res_hscroll(amount))
 }
 
 /// Full controller state. Caller serializes input and owns a live session handle.
+///
+/// # Safety
+/// `handle` must be null or a live handle; input calls must not race each other.
 #[no_mangle]
 pub unsafe extern "C" fn mystic_session_controller(handle: *mut MysticSession, slot: u8, mask: u16,
     buttons: u32, lt: u8, rt: u8, lx: i16, ly: i16, rx: i16, ry: i16) -> i32 {
@@ -1007,12 +1013,18 @@ pub unsafe extern "C" fn mystic_session_controller(handle: *mut MysticSession, s
 }
 
 /// Compatibility entry point: generic extended gamepad without feedback.
+///
+/// # Safety
+/// `handle` must be null or a live handle.
 #[no_mangle]
 pub unsafe extern "C" fn mystic_session_controller_arrival(handle: *mut MysticSession, slot: u8, mask: u16) -> i32 {
     mystic_session_controller_arrival_with_feedback(handle, slot, mask, 0x01, 0)
 }
 
 /// ABI 2 entry point: an unknown controller type with the classic buttons.
+///
+/// # Safety
+/// `handle` must be null or a live handle.
 #[no_mangle]
 pub unsafe extern "C" fn mystic_session_controller_arrival_with_feedback(
     handle: *mut MysticSession, slot: u8, mask: u16, capabilities: u16, epoch: u64,
@@ -1033,6 +1045,9 @@ fn delivered_capabilities() -> u16 {
 
 /// ABI 4: controller type (0 unknown, 1 Xbox, 2 PlayStation, 3 Nintendo), its buttons and
 /// what Mystic delivers for it. Touchpad contacts are not sent, so that bit is refused.
+///
+/// # Safety
+/// `handle` must be null or a live handle.
 #[no_mangle]
 pub unsafe extern "C" fn mystic_session_controller_announce(
     handle: *mut MysticSession, slot: u8, mask: u16, kind: u8, supported_buttons: u32, capabilities: u16, epoch: u64,
@@ -1048,6 +1063,9 @@ pub unsafe extern "C" fn mystic_session_controller_announce(
 
 /// Accelerometer (kind 1, m/s² with gravity) or gyroscope (kind 2, degrees per second).
 /// MYSTIC_ERR_UNIMPLEMENTED when the host takes no motion; the stream carries on.
+///
+/// # Safety
+/// `handle` must be null or a live handle.
 #[no_mangle]
 pub unsafe extern "C" fn mystic_session_controller_motion(handle: *mut MysticSession, slot: u8, kind: u8, x: f32, y: f32, z: f32) -> i32 {
     use nightjar_core::input::packets::motion_type;
@@ -1058,6 +1076,9 @@ pub unsafe extern "C" fn mystic_session_controller_motion(handle: *mut MysticSes
 
 /// Battery state (0 unknown, 1 none, 2 discharging, 3 charging, 5 full) and percent
 /// (0–100, 255 unknown). MYSTIC_ERR_UNIMPLEMENTED when the host takes no battery reports.
+///
+/// # Safety
+/// `handle` must be null or a live handle.
 #[no_mangle]
 pub unsafe extern "C" fn mystic_session_controller_battery(handle: *mut MysticSession, slot: u8, state: u8, percent: u8) -> i32 {
     if slot >= MAX_CONTROLLERS || !matches!(state, 0 | 1 | 2 | 3 | 5) || (percent > 100 && percent != 0xFF) {
@@ -1069,6 +1090,9 @@ pub unsafe extern "C" fn mystic_session_controller_battery(handle: *mut MysticSe
 /// The network toward the host changed (`metered`: it bills by data). Returns 0 when the
 /// stream roamed onto it, 1 when its connection carries on, 2 when it cannot continue there
 /// (another address, not roamed), or a negative error. Serialized with start/stop.
+///
+/// # Safety
+/// `handle` must be null or a live handle, not used concurrently with start or stop.
 #[no_mangle]
 pub unsafe extern "C" fn mystic_session_network_changed(handle: *const MysticSession, metered: bool) -> i32 {
     use nightjar_core::session::{NetworkChange, NetworkHint};
@@ -1081,10 +1105,16 @@ pub unsafe extern "C" fn mystic_session_network_changed(handle: *const MysticSes
 }
 
 /// Live handle, serialized with start/stop. Only encrypted negotiated streams are exposed.
+///
+/// # Safety
+/// `handle` must be null or a live handle, not used concurrently with start or stop.
 #[no_mangle]
 pub unsafe extern "C" fn mystic_session_microphone_available(handle:*const MysticSession) -> bool {
     handle.as_ref().and_then(|h|h.session.as_ref()).is_some_and(|s|s.microphone_available())
 }
+///
+/// # Safety
+/// `handle` must be null or a live handle, not used concurrently with start or stop; `data` must point to `length` readable bytes.
 #[no_mangle]
 pub unsafe extern "C" fn mystic_session_send_microphone(handle:*const MysticSession,data:*const u8,length:usize) -> i32 {
     if data.is_null() || length==0 || length>1275 { return MYSTIC_ERR_INVALID_ARGUMENT; }

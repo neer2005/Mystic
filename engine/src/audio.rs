@@ -203,7 +203,7 @@ pub unsafe extern "C" fn mystic_pcm_ring_read_planar(
     let count = available.min(u64::from(frames));
     let start_gain = f32::from_bits(r.current_gain.load(Relaxed));
     let target_gain = f32::from_bits(r.gain.load(Acquire));
-    let ramp = u64::from(frames).min(128).max(1);
+    let ramp = u64::from(frames).clamp(1, 128);
     for i in 0..count {
         let gain = if i < ramp {
             start_gain + (target_gain - start_gain) * (i + 1) as f32 / ramp as f32
@@ -283,10 +283,10 @@ mod tests {
                     mystic_pcm_ring_read_planar(ring, pointers.as_ptr(), channels as u32, 80),
                     64
                 );
-                for channel in 0..channels {
-                    for frame in 0..64 {
+                for (channel, plane) in planes.iter().enumerate() {
+                    for (frame, sample) in plane.iter().take(64).enumerate() {
                         assert_eq!(
-                            planes[channel][frame],
+                            *sample,
                             ((frame + 64) * channels + channel) as f32
                         );
                     }
@@ -359,9 +359,9 @@ mod tests {
                     64,
                 );
                 for frame in 0..count as usize {
-                    for channel in 0..8 {
+                    for (channel, plane) in planes.iter().enumerate() {
                         assert_eq!(
-                            planes[channel][frame],
+                            plane[frame],
                             ((received + frame) * 8 + channel) as f32
                         );
                     }
