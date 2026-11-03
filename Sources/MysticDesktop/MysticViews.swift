@@ -135,7 +135,8 @@ public struct StreamingView: View {
             if model.errorMessage == nil { dismissWindow(id:"stream") }
             else if let window,window.isStreamFullScreen { window.toggleFullScreen(nil) }
         }
-        .onDisappear { if model.hasSession { model.leave() } }
+        // Entering or leaving the notch-covering full screen briefly remounts the view.
+        .onDisappear { if model.hasSession,!NotchFullScreen.isRestyling(window) { model.leave() } }
     }
 }
 

@@ -23,9 +23,15 @@ final class RemoteVideoView: NSView {
     isolated deinit { stopObservingDisplay() }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func resignFirstResponder() -> Bool { capture?.release();return true }
+    override func resignFirstResponder() -> Bool {
+        if !NotchFullScreen.isRestyling(window) { capture?.release() }
+        return true
+    }
+    /// A window changing to or from the notch-covering full screen takes this view out and puts
+    /// it back (see `NotchFullScreen.isRestyling`); input stays with the host across that.
+    private var restyling: Bool { NotchFullScreen.isRestyling(movementWindow) }
     override func viewWillMove(toWindow next: NSWindow?) {
-        if next !== movementWindow {
+        if next !== movementWindow,!(next == nil && restyling) {
             capture?.release()
             movementWindow?.acceptsMouseMovedEvents = previousAcceptsMouseMoved
             movementWindow = next
@@ -35,6 +41,7 @@ final class RemoteVideoView: NSView {
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window == nil,restyling { return }
         stopObservingDisplay()
         if let window {
             let center=NotificationCenter.default

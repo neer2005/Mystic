@@ -20,6 +20,7 @@ final class NotchFullScreen {
     private let videoSize: @MainActor () -> CGSize
     private var saved: (style: NSWindow.StyleMask,frame: NSRect,options: NSApplication.PresentationOptions)?
     private var observers: [any NSObjectProtocol]=[]
+    private var restyling=false
     private init(window: NSWindow,videoSize: @escaping @MainActor () -> CGSize) { self.window=window;self.videoSize=videoSize }
 
     /// Routes the window's full-screen toggle (green button, View menu, ⌃⌘F) through Mystic.
@@ -31,6 +32,11 @@ final class NotchFullScreen {
         adoptKeyableClass(window)
     }
     static func isActive(_ window: NSWindow) -> Bool { controller(window)?.saved != nil }
+    /// True while the window changes between titled and borderless. AppKit then swaps the
+    /// window's frame view, which takes the content out of the window and puts it back: SwiftUI
+    /// reports the stream view disappearing and appearing, and the video view leaves and
+    /// rejoins the window. None of that may end the stream or release the host's input.
+    static func isRestyling(_ window: NSWindow?) -> Bool { window.flatMap(controller)?.restyling == true }
     private static func controller(_ window: NSWindow) -> NotchFullScreen? {
         objc_getAssociatedObject(window,&controllerKey) as? NotchFullScreen
     }
@@ -61,7 +67,7 @@ final class NotchFullScreen {
         // Auto-hide rather than hide, so the menu bar still slides down at the top edge as in
         // AppKit's full screen; AppKit requires the Dock option alongside it.
         NSApp.presentationOptions=[.autoHideDock,.autoHideMenuBar]
-        window.styleMask=[.borderless]
+        restyle(window,[.borderless])
         window.setFrame(screen.frame,display:true)
         window.makeKeyAndOrderFront(nil)
         let center=NotificationCenter.default
@@ -73,23 +79,36 @@ final class NotchFullScreen {
                     window.setFrame(screen.frame,display:true)
                 }
             },
-            // A stream that ends closes the window; the menu bar must not stay hidden.
+            // A stream that ends closes the window; the menu bar must not stay hidden. The closing
+            // window keeps its style, so its disappearance still ends the stream.
             center.addObserver(forName:NSWindow.willCloseNotification,object:window,queue:.main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.exit() }
+                MainActor.assumeIsolated { self?.exit(restoringWindow:false) }
             },
         ]
         center.post(name:Self.didChangeNotification,object:window)
     }
-    private func exit() {
+    private func exit(restoringWindow: Bool = true) {
         guard let saved else { return }
         self.saved=nil
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers=[]
         NSApp.presentationOptions=saved.options
-        guard let window else { return }
-        window.styleMask=saved.style
+        guard let window,restoringWindow else { return }
+        restyle(window,saved.style)
         window.setFrame(saved.frame,display:true)
         NotificationCenter.default.post(name:Self.didChangeNotification,object:window)
+    }
+    /// Changes the style with the remount covered, then gives the keyboard back to the view
+    /// that had it, which the remount takes away. SwiftUI may report the disappearance after
+    /// the change returns, so the cover lasts until the main queue's next turn.
+    private func restyle(_ window: NSWindow,_ style: NSWindow.StyleMask) {
+        let responder=window.firstResponder
+        restyling=true
+        window.styleMask=style
+        DispatchQueue.main.async { [weak self,weak window,weak responder] in
+            self?.restyling=false
+            if let window,let responder,window.firstResponder !== responder { window.makeFirstResponder(responder) }
+        }
     }
 
     /// A borderless window cannot become key, so after a switch to another app the stream
