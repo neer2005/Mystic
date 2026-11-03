@@ -37,7 +37,7 @@ must be investigated and documented before a feature is marked inapplicable.
 | H.264/HEVC decoding | Implemented | Big Dawg HEVC verified |
 | AV1 hardware decode | Implemented, hardware validation pending | Current Mac reports unsupported hardware |
 | HDR10 and SDR transitions | Implemented | PQ/BT.2020 HUD and visual MacBook checks passed with user. Display luminance goes to the host as Nightjar's estimate from EDR headroom (DisplayCaps for Rubylight, the launch query for others; see HDR.md). Live host check pending |
-| HLG, HDR10+, Dolby Vision, 10-bit SDR | Partial / pending | HLG metadata path exists; format-specific fidelity and capability work remain. Launch never sets `ten_bit_sdr`; Nightjar first checks the decoder with fixtures (`color_probe.rs`) |
+| HLG, HDR10+, Dolby Vision, 10-bit SDR | Partial / pending | HLG metadata path exists; format-specific fidelity and capability work remain. 10-bit SDR implemented (Settings → 10-bit Color), offered through Nightjar's `color::offer` from the Mac's verified decoders; negotiated on Big Dawg, banding not yet judged by eye, see BASELINE.md |
 | Full-chroma/true 4:4:4 | Pending | Codec/presentation integration and supported-hardware checks, with a decoder check as above |
 | Metal renderer | Experimental, off by default | Live HDR on Big Dawg, and Low Latency without the refresh wait about 16 ms faster by its own report. Tearing and screen latency not checked; see METAL-RENDERER.md |
 | Upscaling | Pending | Choose Mac-native rendering path |

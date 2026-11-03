@@ -99,6 +99,18 @@ TestUFO closed, 0 nudges were sent in 20 seconds: frames kept arriving, typicall
 test needs 150 ms without one. This looks like the host's minimum frame rate, not confirmed. Taking any frame as the answer would
 read falsely low, so the test keeps Nightjar's rule. On System it would end at handover, not on screen.
 
+## 10-bit SDR against 8-bit SDR
+
+Big Dawg's desktop, HEVC at 3024x1890, 120 fps, Metal with V-Sync, two runs each of about 300 frames, median/p95 in ms. Not TestUFO:
+the desktop was mostly still, so these are few frames.
+
+| Format | Decode | Decoded to shown |
+| --- | --- | --- |
+| 10-bit | 3.1/5.6, 4.0/6.6 | 21.9/26.4, 21.9/26.8 |
+| 8-bit | 2.8/5.6, 2.9/5.5 | 22.0/26.3, 21.5/26.4 |
+
+Decode reads about 0.3-1 ms longer on 10-bit; one run accounts for most of that. It is off by default.
+
 ## Notes on the first table
 
 - **Metal with V-Sync settles into one of two states for a whole run.** Good: every refresh shows a frame, about 99% shown, about 29-36 ms.

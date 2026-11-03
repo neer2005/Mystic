@@ -326,3 +326,52 @@ mod tests {
         assert!(n.jitter.is_none());
     }
 }
+
+/// Nightjar's offer for "10-bit color (SDR)": `base` with the Main10 formats that this Mac decodes
+/// (`decodable`) and the PC encodes (`scm`), as JSON: `formats`, `offered`, and `refusal`, the words
+/// for why not when they are worth saying.
+#[no_mangle]
+pub unsafe extern "C" fn mystic_sdr10_offer(base: u32, decodable: u32, scm: u32, hdr: bool, wanted: bool, decoder_reason: *const std::ffi::c_char) -> *mut std::ffi::c_char {
+    use nightjar_core::color::{offer, Refusal, Wants};
+    let reason = if decoder_reason.is_null() { "" } else { std::ffi::CStr::from_ptr(decoder_reason).to_str().unwrap_or("") };
+    let result = offer(base, Wants { sdr10: wanted, hdr, ..Default::default() }, decodable, reason, scm);
+    let refusal = result.sdr10.as_ref().err().filter(|r| r.worth_saying()).map(|r| match r {
+        Refusal::Decoder(why) if why.is_empty() => "this Mac has no hardware decoder for it".to_owned(),
+        Refusal::Decoder(why) => format!("this Mac's decoder: {why}"),
+        Refusal::Host => "the PC encodes no 10-bit format for this codec".to_owned(),
+        _ => "another setting takes priority".to_owned(),
+    });
+    crate::host::envelope_for(Ok(serde_json::json!({"formats":result.formats,"offered":result.sdr10.is_ok(),"refusal":refusal})))
+}
+
+#[cfg(test)]
+mod sdr10_tests {
+    use super::*;
+    use nightjar_core::sdp::*;
+    fn offer(decodable: u32, scm: u32, hdr: bool, wanted: bool) -> serde_json::Value {
+        unsafe {
+            let answer = mystic_sdr10_offer(VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265, decodable, scm, hdr, wanted, c"no decoder".as_ptr());
+            let value: serde_json::Value = serde_json::from_str(std::ffi::CStr::from_ptr(answer).to_str().unwrap()).unwrap();
+            crate::host::mystic_string_free(answer);
+            value["value"].clone()
+        }
+    }
+    const HEVC: u32 = SCM_HEVC | SCM_HEVC_MAIN10;
+    #[test]
+    fn main10_is_added_only_when_wanted_decoded_and_encoded() {
+        let plain = u64::from(VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265);
+        let on = offer(VIDEO_FORMAT_H265_MAIN10, HEVC, false, true);
+        assert_eq!(on["formats"].as_u64().unwrap(), plain | u64::from(VIDEO_FORMAT_H265_MAIN10));
+        assert_eq!(on["offered"], true);
+        assert_eq!(offer(VIDEO_FORMAT_H265_MAIN10, HEVC, false, false)["formats"].as_u64().unwrap(), plain);
+        let host = offer(VIDEO_FORMAT_H265_MAIN10, SCM_HEVC, false, true);
+        assert_eq!((host["offered"].as_bool(), host["refusal"].as_str()), (Some(false), Some("the PC encodes no 10-bit format for this codec")));
+        assert_eq!(offer(0, HEVC, false, true)["refusal"], "this Mac's decoder: no decoder");
+    }
+    #[test]
+    fn hdr_takes_priority_without_a_word() {
+        let hdr = offer(VIDEO_FORMAT_H265_MAIN10, HEVC, true, true);
+        assert_eq!(hdr["offered"], false);
+        assert!(hdr["refusal"].is_null());
+    }
+}

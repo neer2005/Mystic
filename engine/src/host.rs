@@ -456,6 +456,7 @@ impl MysticHost {
                     height,
                     fps,
                     hdr,
+                    ten_bit_sdr: !hdr && v["tenBitSDR"].as_bool().unwrap_or(false),
                     clipboard_sync: v["clipboardSync"].as_bool().unwrap_or(false),
                     play_local_audio: v["playLocalAudio"].as_bool().unwrap_or(false),
                     virtual_display: v["virtualDisplay"].as_bool().unwrap_or(false),

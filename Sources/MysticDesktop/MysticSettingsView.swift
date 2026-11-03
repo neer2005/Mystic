@@ -190,6 +190,9 @@ struct VideoSettingsFields: View {
             Toggle("HDR",isOn:$value.hdr)
             Text("Requests 10-bit HDR from supported host apps. HDR video uses the stream window’s display; macOS maps it to SDR on displays without HDR headroom.")
                 .font(.caption).foregroundStyle(.secondary)
+            Toggle("10-bit Color (SDR)",isOn:$value.tenBitSDR).disabled(value.hdr)
+            Text(value.hdr ? "HDR is already 10-bit and takes priority." : "Streams SDR in 10-bit HEVC or AV1 to reduce banding. Needs the host to offer it, and the host's display must be in SDR.")
+                .font(.caption).foregroundStyle(.secondary)
             PCDisplayFields(value:$value,host:host)
         }.disabled(locked)
     }

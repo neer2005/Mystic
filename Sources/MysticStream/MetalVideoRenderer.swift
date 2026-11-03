@@ -38,7 +38,13 @@ struct VideoLayerFormat: Equatable {
     enum Transfer: Equatable { case sdr,pq,hlg }
     let transfer: Transfer
     let colorSpaceName: CFString
+    let tenBit: Bool
     init(image: CVPixelBuffer) {
+        switch CVPixelBufferGetPixelFormatType(image) {
+        case kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange,kCVPixelFormatType_420YpCbCr10BiPlanarFullRange,
+             kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange,kCVPixelFormatType_444YpCbCr10BiPlanarFullRange: tenBit=true
+        default: tenBit=false
+        }
         let tag=CVBufferCopyAttachment(image,kCVImageBufferTransferFunctionKey,nil)
         let primaries=CVBufferCopyAttachment(image,kCVImageBufferColorPrimariesKey,nil)
         if let tag,CFEqual(tag,kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ) {
@@ -52,7 +58,8 @@ struct VideoLayerFormat: Equatable {
             else { colorSpaceName=CGColorSpace.itur_709 }
         }
     }
-    var pixelFormat: MTLPixelFormat { transfer == .sdr ? .bgra8Unorm : .bgr10a2Unorm }
+    /// 10-bit SDR keeps its depth, or its banding comes back at the last step.
+    var pixelFormat: MTLPixelFormat { transfer == .sdr && !tenBit ? .bgra8Unorm : .bgr10a2Unorm }
 }
 
 private let videoShaders="""
