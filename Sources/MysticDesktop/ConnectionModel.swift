@@ -1211,12 +1211,16 @@ public final class ConnectionModel {
         }
     }
     /// Tells a host that takes display reports which screen the stream is on.
+    @ObservationIgnored private var displayReport: Task<Void,Never>?
     private func reportDisplay(token: UUID) {
         guard generation == token,phase == .streaming,let session,let output=presenter?.videoOutput,
               let screen=output.screenName else { return }
         let headroom=reportedHeadroom[screen] ?? Float(output.potentialHeadroom ?? 1)
         reportedHeadroom[screen]=headroom
-        Task { [weak self] in
+        // One after another: the screen the stream is on now must be the last the host hears.
+        let previous=displayReport
+        displayReport=Task { [weak self] in
+            await previous?.value
             let result=await session.reportDisplay(headroom:headroom)
             guard let self,self.generation == token,result == .sent else { return }
             self.record("Told host the display: \(screen), EDR headroom \(String(format:"%.1f",headroom))×.",token:token)
