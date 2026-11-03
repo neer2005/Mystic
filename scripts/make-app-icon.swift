@@ -23,26 +23,26 @@ func draw(_ pixels: Int) -> Data {
     c.addPath(CGPath(roundedRect:tile.insetBy(dx:2,dy:2),cornerWidth:183,cornerHeight:183,transform:nil))
     c.setStrokeColor(color(1,1,1,0.14));c.setLineWidth(4);c.strokePath()
     // A white controller, drawn here: Apple's symbols may not be used in app icons.
-    // Shaped like an Xbox 360 controller: wide shoulders and full grips, with staggered sticks.
+    // Shaped like an Xbox One controller: a flatter top, grips that taper, staggered sticks.
     let pad=CGMutablePath()
     let right: [(CGPoint,CGPoint,CGPoint)]=[
-        (CGPoint(x:570,y:672),CGPoint(x:600,y:704),CGPoint(x:668,y:708)),
-        (CGPoint(x:744,y:712),CGPoint(x:802,y:682),CGPoint(x:828,y:612)),
-        (CGPoint(x:862,y:522),CGPoint(x:884,y:420),CGPoint(x:860,y:346)),
-        (CGPoint(x:842,y:290),CGPoint(x:776,y:282),CGPoint(x:736,y:332)),
-        (CGPoint(x:706,y:370),CGPoint(x:682,y:414),CGPoint(x:640,y:428)),
-        (CGPoint(x:600,y:440),CGPoint(x:560,y:438),CGPoint(x:512,y:438))]
+        (CGPoint(x:580,y:688),CGPoint(x:640,y:702),CGPoint(x:690,y:704)),
+        (CGPoint(x:760,y:708),CGPoint(x:810,y:690),CGPoint(x:832,y:630)),
+        (CGPoint(x:856,y:560),CGPoint(x:874,y:460),CGPoint(x:864,y:380)),
+        (CGPoint(x:856,y:314),CGPoint(x:800,y:294),CGPoint(x:760,y:326)),
+        (CGPoint(x:726,y:354),CGPoint(x:700,y:404),CGPoint(x:656,y:426)),
+        (CGPoint(x:612,y:448),CGPoint(x:560,y:452),CGPoint(x:512,y:452))]
     func mirrored(_ point: CGPoint) -> CGPoint { CGPoint(x:1024-point.x,y:point.y) }
-    pad.move(to:CGPoint(x:512,y:672))
+    pad.move(to:CGPoint(x:512,y:688))
     for curve in right { pad.addCurve(to:curve.2,control1:curve.0,control2:curve.1) }
     // Back up the left side, the same curves in reverse.
-    var ends=[CGPoint(x:512,y:672)]+right.map(\.2)
+    var ends=[CGPoint(x:512,y:688)]+right.map(\.2)
     ends.removeLast()
     for (curve,end) in zip(right,ends).reversed() {
         pad.addCurve(to:mirrored(end),control1:mirrored(curve.1),control2:mirrored(curve.0))
     }
     pad.closeSubpath()
-    // Cut out: a ring for each stick, the D-pad, the four buttons and the guide button.
+    // Cut out: a ring for each stick, the D-pad, the four buttons, the guide button and View and Menu.
     func circle(_ x: CGFloat,_ y: CGFloat,_ radius: CGFloat) { pad.addEllipse(in:CGRect(x:x-radius,y:y-radius,width:radius*2,height:radius*2)) }
     circle(334,590,54);circle(334,590,30)
     circle(610,500,46);circle(610,500,25)
@@ -52,7 +52,7 @@ func draw(_ pixels: Int) -> Data {
                           CGPoint(x:dx-half,y:dy-half),CGPoint(x:dx-arm,y:dy-half),CGPoint(x:dx-arm,y:dy+half),CGPoint(x:dx-half,y:dy+half)])
     pad.closeSubpath()
     for (x,y) in [(694.0,630.0),(694.0,550.0),(654.0,590.0),(734.0,590.0)] as [(CGFloat,CGFloat)] { circle(x,y,20) }
-    circle(512,590,28)
+    circle(512,642,26);circle(470,586,10);circle(554,586,10)
     c.saveGState();c.addPath(pad);c.clip(using:.evenOdd)
     c.drawLinearGradient(CGGradient(colorsSpace:space,colors:[color(1,1,1),color(0.8,0.8,0.82)] as CFArray,locations:[0,1])!,
                          start:CGPoint(x:512,y:712),end:CGPoint(x:512,y:290),options:[])
