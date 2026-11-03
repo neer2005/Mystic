@@ -75,7 +75,8 @@ must be investigated and documented before a feature is marked inapplicable.
 | Host cursor shapes | Implemented, live validation pending | Nightjar's `stream/cursor.rs`: Local Cursor in desktop control, 32-image cache, 150 ms hide debounce; see INPUT.md |
 | Controller input/rumble | Implemented, physical validation pending | Controller unavailable during joint playtest. 16 controllers, as Nightjar |
 | Controller mapping, motion, touchpad, LEDs/battery | Partial, physical validation pending | Typed arrivals, Guide/touchpad click/Share/paddles, motion, battery and light done (see INPUT.md); motion axes unverified. Touchpad contacts pending: GameController has no reliable finger-down state. Per-model remapping pending |
-| Controller as mouse, host night mode/headphone surround | Pending | Nightjar stream menu (`controller_mouse.rs`, `menu_extras.rs`; Rubylight `/audio`) |
+| Host night mode and headphone surround | Implemented | Session and Graphics → Stream, Nightjar's `menu_extras.rs`, for this stream only. Night mode read, changed and restored on Big Dawg; the sound itself not judged by ear |
+| Controller as mouse | Pending | Nightjar stream menu (`controller_mouse.rs`) |
 | DualSense adaptive triggers / PCM haptics | Pending | Mac device/API support investigation |
 | Touch/pen and local cursor | Pending applicability audit | Native Mac input devices and host support; Nightjar sends raw touchpad contacts to the PC (`touchpad.rs`) |
 | Clipboard text | Implemented, live validation deferred | Manual and opt-in foreground sync |

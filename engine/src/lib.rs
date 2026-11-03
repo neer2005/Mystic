@@ -21,6 +21,7 @@
 
 mod host;
 mod files;
+mod host_audio;
 mod folders;
 mod wake;
 mod audio;

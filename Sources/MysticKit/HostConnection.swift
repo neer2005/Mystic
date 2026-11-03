@@ -2,6 +2,14 @@ import Foundation
 import CMystic
 import MysticCore
 
+public struct HostAudioSwitch: Decodable, Sendable, Equatable, Identifiable {
+    public let id: String,label: String,on: Bool,enabled: Bool
+    /// Why this stream doesn't apply it now.
+    public let note: String?
+    public init(id: String,label: String,on: Bool,enabled: Bool,note: String? = nil) { self.id=id;self.label=label;self.on=on;self.enabled=enabled;self.note=note }
+}
+struct HostAudioSwitches: Decodable, Sendable { let switches: [HostAudioSwitch] }
+
 public struct ClientIdentity: Codable, Sendable, Equatable {
     public let uniqueID: String
     public let certificate: String
@@ -167,6 +175,9 @@ public protocol HostService: AnyObject, Sendable {
     func clipboardImage() async throws -> Data?
     func sendClipboardImage(_ png: Data) async throws
     /// The Files page, which asks the PC at once; nil where there is none.
+    /// The host's audio switches this device may change, in the PC's state.
+    func hostAudio() async throws -> [HostAudioSwitch]
+    func setHostAudio(id: String,on: Bool) async throws -> [HostAudioSwitch]
     func filesPage(downloads: URL) -> (any FilesPage)?
     func foldersPage() -> (any FoldersPage)?
     /// Permanently cancels this connection, including in-flight pairing and launch requests.
@@ -194,6 +205,8 @@ public extension HostService {
     func sendClipboardText(_ text: String) async throws { throw HostConnectionError("This host does not support clipboard text transfer.") }
     func clipboardImage() async throws -> Data? { throw HostConnectionError("This host does not support clipboard images.") }
     func sendClipboardImage(_ png: Data) async throws { throw HostConnectionError("This host does not support clipboard images.") }
+    func hostAudio() async throws -> [HostAudioSwitch] { [] }
+    func setHostAudio(id: String,on: Bool) async throws -> [HostAudioSwitch] { [] }
     func filesPage(downloads: URL) -> (any FilesPage)? { nil }
     func foldersPage() -> (any FoldersPage)? { nil }
 }
@@ -329,6 +342,15 @@ public final class HostConnection: HostService, @unchecked Sendable {
         struct Sent: Decodable, Sendable { let sent: Bool }
         let result: Sent = try await request("clipboardWrite",json:String(decoding:JSONEncoder().encode(["text":text]),as:UTF8.self))
         guard result.sent else { throw HostConnectionError("The host did not accept clipboard text.") }
+    }
+    public func hostAudio() async throws -> [HostAudioSwitch] {
+        let answer: HostAudioSwitches=try await request("hostAudio",json:"{}")
+        return answer.switches
+    }
+    public func setHostAudio(id: String,on: Bool) async throws -> [HostAudioSwitch] {
+        struct Change: Encodable { let id: String;let on: Bool }
+        let answer: HostAudioSwitches=try await request("hostAudioSet",json:String(decoding:JSONEncoder().encode(Change(id:id,on:on)),as:UTF8.self))
+        return answer.switches
     }
     public func foldersPage() -> (any FoldersPage)? { HostFoldersPage(host:handle,keeping:self) }
     public func filesPage(downloads: URL) -> (any FilesPage)? { HostFilesPage(host:handle,downloads:downloads,keeping:self) }

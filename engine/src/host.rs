@@ -342,6 +342,19 @@ impl MysticHost {
                     Ok(json!({"sent":true}))
                 }
             }
+            "hostAudio" | "hostAudioSet" => {
+                let i = self.client.server_info_https().map_err(HostError::from)?;
+                if !i.capabilities.has(Feature::NativeApi) { return Ok(json!({"switches":[]})); }
+                let offered = crate::host_audio::offered(&self.client.native_capabilities().map_err(HostError::from)?);
+                if operation == "hostAudioSet" {
+                    let write = crate::host_audio::write(&offered, field(&v, "id")?, v["on"].as_bool().ok_or("missing on")?)?;
+                    let audio = self.client.write_audio(&write).map_err(HostError::from)?;
+                    return Ok(json!({"switches":crate::host_audio::switches(&offered, &audio)}));
+                }
+                if offered.is_empty() { return Ok(json!({"switches":[]})); }
+                let audio = self.client.audio().map_err(HostError::from)?;
+                Ok(json!({"switches":crate::host_audio::switches(&offered, &audio)}))
+            }
             "bitrate" => {
                 let i = self.client.server_info_https().map_err(HostError::from)?;
                 if !i.capabilities.has(Feature::RuntimeBitrate) { return Err("This host does not support live bitrate changes.".into()); }

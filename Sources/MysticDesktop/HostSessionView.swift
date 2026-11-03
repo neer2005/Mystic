@@ -23,7 +23,7 @@ struct HostSessionView: View {
             }.pickerStyle(.segmented)
             ScrollView {
                 VStack(alignment:.leading,spacing:16) {
-                    if tab == "stream" { LiveRatesView(model:model) }
+                    if tab == "stream" { LiveRatesView(model:model);HostAudioView(audio:model.hostAudioControls) }
                     else if tab == "graphics" { HostGraphicsView(model:model) }
                     else { sessionContent }
                 }.frame(maxWidth:.infinity,alignment:.leading)
