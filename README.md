@@ -83,6 +83,12 @@ certificate in your keychain; with several, pick one with
 `git config --local mystic.signingIdentity <SHA-1>`, or set `MYSTIC_SIGNING_IDENTITY=-` for an
 ad-hoc build. Pass `release` for an optimized build.
 
+### iOS (groundwork)
+
+There is no iOS app yet. `MysticCore`, `MysticKit` and `MysticStream` build for iPhone and iPad,
+linking the engine that `bash scripts/build-engine-ios.sh` builds for devices (no simulator yet).
+`MysticDesktop` is the Mac's AppKit app.
+
 ### Run the tests
 
 ```sh

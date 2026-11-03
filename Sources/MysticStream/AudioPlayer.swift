@@ -74,7 +74,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
     private let clock: @Sendable () -> UInt64
     private let concealTimer: Bool
     public convenience init(log: @escaping @Sendable (String) -> Void = { _ in }) {
-        self.init(monitor:AudioOutputMonitor(),makeOutput:{ info,gain,reason,changed in
+        self.init(monitor:AudioOutputRoute.makeMonitor(),makeOutput:{ info,gain,reason,changed in
             try AudioPipeline(volume:gain,info:info,forceStereoReason:reason,configurationChanged:changed)
         },log:log)
     }
@@ -312,7 +312,7 @@ final class AudioPipeline: AudioOutputPipeline, @unchecked Sendable {
     var sampleRate: Double { engine.isInManualRenderingMode ? engine.manualRenderingFormat.sampleRate : engine.outputNode.inputFormat(forBus:0).sampleRate }
     /// The device's I/O buffer, in the stream's 48 kHz frames.
     var outputFrames: Int {
-        guard !engine.isInManualRenderingMode,let frames=AudioOutputMonitor.bufferFrames(engine.outputNode.withAUAudioUnit { $0.deviceID }),
+        guard !engine.isInManualRenderingMode,let frames=AudioOutputRoute.bufferFrames(engine),
               sampleRate > 0 else { return 0 }
         return Int((Double(frames)*48000/sampleRate).rounded(.up))
     }
@@ -320,7 +320,7 @@ final class AudioPipeline: AudioOutputPipeline, @unchecked Sendable {
          manualRendering: Bool = false,manualSampleRate: Double = 48000,manualSpeakers: [AudioSpeaker]? = nil,
          forceStereoReason: String? = nil,
          configurationChanged: (@Sendable () -> Void)? = nil) throws {
-        if !manualRendering { try AudioOutputMonitor.requireAvailableOutput() }
+        if !manualRendering { try AudioOutputRoute.requireAvailableOutput() }
         let engine=AVAudioEngine();self.engine=engine
         let destination: AudioSpeakerLayout?
         let targetRate: Double
@@ -329,8 +329,7 @@ final class AudioPipeline: AudioOutputPipeline, @unchecked Sendable {
             targetRate=manualSampleRate
         } else {
             let hardware=engine.outputNode.inputFormat(forBus:0)
-            let id=engine.outputNode.withAUAudioUnit { $0.deviceID }
-            destination=AudioSpeakerLayout.device(id,channels:hardware.channelCount) ?? hardware.channelLayout.flatMap(AudioSpeakerLayout.init)
+            destination=AudioOutputRoute.speakers(engine,hardware:hardware)
             targetRate=hardware.sampleRate
         }
         let routing=try AudioChannelRouting(channelCount:Int(info.channelCount),channelMask:info.channelMask,
@@ -366,7 +365,7 @@ final class AudioPipeline: AudioOutputPipeline, @unchecked Sendable {
         do {
             try engine.start()
             guard engine.isRunning else { throw AudioPlaybackError("The audio engine did not start.") }
-            if !manualRendering { device=engine.outputNode.withAUAudioUnit { AudioOutputMonitor.describe($0.deviceID) } }
+            if !manualRendering { device=AudioOutputRoute.describe(engine) }
         } catch { stop();throw error }
     }
     func stop() {

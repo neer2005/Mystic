@@ -21,6 +21,10 @@ public final class MicrophoneCapture: @unchecked Sendable {
                 report: @escaping @Sendable (String) -> Void) { self.queue=queue;self.send=send;self.report=report }
     public func start() throws {
         stop()
+        #if !os(macOS)
+        // iOS records only in a play-and-record session; the stream's output follows it.
+        try AudioSessionPolicy.setMicrophone(true)
+        #endif
         // Input hardware is queried only after permission was granted by the app.
         let engine=AVAudioEngine()
         let node=engine.inputNode,format=node.outputFormat(forBus:0)
@@ -65,6 +69,9 @@ public final class MicrophoneCapture: @unchecked Sendable {
         engine?.stop()
         if let sink { engine?.detach(sink) }
         sink=nil;engine=nil;ingress=nil;encoder=nil
+        #if !os(macOS)
+        AudioSessionPolicy.microphoneStopped()
+        #endif
     }
     deinit { stop() }
     private func poll() {
