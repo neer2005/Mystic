@@ -69,7 +69,7 @@ public final class StreamHealthModel {
                 trialMessage=switch refusal {
                 case .unavailable: "The host did not report its current encoder bitrate. The trial was not applied."
                 case .minimum: "The encoder is already at the minimum trial bitrate. No change was made."
-                case .replaced: "The host bitrate has changed since the trial. Undo was cancelled to preserve that change."
+                case .replaced: "The host bitrate has changed since the trial. Undo was canceled to preserve that change."
                 }
             case .success(let target):
                 let applied=try await connection.setBitrate(kbps:target)

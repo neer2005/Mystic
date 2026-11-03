@@ -464,7 +464,7 @@ private struct HostSidebar: View {
 
 /// Cover art in a 2:3 frame. Art of that shape fills it; other shapes, such as square
 /// store art, are fitted over a blurred fill of themselves so every card has the same
-/// edges instead of grey bars. Overlays keep the frame's size fixed whatever the art.
+/// edges instead of gray bars. Overlays keep the frame's size fixed whatever the art.
 struct GameArtwork: View {
     let data: Data?
     let desktop: Bool

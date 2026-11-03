@@ -39,7 +39,7 @@ struct RemoteCheckReport: Equatable {
 }
 
 /// Android's remote access check for the connected PC: five pinned HTTPS probes 150 ms apart,
-/// then the route the host sees, over its own connection so cancelling ends only the check.
+/// then the route the host sees, over its own connection so canceling ends only the check.
 @MainActor @Observable
 public final class RemoteCheckModel {
     public private(set) var running=false

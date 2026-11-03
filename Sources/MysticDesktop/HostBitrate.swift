@@ -6,7 +6,7 @@ import MysticCore
 /// bitrate: the stream turns the host's controller on, reports its network every three seconds
 /// and shows the bitrate the host chose, as Nightjar's desktop client does (`host_abr.rs`).
 /// Requests go over their own connection, so turning the controller off still reaches the host
-/// after a disconnect has cancelled the stream's.
+/// after a disconnect has canceled the stream's.
 @MainActor
 final class HostBitrateController {
     private var window: HostBitrateWindow?

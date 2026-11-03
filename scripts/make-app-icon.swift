@@ -10,7 +10,7 @@ func draw(_ pixels: Int) -> Data {
     let s=CGFloat(pixels)/1024
     let c=NSGraphicsContext.current!.cgContext
     c.scaleBy(x:s,y:s)
-    // macOS's icon grid: an 824 point rounded square centred on the canvas.
+    // macOS's icon grid: an 824 point rounded square centered on the canvas.
     let tile=CGRect(x:100,y:100,width:824,height:824)
     let shape=CGPath(roundedRect:tile,cornerWidth:185,cornerHeight:185,transform:nil)
     let space=CGColorSpaceCreateDeviceRGB()
@@ -24,8 +24,8 @@ func draw(_ pixels: Int) -> Data {
     c.setStrokeColor(color(1,1,1,0.14));c.setLineWidth(4);c.strokePath()
     // A white controller, drawn here: Apple's symbols may not be used in app icons.
     // Traced from a photo of an Xbox Series controller, 700 points wide: the outline's right half from
-    // the top centre, then the controls, mapped onto the icon and drawn as a smooth curve.
-    // About two thirds of the tile wide, raised a little so it looks centred.
+    // the top center, then the controls, mapped onto the icon and drawn as a smooth curve.
+    // About two thirds of the tile wide, raised a little so it looks centered.
     func mapped(_ x: CGFloat,_ y: CGFloat) -> CGPoint { CGPoint(x:512+(x-350),y:528-(y-352)) }
     let half: [(CGFloat,CGFloat)]=[(350,176),(430,176),(480,180),(520,190),(554,208),(578,238),(596,288),(608,350),
         (618,420),(626,478),(628,514),(614,538),(588,546),(560,536),(528,508),(500,472),(470,448),(430,436),(390,432)]

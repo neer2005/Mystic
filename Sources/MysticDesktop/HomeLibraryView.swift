@@ -32,7 +32,7 @@ struct HomeLibraryContent: View {
                 homeActions
             }.padding(.horizontal,12).padding(.top,12)
             Picker("Collection",selection:$shelf) {
-                Text("All Games").tag("all");Text("Favourites").tag("favourites");Text("Recently Played").tag("recent")
+                Text("All Games").tag("all");Text("Favorites").tag("favourites");Text("Recently Played").tag("recent")
             }.pickerStyle(.segmented).padding(12)
             if filtered.isEmpty {
                 ScrollView {
@@ -105,20 +105,20 @@ struct HomeLibraryContent: View {
         return { Task { await model.openHomeGame(copy);if model.hasSession { openWindow(id:"stream") } } }
     }
     private func describe(_ game: HomeGame) -> GameCardDescription {
-        var value: [String]=game.favourite ? ["Favourite"] : []
+        var value: [String]=game.favourite ? ["Favorite"] : []
         value+=stores(game)
         let pcs=pcNames(game)
         if !pcs.isEmpty { value.append("on "+pcs.joined(separator:" and ")) }
         value.append(availability(game))
         var description=GameCardDescription(label:game.title,value:value.joined(separator:", "))
         if let play=playAction(game),let pc=pcs.first { description.actions.append(("Play on \(pc)",play)) }
-        description.actions.append((game.favourite ? "Remove from Favourites" : "Add to Favourites",{ model.home.toggleFavourite(game.id) }))
+        description.actions.append((game.favourite ? "Remove from Favorites" : "Add to Favorites",{ model.home.toggleFavourite(game.id) }))
         return description
     }
     /// Mirrors the card's accessibility actions, so VoiceOver's menu command reaches them too.
     @ViewBuilder private func gameMenu(_ game: HomeGame) -> some View {
         if let play=playAction(game),let pc=pcNames(game).first { Button("Play on \(pc)",systemImage:"play.fill",action:play) }
-        Button(game.favourite ? "Remove from Favourites" : "Add to Favourites",systemImage:game.favourite ? "star.slash" : "star") { model.home.toggleFavourite(game.id) }
+        Button(game.favourite ? "Remove from Favorites" : "Add to Favorites",systemImage:game.favourite ? "star.slash" : "star") { model.home.toggleFavourite(game.id) }
     }
     private var homeActions: some View {
         HStack(spacing:8) {
@@ -151,7 +151,7 @@ struct HomeGameDetails: View {
                             if let date=game.lastPlayed { Text("Last played \(date.formatted(date:.abbreviated,time:.shortened))").foregroundStyle(.secondary) }
                         }
                     }
-                    Button(game.favourite ? "Remove from Favourites" : "Add to Favourites",systemImage:game.favourite ? "star.fill" : "star") { model.home.toggleFavourite(game.id) }
+                    Button(game.favourite ? "Remove from Favorites" : "Add to Favorites",systemImage:game.favourite ? "star.fill" : "star") { model.home.toggleFavourite(game.id) }
                 }
                 ForEach(game.copies) { copy in
                     if let pc=model.home.pc(copy.hostID) {

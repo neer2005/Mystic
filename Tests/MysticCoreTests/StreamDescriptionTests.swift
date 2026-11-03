@@ -1,7 +1,7 @@
 import Testing
 @testable import MysticCore
 
-/// Fixture modelled on a Rubylight/Apollo `DESCRIBE` answer: multichannel game
+/// Fixture modeled on a Rubylight/Apollo `DESCRIBE` answer: multichannel game
 /// audio, a separate mono microphone stream, and the Sunshine-family `x-ss-*`
 /// capability extensions.
 private let hostSDP = """

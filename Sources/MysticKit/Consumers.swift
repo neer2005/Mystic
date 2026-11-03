@@ -82,14 +82,14 @@ public struct VideoFrameInfo {
 /// What the decoder wants the engine to do next.
 public enum FrameDisposition: Sendable, Equatable {
     case ok
-    /// The decoder could not use the frame and needs a key frame to resynchronise.
+    /// The decoder could not use the frame and needs a key frame to resynchronize.
     case needIDR
 }
 
 /// A video sink the engine pushes frames into.
 ///
 /// Calls arrive on an engine-owned thread and may overlap with audio and log callbacks, so an
-/// implementation is responsible for serialising its own work. Throwing from ``setup(_:)``
+/// implementation is responsible for serializing its own work. Throwing from ``setup(_:)``
 /// fails the video stage and aborts the connection, which is what you want when the host
 /// negotiates a codec the decoder cannot handle.
 public protocol VideoConsumer: AnyObject {
@@ -161,7 +161,7 @@ extension HostCursorShape {
 }
 
 // These are internal on purpose: they are the field-by-field translation the callbacks use,
-// kept as named initialisers so a swapped or forgotten field is a test failure rather than a
+// kept as named initializers so a swapped or forgotten field is a test failure rather than a
 // stream that renders at the wrong size.
 extension VideoSetupInfo {
     init(_ cValue: MysticVideoSetup) {

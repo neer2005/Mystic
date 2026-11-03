@@ -24,7 +24,7 @@ public struct FullScreenCommands: Commands {
     public var body: some Commands {
         CommandGroup(after:.sidebar) {
             Button(fullScreen?.isFullScreen == true ? "Exit Full Screen" : "Enter Full Screen") { fullScreen?.toggle() }
-                // SwiftUI cannot show the Globe-F of AppKit's item; AppKit also honours ⌃⌘F.
+                // SwiftUI cannot show the Globe-F of AppKit's item; AppKit also honors ⌃⌘F.
                 .keyboardShortcut("f",modifiers:[.control,.command])
                 .disabled(fullScreen == nil)
         }
