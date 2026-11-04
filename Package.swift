@@ -22,7 +22,7 @@ let streamTargets: [Target] = [
     .executableTarget(name: "MysticAWDLHelper", dependencies: ["MysticCore"]),
     .testTarget(name: "MysticDesktopTests", dependencies: ["MysticDesktop", "MysticCore"]),
     .target(name: "MysticStream", dependencies: ["MysticCore", "MysticKit"],
-            resources: [.copy("Fixtures")]),
+            resources: [.copy("Fixtures"), .copy("VideoShaders.metal")]),
     .testTarget(name: "MysticStreamTests", dependencies: ["MysticStream"],
                 resources: [.copy("Fixtures")]),
 ]

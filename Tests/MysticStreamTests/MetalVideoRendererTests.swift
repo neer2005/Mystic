@@ -81,6 +81,32 @@ final class MetalVideoRendererTests: XCTestCase {
         XCTAssertFalse(pipelines.isBuilt(.rgba8Unorm),"other formats wait to be asked for")
         _=try pipelines.pipeline(.rgba8Unorm);XCTAssertTrue(pipelines.isBuilt(.rgba8Unorm))
     }
+    /// The app's path: the shader source compiled as build-macos-app.sh compiles it, then loaded.
+    func testThePrecompiledShadersLoadAndBuildAPipeline() throws {
+        guard let device=MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let source=try XCTUnwrap(MetalVideoPipelines.sourceURL)
+        let output=FileManager.default.temporaryDirectory.appendingPathComponent("VideoShaders-\(UUID()).metallib")
+        defer { try? FileManager.default.removeItem(at:output) }
+        let compile=Process()
+        compile.executableURL=URL(fileURLWithPath:"/usr/bin/xcrun")
+        compile.arguments=["-sdk","macosx","metal","-Werror","-mmacosx-version-min=27.0","-o",output.path,source.path]
+        try compile.run();compile.waitUntilExit()
+        guard compile.terminationStatus == 0 else { throw XCTSkip("The Metal Toolchain is not installed") }
+        let library=try MetalVideoPipelines.library(device:device,precompiled:output)
+        XCTAssertNotNil(library.makeFunction(name:"videoVertex"));XCTAssertNotNil(library.makeFunction(name:"videoFragment"))
+        let description=MTLRenderPipelineDescriptor()
+        description.vertexFunction=library.makeFunction(name:"videoVertex");description.fragmentFunction=library.makeFunction(name:"videoFragment")
+        description.colorAttachments[0].pixelFormat = .bgr10a2Unorm
+        XCTAssertNoThrow(try device.makeRenderPipelineState(descriptor:description))
+    }
+    func testAMissingOrBrokenMetallibFallsBackToTheSource() throws {
+        guard let device=MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let broken=FileManager.default.temporaryDirectory.appendingPathComponent("Broken-\(UUID()).metallib")
+        try Data("not a library".utf8).write(to:broken);defer { try? FileManager.default.removeItem(at:broken) }
+        for precompiled in [nil,broken] {
+            XCTAssertNotNil(try MetalVideoPipelines.library(device:device,precompiled:precompiled).makeFunction(name:"videoFragment"))
+        }
+    }
     func testEveryLayerFormatIsPrewarmed() throws {
         let image=try frame(kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange,y:64,u:512,v:512,matrix:kCVImageBufferYCbCrMatrix_ITU_R_2020)
         CVBufferSetAttachment(image,kCVImageBufferTransferFunctionKey,kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ,.shouldPropagate)
