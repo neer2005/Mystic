@@ -7,6 +7,9 @@ import PackageDescription
 // the current working directory.
 let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let engineLibraryPath = "\(packageRoot)/engine/target/release"
+// iPhone and iPad builds link the archive scripts/build-engine-ios.sh makes. Device only for now:
+// SwiftPM cannot tell a simulator build apart here, which needs an XCFramework later.
+let iosEngineLibraryPath = "\(packageRoot)/engine/target/aarch64-apple-ios/release"
 
 // Apple framework targets are intentionally absent from Linux package graphs.
 #if os(macOS)
@@ -33,6 +36,9 @@ let package = Package(
     platforms: [
         // macOS 27 is Apple-silicon only; there is no Intel fallback to support.
         .macOS("27.0"),
+        // Groundwork: MysticCore, MysticKit and MysticStream build for iOS; there is no iOS app
+        // yet, and MysticDesktop stays AppKit.
+        .iOS("27.0"),
     ],
     products: [
         .library(name: "MysticCore", targets: ["MysticCore"]),
@@ -63,7 +69,8 @@ let package = Package(
             name: "MysticKit",
             dependencies: ["CMystic", "MysticCore"],
             linkerSettings: [
-                .unsafeFlags(["-L\(engineLibraryPath)", "-lmystic_ffi"]),
+                .unsafeFlags(["-L\(engineLibraryPath)", "-lmystic_ffi"], .when(platforms: [.macOS, .linux])),
+                .unsafeFlags(["-L\(iosEngineLibraryPath)", "-lmystic_ffi"], .when(platforms: [.iOS])),
                 .unsafeFlags(["-ldl"], .when(platforms: [.linux])),
             ]
         ),

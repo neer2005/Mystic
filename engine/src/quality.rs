@@ -121,7 +121,8 @@ pub unsafe extern "C" fn mystic_session_quality_tick(p: *mut MysticSession, deco
         let session = p.session.as_ref().ok_or("No stream is running.")?;
         let tick = p.last_tick.take();
         let Some(quality) = p.quality.as_mut() else { return Ok(json!({"state":"off"})) };
-        let has_room = p.bitrate.as_ref().is_some_and(|b| b.has_room());
+        let has_room = p.bitrate.as_ref().is_some_and(|b| b.has_room())
+            || p.rates.lock().unwrap_or_else(|e| e.into_inner()).hint_has_room();
         let describe = |state: &str, r: Reconfigure| json!({"state":state,"width":r.width,"height":r.height,"fpsMilliHz":r.fps_millihz});
         let value: Value = match quality.step(tick.as_ref(), has_room, suspended, (decoded_width, decoded_height), now_ms) {
             Step::Hold => json!({"state":"hold"}),

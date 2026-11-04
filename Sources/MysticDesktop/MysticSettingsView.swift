@@ -64,6 +64,8 @@ public struct MysticSettingsView: View {
                         Stepper("Mouse Speed: \(model.inputPreferences.mouseSpeedPercent)%",value:$model.inputPreferences.mouseSpeedPercent,in:25...400,step:25)
                         Toggle("Send Back and Forward Buttons",isOn:$model.inputPreferences.mouseNavigationButtons)
                         Text("Mouse Speed applies to a captured mouse. Controlling the desktop follows the Mac's pointer speed.").font(.caption).foregroundStyle(.secondary)
+                        Toggle("Instant Mouse Input",isOn:$model.instantMouseInput).disabled(model.hasSession || model.isBusy)
+                        Text("Sends mouse movement right away instead of in small batches.").font(.caption).foregroundStyle(.secondary)
                     }
                     Section("Controllers") {
                         Toggle("Use Controllers",isOn:$model.inputPreferences.controllers)
@@ -72,6 +74,24 @@ public struct MysticSettingsView: View {
                         Toggle("Disable Vibration",isOn:$model.inputPreferences.disableVibration)
                         Stepper("Stick Dead Zone: \(model.inputPreferences.stickDeadZonePercent)%",value:$model.inputPreferences.stickDeadZonePercent,in:0...50)
                         Text("Each connected controller appears on the PC. The Nintendo layout swaps A with B and X with Y.").font(.caption).foregroundStyle(.secondary)
+                        Picker("Hold Guide to Release Input",selection:$model.inputPreferences.guideHoldMillis) {
+                            ForEach(GuideHold.choices,id:\.self) { ms in Text(ms == 0 ? "Off" : "\(Double(ms)/1000,format:.number) s").tag(ms) }
+                        }
+                        Text("Gives the Mac its mouse and keyboard back, as ⌃⌥⇧Esc does, so the window's controls are in reach. A short press still goes to the PC.").font(.caption).foregroundStyle(.secondary)
+                        Picker("Buttons to Leave the Stream",selection:$model.inputPreferences.leaveCombo) {
+                            ForEach(ControllerLeaveCombo.allCases,id:\.self) { Text($0.label).tag($0) }
+                        }
+                        Text("Hold these buttons together to leave the stream. Pick others if a game or your controller needs these.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Section("Controller Mouse") {
+                        Toggle("Controller Mouse Mode",isOn:$model.inputPreferences.controllerMouse)
+                        Text("Hold Start for 750 ms, then let go, to move the PC's pointer with the controller. A and B click, the D-pad scrolls.").font(.caption).foregroundStyle(.secondary)
+                        Picker("Stick for Scrolling",selection:$model.inputPreferences.scrollStick) {
+                            ForEach(ControllerMouse.ScrollStick.allCases,id:\.self) { Text($0.label).tag($0) }
+                        }.disabled(!model.inputPreferences.controllerMouse)
+                        Text("In controller mouse mode this stick scrolls and the other moves the pointer. Off lets both sticks move it.").font(.caption).foregroundStyle(.secondary)
+                        Toggle("Precise Controller Mouse",isOn:$model.inputPreferences.preciseControllerMouse).disabled(!model.inputPreferences.controllerMouse)
+                        Text("In controller mouse mode, hold X to move in fixed pixel steps. Press Y to double the step, from 1 to 128 pixels.").font(.caption).foregroundStyle(.secondary)
                     }
                 }.tabItem { Label("Controls",systemImage:"gamecontroller") }.tag("controls")
                 KeyboardSettingsView(model:model)
@@ -96,6 +116,14 @@ public struct MysticSettingsView: View {
                         Text("Extra data the PC sends so lost packets can be rebuilt. Automatic follows the loss this Mac sees. PCs that don't take the request keep their own setting.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
+                    Section("Bitrate") {
+                        Toggle("Lower Bitrate When Frames Are Lost",isOn:$model.lowerBitrateOnLoss)
+                        Text("Turns the bitrate down as soon as frames go missing, and back up after a few clean seconds. Works with PCs that can change the bitrate during a stream, and replaces Automatic Bitrate there.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Toggle("Test the Link Before Starting",isOn:$model.testLinkBeforeStart)
+                        Text("A new stream at the Recommended bitrate first measures the connection to the PC and starts no higher than it holds. Works with PCs that support it.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }.disabled(model.hasSession || model.isBusy)
                     Section("Link Hints") {
                         Toggle("Tell the Host When on Wi-Fi",isOn:$model.tellHostWireless)
                         Toggle("Tell the Host the Wired Link Speed",isOn:$model.tellHostLinkSpeed)
@@ -207,6 +235,9 @@ struct AudioPreferencesView: View {
         Toggle("Mute",isOn:$model.muted)
         Slider(value:$model.volume,in:0...1) { Text("Volume") }
         Toggle("Play Audio on the PC Too",isOn:$model.playAudioOnHost).disabled(model.hasSession || model.isBusy)
+        Toggle("Uncompressed Audio",isOn:$model.uncompressedAudio).disabled(model.hasSession || model.isBusy)
+        Text("Asks the PC for lossless sound instead of compressed audio. Uses 1.5 Mbps for stereo, up to 6 Mbps for 7.1. PCs that don't support it keep sending compressed audio.")
+            .font(.caption).foregroundStyle(.secondary)
         Toggle("Use Mac Microphone",isOn:$model.microphoneEnabled).disabled(model.hasSession || model.isBusy)
         if model.microphoneEnabled {
             Toggle("Mute Microphone",isOn:$model.microphoneMuted)

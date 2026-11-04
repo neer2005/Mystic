@@ -34,6 +34,8 @@ public struct AudioPlaybackStats: Sendable {
     public let outputLayout: String?
     public let stereoFallbackReason: String?
     public let discardedOutputFrames: UInt64
+    /// What the PC sends this stream, once audio is set up.
+    public let codec: StreamAudioCodec?
 }
 
 protocol AudioOutputPipeline: AnyObject, Sendable {
@@ -56,9 +58,9 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
     private let monitor: any AudioOutputMonitoring
     private let makeOutput: @Sendable (AudioSetupInfo,Float,String?,@escaping @Sendable () -> Void) throws -> any AudioOutputPipeline
     private let retryDelay: TimeInterval,routeDelay: TimeInterval
-    private var decoder: OpusAudioDecoder?
+    private var decoder: (any StreamAudioDecoder)?
     private var pipeline: (any AudioOutputPipeline)?
-    // Desired playback remains true while output is unavailable, so Opus state keeps advancing.
+    // Desired playback remains true while output is unavailable, so decoder state keeps advancing.
     private var running=false
     private var volume: Float=0.8,muted=false
     private var generation: UInt64=0,outputRevision: UInt64=0,recoveryRevision: UInt64=0
@@ -72,7 +74,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
     private let clock: @Sendable () -> UInt64
     private let concealTimer: Bool
     public convenience init(log: @escaping @Sendable (String) -> Void = { _ in }) {
-        self.init(monitor:AudioOutputMonitor(),makeOutput:{ info,gain,reason,changed in
+        self.init(monitor:AudioOutputRoute.makeMonitor(),makeOutput:{ info,gain,reason,changed in
             try AudioPipeline(volume:gain,info:info,forceStereoReason:reason,configurationChanged:changed)
         },log:log)
     }
@@ -89,9 +91,9 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
         try queue.sync {
             stopLocked();decoder=nil
             decoded=0;concealed=0;errors=0;starts=0;discarded=0;retired=MysticPCMStats()
-            decoder=try OpusAudioDecoder(info)
+            decoder=try makeStreamAudioDecoder(info)
             playout=AudioPlayout(packetMs:Int(info.packetDurationMs))
-            log("Audio setup: Opus \(info.channelCount) channels at \(info.sampleRate) Hz, \(info.samplesPerFrame) samples/packet")
+            log("Audio setup: \(info.codec) \(info.channelCount) channels at \(info.sampleRate) Hz, \(info.samplesPerFrame) samples/packet")
         }
     }
     public func start() {
@@ -113,7 +115,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
             attemptOutput(generation:token,recovery:recoveryRevision,retries:3)
             if concealTimer,let decoder {
                 let timer=DispatchSource.makeTimerSource(queue:queue)
-                let interval=DispatchTimeInterval.milliseconds(Int(decoder.info.packetDurationMs))
+                let interval=DispatchTimeInterval.milliseconds(AudioPlayout.tickMs(packetMs:Int(decoder.info.packetDurationMs)))
                 timer.schedule(deadline:.now()+interval,repeating:interval,leeway:.microseconds(500))
                 timer.setEventHandler { [weak self] in self?.concealLateLocked() }
                 timer.resume();lateTimer=timer
@@ -128,7 +130,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
         guard let packets=playout?.tick(queued:queued,nowNanos:clock()),packets > 0 else { return }
         for _ in 0..<packets {
             do { try decode(decoder,packet:nil);concealed += 1 }
-            catch { errors += 1;if errors <= 3 { log("Opus concealment failed: \(error.localizedDescription)") };return }
+            catch { errors += 1;if errors <= 3 { log("Audio concealment failed: \(error.localizedDescription)") };return }
         }
     }
     public func play(_ packet: UnsafeRawBufferPointer?) {
@@ -157,7 +159,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
                 if errors <= 3 || errors % 100 == 0 { log(error.localizedDescription) }
                 if packet != nil {
                     do { try decode(decoder,packet:nil);concealed += 1 }
-                    catch { if errors <= 3 { log("Opus concealment failed: \(error.localizedDescription)") } }
+                    catch { if errors <= 3 { log("Audio concealment failed: \(error.localizedDescription)") } }
                 }
             }
         }
@@ -167,7 +169,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
         let silence=[Float](repeating:0,count:frames*render.channels)
         silence.withUnsafeBufferPointer { _=mystic_pcm_ring_write(render.ring,$0.baseAddress,UInt32(frames)) }
     }
-    private func decode(_ decoder: OpusAudioDecoder,packet: UnsafeRawBufferPointer?,fades: Bool = false) throws {
+    private func decode(_ decoder: any StreamAudioDecoder,packet: UnsafeRawBufferPointer?,fades: Bool = false) throws {
         try decoder.decode(packet,routing:pipeline?.routing) { samples,frames in
             guard let pipeline else { discarded += UInt64(frames);return }
             if fades,!trimHead.isEmpty {
@@ -203,7 +205,7 @@ public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
                 outputStatus:status,outputDevice:pipeline?.device?.name,
                 outputSampleRate:sampleRate.flatMap { $0.isFinite && $0 > 0 ? $0 : nil },
                 outputRestarts:starts > 0 ? starts-1 : 0,outputLayout:pipeline?.routing.label,
-                stereoFallbackReason:pipeline?.routing.fallbackReason,discardedOutputFrames:discarded)
+                stereoFallbackReason:pipeline?.routing.fallbackReason,discardedOutputFrames:discarded,codec:decoder?.info.codec)
         }
     }
     private func beginRecovery(delay: TimeInterval) {
@@ -310,7 +312,7 @@ final class AudioPipeline: AudioOutputPipeline, @unchecked Sendable {
     var sampleRate: Double { engine.isInManualRenderingMode ? engine.manualRenderingFormat.sampleRate : engine.outputNode.inputFormat(forBus:0).sampleRate }
     /// The device's I/O buffer, in the stream's 48 kHz frames.
     var outputFrames: Int {
-        guard !engine.isInManualRenderingMode,let frames=AudioOutputMonitor.bufferFrames(engine.outputNode.withAUAudioUnit { $0.deviceID }),
+        guard !engine.isInManualRenderingMode,let frames=AudioOutputRoute.bufferFrames(engine),
               sampleRate > 0 else { return 0 }
         return Int((Double(frames)*48000/sampleRate).rounded(.up))
     }
@@ -318,7 +320,7 @@ final class AudioPipeline: AudioOutputPipeline, @unchecked Sendable {
          manualRendering: Bool = false,manualSampleRate: Double = 48000,manualSpeakers: [AudioSpeaker]? = nil,
          forceStereoReason: String? = nil,
          configurationChanged: (@Sendable () -> Void)? = nil) throws {
-        if !manualRendering { try AudioOutputMonitor.requireAvailableOutput() }
+        if !manualRendering { try AudioOutputRoute.requireAvailableOutput() }
         let engine=AVAudioEngine();self.engine=engine
         let destination: AudioSpeakerLayout?
         let targetRate: Double
@@ -327,8 +329,7 @@ final class AudioPipeline: AudioOutputPipeline, @unchecked Sendable {
             targetRate=manualSampleRate
         } else {
             let hardware=engine.outputNode.inputFormat(forBus:0)
-            let id=engine.outputNode.withAUAudioUnit { $0.deviceID }
-            destination=AudioSpeakerLayout.device(id,channels:hardware.channelCount) ?? hardware.channelLayout.flatMap(AudioSpeakerLayout.init)
+            destination=AudioOutputRoute.speakers(engine,hardware:hardware)
             targetRate=hardware.sampleRate
         }
         let routing=try AudioChannelRouting(channelCount:Int(info.channelCount),channelMask:info.channelMask,
@@ -364,7 +365,7 @@ final class AudioPipeline: AudioOutputPipeline, @unchecked Sendable {
         do {
             try engine.start()
             guard engine.isRunning else { throw AudioPlaybackError("The audio engine did not start.") }
-            if !manualRendering { device=engine.outputNode.withAUAudioUnit { AudioOutputMonitor.describe($0.deviceID) } }
+            if !manualRendering { device=AudioOutputRoute.describe(engine) }
         } catch { stop();throw error }
     }
     func stop() {

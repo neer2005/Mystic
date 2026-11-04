@@ -17,15 +17,19 @@ public final class StreamRatesModel {
     @ObservationIgnored private var automatic=false
     @ObservationIgnored private var initialized=false
     @ObservationIgnored private var lastDecoded: UInt64=0
+    /// Nightjar's loss-based bitrate steers this stream, in place of automatic bitrate.
+    @ObservationIgnored private(set) var lossBitrate=false
+    /// The bitrate this stream started at: the launch's, or lower after a link test.
+    @ObservationIgnored private var streamKbps: UInt32?
     /// A Foundation Sunshine host's own controller, for hosts without live bitrate.
     @ObservationIgnored let hostBitrate=HostBitrateController()
     @ObservationIgnored private unowned let model: ConnectionModel
     init(model: ConnectionModel) { self.model=model }
 
-    public var launchKbps: UInt32 { UInt32(model.plan?.configuration.bitrateKbps ?? 10_000) }
+    public var launchKbps: UInt32 { streamKbps ?? UInt32(model.plan?.configuration.bitrateKbps ?? 10_000) }
     public var launchFPS: UInt32 { UInt32(model.plan?.configuration.fps ?? 60) }
     /// Automatic bitrate owns the rate, so the health report offers no trial.
-    public var automaticActive: Bool { automatic || hostBitrate.active }
+    public var automaticActive: Bool { automatic || hostBitrate.active || lossBitrate }
     /// The stream's bitrate as far as Mystic knows it: the last applied, else the launch request.
     public var currentKbps: UInt32 { appliedKbps ?? launchKbps }
     /// A health-report trial step was applied.
@@ -41,16 +45,49 @@ public final class StreamRatesModel {
         appliedKbps=nil;appliedFPS=nil;message="Start a stream to change its rates."
     }
     func stopAutomatic(status: String? = nil) {
-        task?.cancel();task=nil;automatic=false
+        task?.cancel();task=nil;automatic=false;lossBitrate=false
         hostBitrate.stop()
         if let status { self.status=status }
     }
     /// Before a launch attempt: telemetry and the automatic-bitrate handshake start over.
-    func prepareLaunch() { resetManual();lastDecoded=0;initialized=false }
+    func prepareLaunch() { resetManual();lastDecoded=0;initialized=false;lossBitrate=false;streamKbps=nil }
     func clearDecodedCount() { lastDecoded=0 }
-    func streamStarted(launch: LaunchedStream,adaptive: Bool,configuration: StreamConfiguration) {
+    /// `lossBased` is Nightjar's "Lower bitrate when frames are lost": on a stream that takes live
+    /// rate changes it steers the bitrate in place of automatic bitrate, as in Nightjar; elsewhere
+    /// automatic bitrate runs as set.
+    func streamStarted(launch: LaunchedStream,adaptive: Bool,lossBased: Bool = false,configuration: StreamConfiguration) {
         httpBitrate=launch.runtimeBitrate == true
+        streamKbps=UInt32(configuration.bitrateKbps)
         message="Rates affect this stream only. Manual changes pause automatic bitrate until reconnect."
+        guard lossBased,let session=model.session else {
+            startAutomatic(launch:launch,adaptive:adaptive,configuration:configuration);return
+        }
+        automatic=false
+        status="Loss-based bitrate: starting…"
+        let token=model.generation
+        Task { [weak self] in
+            let started=await session.beginLossBitrate(kbps:UInt32(configuration.bitrateKbps))
+            guard let self,self.model.generation == token else { return }
+            if started {
+                self.lossBitrate=true
+                self.status="Loss-based bitrate: \(configuration.bitrateKbps/1000) Mbps"
+                self.model.recordStream("Loss-based bitrate steers this stream; automatic bitrate stays off.")
+            } else {
+                self.model.recordStream("Loss-based bitrate needs a PC that changes rates mid-stream; this one does not.")
+                self.startAutomatic(launch:launch,adaptive:adaptive,configuration:configuration)
+            }
+        }
+    }
+    /// One loss-based tick's outcome, from the stream doctor's tick.
+    func lossTick(_ state: LossBitrateState?) {
+        guard lossBitrate,let state else { return }
+        appliedKbps=state.kbps
+        if state.active { status="Loss-based bitrate: \(state.kbps/1000) Mbps";return }
+        lossBitrate=false
+        status=state.stopped ?? "Loss-based bitrate stopped."
+        model.recordStream(status)
+    }
+    private func startAutomatic(launch: LaunchedStream,adaptive: Bool,configuration: StreamConfiguration) {
         automatic=adaptive && launch.runtimeBitrate == true
         status = !adaptive ? "Fixed bitrate: \(configuration.bitrateKbps/1000) Mbps" :
             (launch.runtimeBitrate == true ? "Automatic bitrate: waiting for video…" : "Automatic bitrate: asking the host…")
@@ -144,7 +181,7 @@ public final class StreamRatesModel {
         let token=model.generation
         let decoded=snapshot.decoded > lastDecoded
         lastDecoded=snapshot.decoded
-        guard model.phase == .streaming,automatic,task == nil,let session=model.session,let connection=model.connection,let plan=model.plan else { return }
+        guard model.phase == .streaming,automatic,task == nil,let session=model.session,let connection=model.connection,model.plan != nil else { return }
         let decode=decoded ? snapshot.timings[.decode].map { Float($0.p95Micros)/1000 } : nil
         task=Task { [weak self] in
             guard let self else { return }
@@ -153,7 +190,8 @@ public final class StreamRatesModel {
                 // The first tick establishes the actual host rate before making policy decisions.
                 if !self.initialized {
                     guard decoded else { return }
-                    let ceiling=UInt32(plan.configuration.bitrateKbps)
+                    // As Nightjar, the ceiling is the bitrate the stream started at.
+                    let ceiling=self.launchKbps
                     let applied=try await connection.setBitrate(kbps:ceiling)
                     guard self.model.generation == token,!Task.isCancelled else { return }
                     guard applied > 0,applied <= ceiling,await session.beginAdaptiveBitrate(ceiling:ceiling,current:applied) else {
@@ -168,7 +206,7 @@ public final class StreamRatesModel {
                 guard self.model.generation == token,!Task.isCancelled else { return }
                 let applied=try await connection.setBitrate(kbps:requested)
                 guard self.model.generation == token,!Task.isCancelled else { return }
-                guard applied > 0,applied <= UInt32(plan.configuration.bitrateKbps) else {
+                guard applied > 0,applied <= self.launchKbps else {
                     throw HostConnectionError("The host returned a bitrate outside the selected limit.")
                 }
                 await session.appliedBitrate(requested:requested,applied:applied)

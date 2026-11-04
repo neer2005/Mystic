@@ -1,8 +1,8 @@
 import Foundation
-import CoreAudio
 
 struct AudioOutputDevice: Equatable, Sendable {
-    let id: AudioDeviceID
+    /// The Core Audio device on macOS; 0 on iOS, where the system owns the route.
+    let id: UInt32
     let name: String
 }
 
@@ -12,6 +12,11 @@ protocol AudioOutputMonitoring: AnyObject, Sendable {
     func refresh() throws
     func stop()
 }
+
+#if os(macOS)
+import CoreAudio
+
+/// The Mac's default output device through the Core Audio HAL, which iOS does not have.
 
 final class AudioOutputMonitor: AudioOutputMonitoring, @unchecked Sendable {
     private struct Registration {
@@ -109,3 +114,4 @@ final class AudioOutputMonitor: AudioOutputMonitoring, @unchecked Sendable {
         return AudioOutputDevice(id:id,name:name?.takeRetainedValue() as String? ?? "Audio output")
     }
 }
+#endif

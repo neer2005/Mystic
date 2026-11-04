@@ -16,6 +16,20 @@ public struct NetworkMeasures: Decodable, Sendable, Equatable {
     public var droppedFrames: UInt64? = nil
     /// Video payload received, in Mbit/s.
     public var videoMbps: Double? = nil
+    /// The mean time frames waited before decoding this tick, in ms.
+    public var queueMs: Double? = nil
+    /// Loss-based bitrate, once started.
+    public var hint: LossBitrateState? = nil
+}
+
+/// Nightjar's "Lower bitrate when frames are lost" after a tick.
+public struct LossBitrateState: Decodable, Sendable, Equatable {
+    public let active: Bool
+    /// The stream's bitrate as the host last answered.
+    public let kbps: UInt32
+    /// Why it stopped, once it has.
+    public let stopped: String?
+    public init(active: Bool,kbps: UInt32,stopped: String?) { self.active=active;self.kbps=kbps;self.stopped=stopped }
 }
 
 /// Nightjar's stream doctor report over the last 30 seconds (`nightjar_policy::health::Report`).
@@ -76,6 +90,11 @@ extension StreamingEngine {
         mystic_session_trial_applied(clipboardHandle,undo,previousKbps,appliedKbps)
     }
     public func trialClear() { mystic_session_trial_clear(clipboardHandle) }
+    /// Starts loss-based bitrate from the stream's bitrate; false when the stream takes no live
+    /// rate changes. It then ticks with `healthTick`.
+    public func lossBitrateBegin(kbps: UInt32,limitKbps: UInt32,nowMillis: UInt64) -> Bool {
+        mystic_session_rate_hint_begin(clipboardHandle,kbps,limitKbps,nowMillis) == MYSTIC_OK
+    }
 
     /// Starts automatic quality at the negotiated size and rate. False when the host takes no
     /// size changes; throws for an invalid mode or stream.

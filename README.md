@@ -35,6 +35,7 @@ stream over Wi-Fi reached the screen about 34 ms after the PC drew each frame, d
 - Lowest Latency, Balanced, frame-limited and Smoothest pacing, V-Sync on or off, and an optional
   Metal renderer
 - Automatic bitrate, and live changes of bitrate and frame rate mid-stream on hosts that allow it
+- On Rubylight hosts, optionally test the link before a stream and lower the bitrate as soon as frames are lost
 - Can keep AirDrop's Wi-Fi link quiet during a stream, a common cause of stutter on Macs
 
 **Feels like a Mac app**
@@ -46,7 +47,9 @@ stream over Wi-Fi reached the screen about 34 ms after the PC drew each frame, d
 
 **Controllers, audio and sharing**
 - Xbox, PlayStation and Nintendo controllers, with rumble, motion, battery and light
-- Stereo, 5.1 and 7.1 sound, and your Mac's microphone
+- Hold Start to drive the PC's pointer with a controller, hold Guide to get your Mac's input back, and
+  hold Start + Select + LB + RB to leave the stream
+- Stereo, 5.1 and 7.1 sound, uncompressed from Rubylight hosts if you choose, and your Mac's microphone
 - Clipboard text and images both ways, file transfer and shared folders on Rubylight hosts
 - The host's night mode and headphone surround, from the stream window
 
@@ -79,6 +82,12 @@ The script builds the engine, then the app, and signs it. It uses the Apple Deve
 certificate in your keychain; with several, pick one with
 `git config --local mystic.signingIdentity <SHA-1>`, or set `MYSTIC_SIGNING_IDENTITY=-` for an
 ad-hoc build. Pass `release` for an optimized build.
+
+### iOS (groundwork)
+
+There is no iOS app yet. `MysticCore`, `MysticKit` and `MysticStream` build for iPhone and iPad,
+linking the engine that `bash scripts/build-engine-ios.sh` builds for devices (no simulator yet).
+`MysticDesktop` is the Mac's AppKit app.
 
 ### Run the tests
 

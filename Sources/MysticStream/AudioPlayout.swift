@@ -3,8 +3,9 @@ import Foundation
 /// Nightjar's playout rule (`playout.rs`) on Mystic's decode side. A packet that arrives on an
 /// empty queue (the first, or after an outage) is led with silence, so the next packet's jitter
 /// does not starve the output again. The output reads a ring on the real-time thread, so instead
-/// of filling a device that asks for more than is queued, a tick at the packet rate sees a packet
-/// that is late while the next read would run dry and fills its time with Opus concealment. The
+/// of filling a device that asks for more than is queued, a tick at the packet rate (at most every
+/// 5 ms, `minTickMs`) sees a packet that is late while the next read would run dry and fills its
+/// time with concealment: Opus's, or silence for PCM. The
 /// packet whose time concealment played is skipped when it arrives, so riding out a late burst
 /// never adds latency. Concealment stops after 100 ms of outage; what arrives after that is new.
 /// A device clock slower than the host's builds up a surplus; it is trimmed a packet at a time,
@@ -24,6 +25,15 @@ struct AudioPlayout {
     static let trimAfterMs=2000
     /// The fade from a trimmed packet into the next, in ms.
     static let fadeMs=5
+    /// The shortest gap between late-packet ticks, in ms. Nightjar conceals when the device asks
+    /// for more than is queued, so its wakeups follow the device's reads whatever the packet size.
+    /// Core Audio's real-time thread can't decode here, so Mystic ticks a timer instead: at the
+    /// packet rate, but no more often than a 5 ms Opus stream already does. Rubylight's 7.1 PCM
+    /// comes in 1 ms packets; ticking per packet would mean 1,000 wakeups a second for no gain,
+    /// since `tick` fills the whole shortfall in whole packets, as Nightjar's `starve` does.
+    static let minTickMs=5
+    /// How often the late-packet timer ticks for `packetMs` packets, in ms.
+    static func tickMs(packetMs: Int) -> Int { max(packetMs,minTickMs) }
     let packetFrames: Int
     /// How much the output takes at once, in 48 kHz frames (0 when unknown).
     var outputFrames: Int

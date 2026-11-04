@@ -21,6 +21,11 @@ pub(crate) struct NetworkTiming {
     pub(crate) received: u64,
     /// Their video payload in bytes, for the overlay's Mbit/s.
     pub(crate) received_bytes: u64,
+    /// Time frames waited between the engine's enqueue and the app's submit since the doctor's
+    /// last tick, and how many: Nightjar's `queue_ms`, which holds the loss-based controller's
+    /// probes while frames back up.
+    pub(crate) queue_us: u64,
+    pub(crate) queue_samples: u32,
 }
 impl NetworkTiming {
     pub fn setup(&mut self, format: u32, width: u32, height: u32, fps: u32) {
@@ -31,6 +36,11 @@ impl NetworkTiming {
             fps,
             ..Self::default()
         };
+    }
+    /// The mean wait since the last call, in ms; `None` without frames.
+    pub(crate) fn take_queue_ms(&mut self) -> Option<f32> {
+        let (us, samples) = (std::mem::take(&mut self.queue_us), std::mem::take(&mut self.queue_samples));
+        (samples > 0).then(|| (us as f64 / f64::from(samples) / 1000.0) as f32)
     }
     pub fn frame(&mut self, rtp: u32, received: u64, processing_us: u32) {
         self.late.push(rtp, processing_us, received, self.fps);

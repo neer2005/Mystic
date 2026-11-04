@@ -304,6 +304,19 @@ impl MysticHost {
                 }.map_err(HostError::from)?;
                 Ok(json!({"radeon":updated}))
             }
+            // Nightjar's "Test the link before starting": times one download from a paired PC that
+            // offers it, and the first bitrate it allows. Not offered is no error; the stream
+            // then starts at `kbps`, as it does when the test fails.
+            "probeLink" => {
+                let kbps = v["kbps"].as_u64().and_then(|k| u32::try_from(k).ok())
+                    .filter(|k| (1..=2_000_000).contains(k)).ok_or("invalid bitrate")?;
+                let info = self.client.server_info_https().map_err(HostError::from)?;
+                if !info.paired || !info.capabilities.has(Feature::BandwidthProbe) {
+                    return Ok(json!({"offered":false}));
+                }
+                let mbps = self.client.probe_link(&info).map_err(HostError::from)?;
+                Ok(json!({"offered":true,"mbps":mbps,"startKbps":nightjar_core::http::probe_start_kbps(kbps, mbps)}))
+            }
             "wakeTargets" => {
                 let info=self.client.server_info_https().map_err(HostError::from)?;
                 let mut macs=Vec::new();let mut broadcasts=Vec::new();

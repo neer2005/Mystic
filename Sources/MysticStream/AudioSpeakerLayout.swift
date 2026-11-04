@@ -32,6 +32,8 @@ struct AudioSpeakerLayout {
         guard Set(speakers).count == speakers.count else { return nil }
         self.layout=layout;self.speakers=speakers
     }
+    #if os(macOS)
+    /// The speaker layout set for a Mac output device in Audio MIDI Setup.
     static func device(_ id: AudioDeviceID,channels: AVAudioChannelCount) -> Self? {
         guard [6,8].contains(channels) else { return nil }
         var address=AudioObjectPropertyAddress(mSelector:kAudioDevicePropertyPreferredChannelLayout,
@@ -50,6 +52,7 @@ struct AudioSpeakerLayout {
         guard value.channelCount == channels else { return nil }
         return Self(value)
     }
+    #endif
     static func configured(_ speakers: [AudioSpeaker]) -> Self? {
         guard [6,8].contains(speakers.count) else { return nil }
         let size=Int(headerSize)+speakers.count*MemoryLayout<AudioChannelDescription>.size

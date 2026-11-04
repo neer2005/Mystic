@@ -381,6 +381,9 @@ public final class ConnectionModel {
         var qualityMinFps: UInt32=30
         var renderer: VideoRendererKind = .displayLayer
         var color: ColorOffer? = nil
+        /// Nightjar's link test runs before a new stream at the recommended bitrate.
+        var probeLink=false
+        var lossBitrate=false
     }
     @ObservationIgnored private(set) var plan: StreamPlan?
     /// The headroom of the screen the stream will open on, read when a plan is made.
@@ -678,16 +681,21 @@ public final class ConnectionModel {
             config.colorSpace = video.hdr ? 2 : 1; config.colorRange = 0
             config.clientRefreshRateX100 = Int32(options.clientRefreshRateX100)
             config.microphone = microphoneEnabled
+            config.uncompressedAudio = uncompressedAudio
+            config.unbatchedInput = instantMouseInput
             config.channelCount = options.channelCount; config.channelMask = options.channelMask
             let correction=ErrorCorrection(rawValue:settings.value.errorCorrection ?? "") ?? .host
             options.fec=correction.engineValue; config.videoFEC=correction.engineValue
             config.networkGraceMs=(NetworkGrace(rawValue:settings.value.networkGraceSeconds ?? 0) ?? .off).milliseconds
-            return StreamPlan(app:app,options:options,configuration:config,
+            var plan=StreamPlan(app:app,options:options,configuration:config,
                 adaptive:video.adaptiveBitrate,reconnect:settings.value.automaticReconnect ?? true,
                 hostID:host?.uniqueID ?? "",framePacing:video.framePacing,
                 tellWireless:tellHostWireless,tellLinkSpeed:tellHostLinkSpeed,
                 roaming:clientRoaming,roamingMetered:roamingOnMeteredNetworks,quality:video.automaticQuality,
                 qualityMinShortEdge:video.qualityMinShortEdge,qualityMinFps:video.qualityMinFps,renderer:videoRenderer,color:color)
+            plan.probeLink=testLinkBeforeStart && video.bitrateMbps == StreamPreferences.recommendedBitrate
+            plan.lossBitrate=lowerBitrateOnLoss
+            return plan
     }
     private func startPreparedPlan(_ plan: StreamPlan,connection: any HostService,capabilities: VideoCapabilities) {
         recovery=StreamRecovery();recovering=false;hadVideo=false;connectedAt=nil
@@ -766,9 +774,29 @@ public final class ConnectionModel {
                 let hints=NetworkRoute.hints(route,tellWireless:plan.tellWireless,tellLinkSpeed:plan.tellLinkSpeed)
                 var options=options
                 options.clientWireless=hints.wireless
+                // Nightjar's link test: a new stream at the recommended bitrate starts no higher than
+                // the link holds. A resume keeps the running session's bitrate; a failed test starts
+                // the stream as asked.
+                var startKbps=config.bitrateKbps
+                if plan.probeLink,!options.resumeOnly,self.host?.currentGame != app.id {
+                    self.status="Testing the link to \(self.host?.name ?? "the PC")…"
+                    do {
+                        if let probe=try await connection.probeLink(kbps:UInt32(clamping:config.bitrateKbps)) {
+                            startKbps=Int32(clamping:probe.startKbps)
+                            self.record(String(format:"Link test: %.1f Mbit/s, starting at %d kbps.",probe.mbps,startKbps),token:token)
+                        } else {
+                            self.record("Link test: the PC does not offer it.",token:token)
+                        }
+                    } catch {
+                        self.record("Link test failed, starting at \(startKbps) kbps: \(error.localizedDescription)",token:token)
+                    }
+                    guard self.generation == token else { return }
+                    self.status="Launching \(app.name)…"
+                }
                 let launch = try await connection.launch(options)
                 guard self.generation == token else { return }
                 var config = config
+                config.bitrateKbps=startKbps
                 config.remoteInputAESKey = launch.key; config.remoteInputAESIV = launch.iv
                 config.clientWireless = launch.clientWireless == true
                 config.linkMbps = hints.linkMbps
@@ -818,6 +846,11 @@ public final class ConnectionModel {
                 self.audioPlayer = audio
                 self.inputCapture = StreamInputCapture(send: { [weak session] in session?.send($0) ?? false },failure: { [weak self] message in self?.record(message,token:token) })
                 self.inputCapture?.input = self.inputPreferences
+                self.inputCapture?.leaveStream = { [weak self] in
+                    guard let self,self.generation == token else { return }
+                    self.record("A controller's leave buttons ended the stream.",token:token)
+                    self.leave()
+                }
                 self.presenter = presenter; self.decoder = decoder; self.session = session
                 self.status = "Starting video connection…"
                 session.start(host: address, launch: launch, configuration: config, decoder: decoder, audio: audio,
@@ -840,7 +873,7 @@ public final class ConnectionModel {
                 self.record(launch.imageClipboard == true ? "The host offers its image clipboard." : "The host does not offer an image clipboard.",token:token)
                 self.hostCursorOffered=launch.cursorShapes == true
                 self.hostKeyboardLayout=launch.keyboardLayout == true;self.hostTextFields=launch.textFields == true
-                self.rates.streamStarted(launch:launch,adaptive:adaptive,configuration:config)
+                self.rates.streamStarted(launch:launch,adaptive:adaptive,lossBased:plan.lossBitrate,configuration:config)
                 self.monitorMedia(audio, telemetry:telemetry,token: token)
             } catch {
                 guard let self,self.generation == token else { return }
@@ -896,6 +929,7 @@ public final class ConnectionModel {
     private func monitorMedia(_ player: AudioPlayer, telemetry: VideoTelemetry, token: UUID) {
         statisticsMonitor?.cancel()
         statisticsMonitor = Task { [weak self, weak player] in
+            var toldOpus=false
             while !Task.isCancelled {
                 guard let self, let player, self.generation == token else { return }
                 let snapshot = telemetry.snapshot()
@@ -915,7 +949,14 @@ public final class ConnectionModel {
                 let rate=stats.outputSampleRate.map { String(format:" · %.1f kHz",$0/1000) } ?? ""
                 let layout=stats.outputLayout.map { " · "+$0 } ?? ""
                 let fallback=stats.stereoFallbackReason.map { " ("+$0+")" } ?? ""
-                self.audioStatus = "\(stats.outputStatus.label)\(route)\(rate)\(layout)\(fallback): \(stats.decodedPackets) packets, \(stats.concealedPackets) concealed, \(stats.skippedLatePackets) late skipped, \(stats.renderedFrames) frames rendered, \(stats.queuedFrames/48) ms queued · \(stats.outputRestarts) output restarts · \(stats.discardedOutputFrames) frames discarded during output changes"
+                // Nightjar's notice when uncompressed audio was asked for and the PC sends Opus.
+                let opusInstead=stats.codec == .opus && self.plan?.configuration.uncompressedAudio == true
+                if opusInstead,!toldOpus {
+                    toldOpus=true
+                    self.record("The PC did not offer PCM audio. This stream plays Opus.",token:token)
+                }
+                let codec=stats.codec.map { " · "+$0.description+(opusInstead ? " (the PC did not offer PCM)" : "") } ?? ""
+                self.audioStatus = "\(stats.outputStatus.label)\(codec)\(route)\(rate)\(layout)\(fallback): \(stats.decodedPackets) packets, \(stats.concealedPackets) concealed, \(stats.skippedLatePackets) late skipped, \(stats.renderedFrames) frames rendered, \(stats.queuedFrames/48) ms queued · \(stats.outputRestarts) output restarts · \(stats.discardedOutputFrames) frames discarded during output changes"
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
         }

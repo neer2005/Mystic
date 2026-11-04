@@ -15,12 +15,26 @@ FEC loss reporting for hosts that negotiate it, session-start failure reporting,
 and encrypted microphone setup diagnostics. New Nightjar application features
 still require their own Mystic integration.
 
-Mystic is on ABI 3, which added `network_grace_ms`, `video_fec` and `link_mbps` to
-`MysticStreamConfig`. The stream doctor functions
-(`mystic_session_health_*`, `mystic_session_trial_*`) are additive. Audio is unchanged: Opus stereo, 5.1 and 7.1. The bridge copies the first eight
-entries from Nightjar's expanded 12-entry mapping only for supported layouts and
-rejects 7.1.4 or passthrough setups before invoking Swift. Passthrough negotiation
-stays disabled. No C struct layout or Swift binding changes are required.
+Mystic is on ABI 6. ABI 3 added `network_grace_ms`, `video_fec` and `link_mbps` to
+`MysticStreamConfig`; ABI 5 added location and roaming. The stream doctor functions
+(`mystic_session_health_*`, `mystic_session_trial_*`) are additive.
+
+ABI 6 adds Nightjar's "Uncompressed audio": `MysticStreamConfig::uncompressed_audio`
+asks a Rubylight host for PCM, and `MysticAudioSetup::codec` says whether Opus or PCM
+arrived (a host that does not offer PCM for the channel count sends Opus). Stereo, 5.1
+and 7.1 are supported. The bridge copies the first eight entries from Nightjar's
+expanded 12-entry Opus mapping, and rejects 7.1.4, AC3 and E-AC3 setups before invoking
+Swift: like Nightjar's desktop app, Mystic opens no output that passes an encoded
+stream through.
+
+ABI 6 also adds `MysticStreamConfig::unbatched_input`, Nightjar's "Instant mouse and pen
+input" (on in `MysticStreamConfig`'s default, as in Nightjar), and `MYSTIC_AUDIO_DIRECT_SUBMIT`
+for `audio_capabilities`: `audio_play` then runs on the engine's receive thread, as in
+Nightjar's desktop app, so it must not block.
+
+ABI 6 also adds Nightjar's "Lower bitrate when frames are lost" (`mystic_session_rate_hint_begin`,
+ticked by `mystic_session_health_tick`, whose envelope carries its state and the frames' mean
+decode-queue wait) and the `probeLink` host request for "Test the link before starting".
 
 ## What it does
 
@@ -104,9 +118,9 @@ Layouts as compiled on aarch64 Linux (byte-identical on Apple silicon, verified)
 - Never reorder or resize a struct in place — add fields at the end of a new version.
 - `panic = "abort"`: nothing unwinds across the boundary.
 
-## Audio (ABI 2)
+## Audio (ABI 2, codec in ABI 6)
 
-The audio setup callback now carries the negotiated Opus stream count, coupling,
+The audio setup callback carries the codec, and the negotiated Opus stream count, coupling,
 sample rate, and channel mapping. Build the archive and Swift wrapper together.
 The engine statically links bundled libopus through the pinned `opus`/`opusic-sys`
 crates. CMake and Rust 1.82+ are required; no system libopus install is needed.

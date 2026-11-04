@@ -263,6 +263,22 @@ final class AudioPlayoutTests: XCTestCase {
         XCTAssertEqual(playout.packet(lost:false,queued:line,nowNanos:4000*ms),.play(lead:0),"at the line the count starts again")
         XCTAssertEqual(playout.packet(lost:false,queued:line+1,nowNanos:4005*ms),.play(lead:0))
     }
+    func testTheLatePacketTimerTicksNoFasterThanA5MsOpusStream() {
+        XCTAssertEqual(AudioPlayout.tickMs(packetMs:1),5,"7.1 PCM's 1 ms packets")
+        XCTAssertEqual(AudioPlayout.tickMs(packetMs:2),5,"5.1 PCM's 2 ms packets")
+        XCTAssertEqual(AudioPlayout.tickMs(packetMs:5),5)
+        XCTAssertEqual(AudioPlayout.tickMs(packetMs:20),20)
+        // One tick fills the whole shortfall, in whole 1 ms packets, so the slower tick still
+        // tops the ring up past the next read, and those packets are skipped when they arrive.
+        var playout=AudioPlayout(packetMs:1)
+        XCTAssertEqual(playout.packet(lost:false,queued:0,nowNanos:0),.play(lead:992))
+        let queued=400
+        let packets=playout.tick(queued:queued,nowNanos:5*ms)
+        XCTAssertEqual(packets,3)
+        XCTAssertGreaterThanOrEqual(queued+packets*48,playout.lowWater)
+        for n in 0..<3 { XCTAssertEqual(playout.packet(lost:false,queued:queued,nowNanos:UInt64(6+n)*ms),.skip) }
+        XCTAssertEqual(playout.packet(lost:false,queued:queued,nowNanos:9*ms),.play(lead:0))
+    }
     func testATrimmedPacketFadesIntoTheNextWithoutAClick() {
         let tone: (Int,Int) -> [Float]={ start,count in (start..<start+count).flatMap { i -> [Float] in
             let value=0.5*sin(2*Float.pi*440*Float(i)/48000);return [value,value] } }

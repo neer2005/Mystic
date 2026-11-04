@@ -46,7 +46,10 @@ public struct StreamConfiguration: Sendable, Equatable {
     public var packetSize: Int32 = 1392
     public var supportedVideoFormats: UInt32 = 1 // H.264 until the decoder says otherwise
     public var videoCapabilities: UInt32 = 0
-    public var audioCapabilities: UInt32 = 0
+    /// Audio packets reach the consumer's `play` on the engine's receive thread, not behind a
+    /// queue and a second thread, as Nightjar's desktop app asks. `play` holds up receiving while
+    /// it runs, so it must not block.
+    public var audioCapabilities = UInt32(MYSTIC_AUDIO_DIRECT_SUBMIT)
     public var encryptionFlags: UInt32 = 0
     /// Launch credentials. Both are exactly 16 bytes and must match the host's launch request.
     public var remoteInputAESKey: [UInt8] = Array(repeating: 0, count: 16)
@@ -73,6 +76,12 @@ public struct StreamConfiguration: Sendable, Equatable {
     public var roamingMetered = false
     /// The app reports every network change with `networkChanged(metered:)`.
     public var networkHints = false
+    /// Nightjar's "Uncompressed audio": ask a Rubylight host for PCM instead of Opus. A host that
+    /// does not offer it sends Opus; the audio setup's `codec` says which arrived.
+    public var uncompressedAudio = false
+    /// Nightjar's "Instant mouse and pen input", on by default there: motion leaves at once
+    /// instead of in 1 ms batches.
+    public var unbatchedInput = true
 
     public init() {}
 }
@@ -141,7 +150,7 @@ public enum EngineEvent: Sendable, Equatable {
 /// ``start(host:configuration:onEvent:)``.
 public final class StreamingEngine {
     /// The ABI this Swift layer was written against.
-    public static let expectedABI: UInt32 = 5
+    public static let expectedABI: UInt32 = 6
 
     private var handle: OpaquePointer?
     var clipboardHandle: OpaquePointer? { handle }
@@ -561,6 +570,8 @@ extension StreamConfiguration {
         config.client_roaming = self.clientRoaming
         config.roaming_metered = self.roamingMetered
         config.network_hints = self.networkHints
+        config.uncompressed_audio = self.uncompressedAudio
+        config.unbatched_input = self.unbatchedInput
 
         return config
     }

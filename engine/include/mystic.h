@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 /* Bump-matched with MYSTIC_ABI_VERSION in lib.rs. The Swift side must refuse a mismatch. */
-#define MYSTIC_ABI_VERSION 5
+#define MYSTIC_ABI_VERSION 6
 
 /* Result codes. */
 #define MYSTIC_OK 0
@@ -67,7 +67,15 @@ typedef struct {
     uint8_t streams;
     uint8_t coupled_streams;
     uint8_t mapping[8];
+    /* ABI 6. MYSTIC_AUDIO_CODEC_*: the codec of the packets audio_play gets. The Opus fields
+     * above stay the negotiated ones and are unused for PCM. */
+    uint8_t codec;
 } MysticAudioSetup;
+
+/* MysticAudioSetup::codec. PCM packets are s16le, interleaved in decoded Opus's channel order;
+ * a lost one plays as silence. */
+#define MYSTIC_AUDIO_CODEC_OPUS 1
+#define MYSTIC_AUDIO_CODEC_PCM 2
 
 /* Borrowed view of a frame. `data` is valid only during the submit callback. */
 typedef struct {
@@ -128,7 +136,17 @@ typedef struct {
     bool roaming_metered;
     /* The app reports every network change with mystic_session_network_changed. */
     bool network_hints;
+    /* ABI 6. Nightjar's "Uncompressed audio": ask a Rubylight host for PCM instead of Opus. A
+     * host that does not offer it sends Opus; MysticAudioSetup::codec says which arrived. */
+    bool uncompressed_audio;
+    /* ABI 6. Nightjar's "Instant mouse and pen input": motion leaves at once, not in 1 ms batches. */
+    bool unbatched_input;
 } MysticStreamConfig;
+
+/* MysticStreamConfig::audio_capabilities: audio_play runs on the engine's receive thread instead of
+ * behind a queue and a second thread, as Nightjar's desktop app asks. It holds up receiving while
+ * it runs, so it must not block. */
+#define MYSTIC_AUDIO_DIRECT_SUBMIT 0x1
 
 #define MYSTIC_LOCATION_AUTO 0
 #define MYSTIC_LOCATION_LOCAL 1
@@ -377,6 +395,12 @@ int32_t mystic_frame_buffers(const MysticFrame *frame, MysticFrameBuffer *out, s
  * (this Mac's). Sends Nightjar's plan; owned response freed with mystic_string_free. */
 char *mystic_wake(const char *request_json);
 char *mystic_session_rates(const MysticSession *session, uint32_t kbps, uint32_t fps_millihz);
+/* ABI 6: Nightjar's "Lower bitrate when frames are lost" on a stream that takes live rate changes,
+ * from its bitrate kbps under this client's cap limit_kbps (0 for none). It ticks with
+ * mystic_session_health_tick, whose envelope then carries "hint": {active, kbps, stopped}.
+ * Returns 0, or MYSTIC_ERR_UNIMPLEMENTED when the stream takes no rate changes. */
+int32_t mystic_session_rate_hint_begin(const MysticSession *session, uint32_t kbps, uint32_t limit_kbps,
+                                       uint64_t now_ms);
 
 /* ABI 4: the stream display's EDR headroom (peak over SDR white; 1 or less is SDR). The host
  * gets a luminance estimated from it. Returns 1 when sent, 0 when the host already has these

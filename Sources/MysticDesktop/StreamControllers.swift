@@ -20,6 +20,21 @@ final class StreamControllers {
     private(set) var feedbackEpoch: UInt64 = 0
     private let send: (RemoteInputEvent) -> Bool
     private let failure: () -> Void
+    /// Nightjar's controller mouse per slot, the physical buttons last seen for the leave combo,
+    /// and the last state, which the mouse's sticks keep moving with between changes.
+    private var mice: [Int:ControllerMouse] = [:]
+    private var physical: [Int:UInt32] = [:]
+    private var lastState: [Int:ControllerState] = [:]
+    private var guides: [Int:GuideHold] = [:]
+    private var mouseTimer: Timer?
+    private let nowMillis: () -> UInt64
+    /// The leave combo was pressed.
+    var leave: () -> Void = {}
+    /// Guide was held for the setting's time.
+    var guideHeld: () -> Void = {}
+    /// Controller mouse mode switched on (true) or off (false).
+    var mouseSwitched: (Bool) -> Void = { _ in }
+    var mouseActive: Bool { mice.values.contains { $0.active } }
     var settings=InputPreferences() {
         didSet {
             guard settings != oldValue,enabled else { return }
@@ -40,8 +55,9 @@ final class StreamControllers {
          makeHaptics: @escaping (GCController) -> (any ControllerHaptics)? = { NativeControllerHaptics(controller:$0) },
          makeExtras: @escaping (GCController) -> any ControllerExtras = { NativeControllerExtras(controller:$0) },
          feedbackFailure: @escaping (String) -> Void = { _ in },
+         nowMillis: @escaping () -> UInt64 = { DispatchTime.now().uptimeNanoseconds/1_000_000 },
          send: @escaping (RemoteInputEvent) -> Bool, failure: @escaping () -> Void) {
-        self.send=send;self.failure=failure;self.connectedDevices=connectedDevices
+        self.send=send;self.failure=failure;self.connectedDevices=connectedDevices;self.nowMillis=nowMillis
         self.makeHaptics=makeHaptics;self.makeExtras=makeExtras;self.feedbackFailure=feedbackFailure
         let center=NotificationCenter.default
         for name in [NSNotification.Name.GCControllerDidConnect,NSNotification.Name.GCControllerDidDisconnect] {
@@ -51,6 +67,7 @@ final class StreamControllers {
         }
     }
     isolated deinit {
+        mouseTimer?.invalidate()
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         for controller in devices.values { controller.extendedGamepad?.valueChangedHandler=nil }
         for feedback in haptics.values { feedback.stop() }
@@ -65,6 +82,10 @@ final class StreamControllers {
             for feedback in haptics.values { feedback.stop() };haptics.removeAll()
             for extra in extras.values { extra.stop() };extras.removeAll()
             devices.removeAll()
+            // Capture's releaseAll lets go of the mouse's clicks too.
+            let wasActive=mouseActive
+            mice.removeAll();physical.removeAll();lastState.removeAll();guides.removeAll();updateMouseTimer()
+            if wasActive { mouseSwitched(false) }
             // Capture's releaseAll neutralizes states actually accepted by the worker.
         }
     }
@@ -89,6 +110,11 @@ final class StreamControllers {
             haptics.removeValue(forKey:slot)?.stop()
             extras.removeValue(forKey:slot)?.stop()
             devices.removeValue(forKey:slot);changed=true
+            physical.removeValue(forKey:slot);lastState.removeValue(forKey:slot);guides.removeValue(forKey:slot)
+            if var mouse=mice.removeValue(forKey:slot) {
+                for event in mouse.release() { guard emit(event) else { return } }
+                if mouse.active { updateMouseTimer();mouseSwitched(mouseActive) }
+            }
             guard emit(.controller(slot:UInt8(slot),activeMask:mask,state:ControllerState())) else { return }
         }
         for device in connected where !devices.values.contains(where: { $0 === device }) {
@@ -191,13 +217,70 @@ final class StreamControllers {
     }
     private func submit(slot: Int) {
         guard enabled,let pad=devices[slot]?.extendedGamepad else { return }
-        _=emit(.controller(slot:UInt8(slot),activeMask:mask,state:Self.snapshot(pad,settings:settings)))
+        let state=Self.snapshot(pad,settings:settings)
+        let raw=Self.physicalButtons(pad),previous=physical[slot] ?? 0
+        physical[slot]=raw;lastState[slot]=state
+        var guide=guides[slot] ?? GuideHold()
+        guide.observe(state.buttons,holdMillis:settings.guideHoldMillis,nowMillis:nowMillis())
+        guides[slot]=guide
+        if guide.waiting { updateMouseTimer() }
+        var mouse=mice[slot] ?? ControllerMouse()
+        // As Nightjar: the combo's last press leaves the stream, with the pad neutral first.
+        if settings.leaveCombo.completed(physical:raw,previous:previous) {
+            for event in mouse.release() { guard emit(event) else { return } }
+            mice[slot]=mouse
+            guard emit(.controller(slot:UInt8(slot),activeMask:mask,state:ControllerState())) else { return }
+            leave();return
+        }
+        let wasActive=mouseActive
+        let (events,switched)=mouse.update(state,enabled:settings.controllerMouse,precise:settings.preciseControllerMouse,nowMillis:nowMillis())
+        mice[slot]=mouse
+        for event in events { guard emit(event) else { return } }
+        if switched != nil,mouseActive != wasActive { updateMouseTimer();mouseSwitched(mouseActive) }
+        // While the mouse is on, the PC's controller sees nothing pressed.
+        emitState(slot:slot)
+    }
+    /// The pad's last state as the PC gets it: nothing while the mouse is on, Guide as its hold says.
+    @discardableResult private func emitState(slot: Int) -> Bool {
+        guard var state=lastState[slot] else { return true }
+        if mice[slot]?.active == true { state=ControllerState() }
+        else if let guide=guides[slot] { state.buttons=guide.output(state.buttons) }
+        return emit(.controller(slot:UInt8(slot),activeMask:mask,state:state))
+    }
+    /// The sticks move the pointer between changes too, so a held stick keeps moving it.
+    private func updateMouseTimer() {
+        guard enabled,mouseActive || guides.values.contains(where: \.waiting) else { mouseTimer?.invalidate();mouseTimer=nil;return }
+        guard mouseTimer == nil else { return }
+        // Wakes more often than the mouse's 50 ms step, so steps don't slip to every other tick.
+        mouseTimer=Timer.scheduledTimer(withTimeInterval:1.0/60,repeats:true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tickMice() }
+        }
+    }
+    func tickMice() {
+        guard enabled else { return }
+        let now=nowMillis()
+        for slot in guides.keys.sorted() {
+            guard var guide=guides[slot],guide.waiting else { continue }
+            let (opened,resend)=guide.tick(holdMillis:settings.guideHoldMillis,nowMillis:now)
+            guides[slot]=guide
+            if resend { guard emitState(slot:slot) else { return } }
+            // Gives the Mac its input back, which disables the controllers: nothing more this tick.
+            if opened { guideHeld();return }
+        }
+        updateMouseTimer()
+        for slot in mice.keys.sorted() {
+            guard var mouse=mice[slot],mouse.active else { continue }
+            let events=mouse.tick(lastState[slot] ?? ControllerState(),scrollStick:settings.scrollStick,precise:settings.preciseControllerMouse,nowMillis:now)
+            mice[slot]=mouse
+            for event in events { guard emit(event) else { return } }
+        }
     }
     @discardableResult private func emit(_ event: RemoteInputEvent) -> Bool {
         if send(event) { return true }
         setEnabled(false);failure();return false
     }
-    static func snapshot(_ pad: GCExtendedGamepad,settings: InputPreferences = InputPreferences()) -> ControllerState {
+    /// The buttons held, by position (A is south), before the Nintendo layout swap.
+    static func physicalButtons(_ pad: GCExtendedGamepad) -> UInt32 {
         var buttons: UInt32=0
         let mapping: [(GCControllerButtonInput?,UInt32)] = [
             (pad.dpad.up,0x1),(pad.dpad.down,0x2),(pad.dpad.left,0x4),(pad.dpad.right,0x8),
@@ -207,6 +290,10 @@ final class StreamControllers {
             (pad.buttonA,0x1000),(pad.buttonB,0x2000),(pad.buttonX,0x4000),(pad.buttonY,0x8000),
         ]
         for (button,flag) in mapping+extraButtons(pad) where button?.isPressed == true { buttons |= flag }
+        return buttons
+    }
+    static func snapshot(_ pad: GCExtendedGamepad,settings: InputPreferences = InputPreferences()) -> ControllerState {
+        var buttons=physicalButtons(pad)
         if settings.swapFaceButtons { buttons=ControllerButtons.swappingFace(buttons) }
         let left=ControllerState.stick(x:pad.leftThumbstick.xAxis.value,y:pad.leftThumbstick.yAxis.value,deadZone:settings.stickDeadZone)
         let right=ControllerState.stick(x:pad.rightThumbstick.xAxis.value,y:pad.rightThumbstick.yAxis.value,deadZone:settings.stickDeadZone)

@@ -212,6 +212,66 @@ final class AudioTests: XCTestCase {
         let buffer=try XCTUnwrap(AVAudioPCMBuffer(pcmFormat:graph.engine.manualRenderingFormat,frameCapacity:240))
         XCTAssertEqual(try graph.engine.renderOffline(240,to:buffer),.success)
     }
+    private func pcmInfo(channels: UInt8,mask: UInt16,ms: UInt32) -> AudioSetupInfo {
+        AudioSetupInfo(channelCount:channels,channelMask:mask,packetDurationMs:ms,samplesPerFrame:48*ms,codec:.pcm)
+    }
+    func testPCMDecodesLittleEndianSamplesAndPlaysALostPacketAsSilence() throws {
+        let info=pcmInfo(channels:2,mask:3,ms:5)
+        let decoder=try XCTUnwrap(makeStreamAudioDecoder(info) as? PCMAudioDecoder)
+        var bytes=[UInt8]()
+        for _ in 0..<240 {
+            for value in [Int16(16384),Int16(-32768)] { withUnsafeBytes(of:value.littleEndian) { bytes.append(contentsOf:$0) } }
+        }
+        var decoded=0
+        try bytes.withUnsafeBytes { packet in
+            try decoder.decode(packet) { samples,frames in
+                decoded=frames;XCTAssertEqual(samples.count,480)
+                XCTAssertEqual(samples[0],0.5);XCTAssertEqual(samples[1],-1)
+                XCTAssertEqual(samples[478],0.5);XCTAssertEqual(samples[479],-1)
+            }
+        }
+        XCTAssertEqual(decoded,240)
+        try decoder.decode(nil) { samples,frames in
+            XCTAssertEqual(frames,240);XCTAssertTrue(samples.allSatisfy { $0 == 0 })
+        }
+        // A trailing partial frame is dropped, as Nightjar does; an empty packet is refused.
+        try bytes.prefix(10).map { $0 }.withUnsafeBytes { packet in
+            try decoder.decode(packet) { _,frames in XCTAssertEqual(frames,2) }
+        }
+        XCTAssertThrowsError(try [UInt8(1),2].withUnsafeBytes { try decoder.decode($0) { _,_ in } })
+    }
+    func testPCMSurroundUsesTheSameRoutingAsOpus() throws {
+        // Rubylight's 7.1 PCM comes in 1 ms packets, in the channel-mask order decoded Opus has.
+        let info=pcmInfo(channels:8,mask:0x63F,ms:1)
+        let decoder=try PCMAudioDecoder(info)
+        let samples=(0..<48*8).map { Int16(($0%8)*1000) }
+        let stereo=try AudioChannelRouting(channelCount:8,channelMask:0x63F)
+        try samples.withUnsafeBytes { packet in
+            try decoder.decode(packet) { routed,frames in
+                XCTAssertEqual(frames,48);XCTAssertEqual(routed.count,96)
+            }
+            let float=samples.map { Float($0)/32768 }
+            var expected=[Float](repeating:0,count:96)
+            _=float.withUnsafeBufferPointer { input in expected.withUnsafeMutableBufferPointer { stereo.route(input,frames:48,into:$0) } }
+            try decoder.decode(packet,routing:stereo) { routed,_ in XCTAssertEqual(Array(routed),expected) }
+        }
+    }
+    func testOnlyOpusAndPCMAreAccepted() throws {
+        XCTAssertTrue(try makeStreamAudioDecoder(try fixture("stereo").info) is OpusAudioDecoder)
+        XCTAssertThrowsError(try makeStreamAudioDecoder(AudioSetupInfo(channelCount:2,channelMask:3,packetDurationMs:32,
+            samplesPerFrame:1536,codec:StreamAudioCodec(rawValue:4))))
+        XCTAssertThrowsError(try PCMAudioDecoder(pcmInfo(channels:1,mask:4,ms:5)))
+        var info=pcmInfo(channels:2,mask:3,ms:5);info.sampleRate=44100
+        XCTAssertThrowsError(try PCMAudioDecoder(info))
+        info=pcmInfo(channels:2,mask:3,ms:5);info.samplesPerFrame=200
+        XCTAssertThrowsError(try PCMAudioDecoder(info))
+    }
+    func testPlayerPlaysPCMThroughTheSamePlayout() throws {
+        let player=AudioPlayer()
+        try player.setup(pcmInfo(channels:2,mask:3,ms:5))
+        XCTAssertEqual(player.statistics.codec,.pcm)
+        player.cleanup()
+    }
     func testStereoOnSurroundOutputDoesNotInventCenterLFEOrSurroundChannels() throws {
         let speakers: [AudioSpeaker]=[.left,.right,.center,.lfe,.surroundLeft,.surroundRight,.rearLeft,.rearRight]
         let graph=try AudioPipeline(volume:1,manualRendering:true,manualSpeakers:speakers)

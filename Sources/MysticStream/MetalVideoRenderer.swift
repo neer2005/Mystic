@@ -172,8 +172,11 @@ final class MetalPresentationReceiver: PresentationReceiver {
         // V-Sync on two, as SDL's double buffering on Windows: a shorter queue. Without V-Sync a
         // frame goes at once, and on two it could wait out a refresh for a drawable.
         layer.maximumDrawableCount=waitsForRefresh ? 2 : 3
-        // Off presents at once, as Nightjar's immediate mode.
+        // Off presents at once, as Nightjar's immediate mode. iOS has no such switch: its layer
+        // always waits for the refresh.
+        #if os(macOS)
         layer.displaySyncEnabled=waitsForRefresh
+        #endif
         layer.pixelFormat = .bgra8Unorm
         layer.colorspace=CGColorSpace(name:CGColorSpace.itur_709)
         layer.backgroundColor=CGColor(gray:0,alpha:1)
