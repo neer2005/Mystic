@@ -691,6 +691,37 @@ final class StreamRecoveryTests: XCTestCase {
         XCTAssertEqual(launch.width,3024);XCTAssertEqual(launch.height,1900)
         model.disconnect()
     }
+    func testFullDisplaySizesStayBelowTheCameraByDefault() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        let model=try await running(host,sessions,RecoveryClock(),configure:{
+            $0.settings.update { $0.resolution="3024x1964" }
+        })
+        let launch=try XCTUnwrap(host.launches.last)
+        XCTAssertFalse(model.notchFullScreen)
+        XCTAssertEqual(launch.width,3024);XCTAssertEqual(launch.height,1890)
+        XCTAssertEqual(model.settings.value.resolution,"3024x1964","the saved choice stays for the notch mode")
+        model.disconnect()
+    }
+    func testNotchFullScreenLaunchesTheFullDisplay() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        let model=try await running(host,sessions,RecoveryClock(),configure:{
+            $0.notchFullScreen=true
+            $0.settings.update { $0.resolution="native" }
+            $0.launchDisplayPixels={ below in below ? (3024,1900) : (3024,1964) }
+        })
+        let launch=try XCTUnwrap(host.launches.last)
+        XCTAssertEqual(launch.width,3024);XCTAssertEqual(launch.height,1964)
+        model.disconnect()
+    }
+    func testSystemNativeStopsBelowTheCameraByDefault() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        let model=try await running(host,sessions,RecoveryClock(),configure:{
+            $0.settings.update { $0.resolution="native" }
+            $0.launchDisplayPixels={ below in below ? (3024,1900) : (3024,1964) }
+        })
+        XCTAssertEqual(try XCTUnwrap(host.launches.last).height,1900)
+        model.disconnect()
+    }
     func testPCDisplayChoicesGoToTheLaunch() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions()
         let model=try await running(host,sessions,RecoveryClock(),configure:{

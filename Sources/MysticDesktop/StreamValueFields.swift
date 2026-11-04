@@ -13,15 +13,15 @@ private struct NumberField<Value: BinaryInteger & Sendable>: View {
 }
 
 extension EnvironmentValues {
-    /// The renderer streams use, so video settings can show what `StreamVideoSettings.limited(to:)` changes.
-    @Entry var videoRenderer: VideoRendererKind = .displayLayer
+    /// How streams are shown, so video settings can show what `StreamVideoSettings.limited(to:)` changes.
+    @Entry var videoOutput=VideoOutput()
 }
 
 /// Native, Nightjar's sizes and Custom. The picker stays short so its indicator is never
 /// squeezed; the purpose follows below.
 struct ResolutionField: View {
     @Binding var resolution: String
-    @Environment(\.videoRenderer) private var renderer
+    @Environment(\.videoOutput) private var output
     @State private var customChosen=false
     private static let custom="custom"
     private var isCustom: Bool {
@@ -34,7 +34,7 @@ struct ResolutionField: View {
             if StreamPreferences.size(resolution) == nil {
                 // Starts from this Mac's screen, as Nightjar's does.
                 var video=StreamVideoSettings();video.resolution=StreamPreferences.nativeResolution
-                let mode=video.mode(displayPixels:NSScreen.main.map { DisplayRefresh.pixels($0,belowCamera:renderer == .metal) },displayHertz:nil)
+                let mode=video.mode(displayPixels:NSScreen.main.map { DisplayRefresh.pixels($0,belowCamera:!output.coversNotch) },displayHertz:nil)
                 resolution="\(mode.width)x\(mode.height)"
             }
         })
@@ -48,7 +48,7 @@ struct ResolutionField: View {
             Divider()
             ForEach(StreamPreferences.resolutions,id:\.self) { size in
                 Text(StreamPreferences.resolutionLabel(size)).tag(size)
-                    .selectionDisabled(renderer == .metal && StreamPreferences.belowCamera[size] != nil)
+                    .selectionDisabled(output.renderer == .metal && StreamPreferences.belowCamera[size] != nil)
             }
             Divider()
             Text("Custom…").tag(Self.custom)
@@ -59,11 +59,14 @@ struct ResolutionField: View {
         } else if let detail=StreamPreferences.resolutionDetail(resolution) {
             Text(detail).font(.caption).foregroundStyle(.secondary)
         }
-        if renderer == .metal,let below=StreamPreferences.belowCamera[resolution] {
-            Text("The Metal renderer streams \(StreamPreferences.resolutionLabel(below)) instead: macOS composites every frame of the full-display mode, which adds delay.")
+        if !output.coversNotch,let below=StreamPreferences.belowCamera[resolution] {
+            Text(output.renderer == .metal
+                 ? "The Metal renderer streams \(StreamPreferences.resolutionLabel(below)) instead: macOS composites every frame of the full-display mode, which adds delay."
+                 : "Streams \(StreamPreferences.resolutionLabel(below)) unless Full Screen Around the Camera is on in Settings → Video.")
                 .font(.caption).foregroundStyle(.secondary)
-        } else if renderer == .metal,resolution == StreamPreferences.nativeResolution {
-            Text("With the Metal renderer, Native stops below the camera on a MacBook Pro.").font(.caption).foregroundStyle(.secondary)
+        } else if !output.coversNotch,resolution == StreamPreferences.nativeResolution {
+            Text("Native stops below the camera on a MacBook Pro\(output.renderer == .metal ? " with the Metal renderer" : " unless Full Screen Around the Camera is on").")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 }

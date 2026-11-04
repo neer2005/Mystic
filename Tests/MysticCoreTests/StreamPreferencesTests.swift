@@ -114,20 +114,32 @@ struct StreamPreferencesTests {
             #expect(loaded.validated().resolution == resolution)
         }
     }
-    @Test func metalStreamsSDRBelowTheCameraAndKeepsTheSavedChoice() {
+    @Test func streamsStayBelowTheCameraUnlessTheNotchModeIsOn() {
+        let system=VideoOutput(),notch=VideoOutput(notchFullScreen:true),metal=VideoOutput(renderer:.metal,notchFullScreen:true)
+        #expect(!system.coversNotch && notch.coversNotch && !metal.coversNotch,"the notch mode is opt-in and System-only")
         var video=StreamVideoSettings();video.hdr=true;video.resolution="3024x1964"
-        #expect(video.limited(to:.displayLayer) == video,"the System renderer streams what was chosen")
-        let metal=video.limited(to:.metal)
-        #expect(!metal.hdr && metal.resolution == "3024x1890")
+        #expect(video.limited(to:notch) == video,"the notch mode streams what was chosen")
+        let below=video.limited(to:system)
+        #expect(below.hdr && below.resolution == "3024x1890","the System renderer keeps HDR")
+        let sdr=video.limited(to:metal)
+        #expect(!sdr.hdr && sdr.resolution == "3024x1890")
         #expect(video.hdr && video.resolution == "3024x1964","the saved choice is untouched")
-        video.resolution="3456x2234";#expect(video.limited(to:.metal).resolution == "3456x2160")
+        video.resolution="3456x2234"
+        #expect(video.limited(to:system).resolution == "3456x2160" && video.limited(to:metal).resolution == "3456x2160")
         for kept in [StreamPreferences.nativeResolution,"1920x1080","3024x1890","3456x2160"] {
-            video.resolution=kept;#expect(video.limited(to:.metal).resolution == kept)
+            video.resolution=kept;#expect(video.limited(to:system).resolution == kept && video.limited(to:metal).resolution == kept)
         }
         for (full,below) in StreamPreferences.belowCamera {
             #expect(StreamPreferences.resolutions.contains(full) && StreamPreferences.resolutions.contains(below))
             #expect(StreamPreferences.belowCamera[below] == nil,"a size below the camera is final")
         }
+    }
+    @Test func notchFullScreenIsSavedAndOffByDefault() throws {
+        var preferences=StreamPreferences()
+        #expect(preferences.notchFullScreen == nil)
+        preferences.notchFullScreen=true
+        let loaded=try JSONDecoder().decode(StreamPreferences.self,from:JSONEncoder().encode(preferences))
+        #expect(loaded.validated().notchFullScreen == true)
     }
     @Test func supportedDefaultsRoundTripWithoutCredentials() throws {
         var preferences=StreamPreferences()

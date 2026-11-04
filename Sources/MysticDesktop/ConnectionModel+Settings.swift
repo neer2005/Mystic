@@ -111,6 +111,12 @@ extension ConnectionModel {
         get { VideoRendererKind(rawValue:settings.value.videoRenderer ?? "") ?? .displayLayer }
         set { settings.update { $0.videoRenderer=newValue == .displayLayer ? nil : newValue.rawValue } }
     }
+    /// Off by default: macOS composites every frame of the notch mode, which adds delay.
+    public var notchFullScreen: Bool {
+        get { settings.value.notchFullScreen ?? false }
+        set { settings.update { $0.notchFullScreen=newValue ? true : nil } }
+    }
+    public var videoOutput: VideoOutput { VideoOutput(renderer:videoRenderer,notchFullScreen:notchFullScreen) }
     public var videoSizing: VideoSizing {
         get { VideoSizing(rawValue:settings.value.videoSizing ?? "") ?? .fit }
         set { settings.update { $0.videoSizing=newValue == .fit ? nil : newValue.rawValue } }
