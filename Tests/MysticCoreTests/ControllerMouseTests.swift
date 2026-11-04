@@ -52,7 +52,8 @@ struct ControllerMouseTests {
         let up=ControllerState(leftX:0,leftY:32767)
         #expect(mouse.tick(up,scrollStick:.off,precise:false,nowMillis:1050) == [.motion(dx:0,dy:-64)],"stick up moves the pointer up")
         #expect(ControllerMouse.movement(16383,0).0 == 8,"small deflections stay fine")
-        #expect(ControllerMouse().tick(held,scrollStick:.right,precise:false,nowMillis:0) == [],"off: nothing")
+        var off=ControllerMouse()
+        #expect(off.tick(held,scrollStick:.right,precise:false,nowMillis:0) == [],"off: nothing")
     }
 
     @Test func thePreciseMouseMovesInDoublingFixedSteps() {

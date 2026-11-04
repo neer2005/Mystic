@@ -68,7 +68,7 @@ public struct ControllerMouse: Sendable, Equatable {
         return (events,switched)
     }
 
-    /// Nightjar's stick curve: up to 4 per tick, cubic so small deflections stay fine.
+    /// Nightjar's stick curve: cubic, so small deflections stay fine; full deflection is 64 pixels a tick.
     static func movement(_ x: Int16,_ y: Int16) -> (Int16,Int16) {
         let fx=Float(x)*4/32766,fy=Float(y)*4/32766
         let speed=fx*fx+fy*fy

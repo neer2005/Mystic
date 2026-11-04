@@ -35,7 +35,7 @@ public struct AudioPlaybackStats: Sendable {
     public let stereoFallbackReason: String?
     public let discardedOutputFrames: UInt64
     /// What the PC sends this stream, once audio is set up.
-    public let codec: AudioCodec?
+    public let codec: StreamAudioCodec?
 }
 
 protocol AudioOutputPipeline: AnyObject, Sendable {

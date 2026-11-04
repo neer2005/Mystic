@@ -259,7 +259,7 @@ final class AudioTests: XCTestCase {
     func testOnlyOpusAndPCMAreAccepted() throws {
         XCTAssertTrue(try makeStreamAudioDecoder(try fixture("stereo").info) is OpusAudioDecoder)
         XCTAssertThrowsError(try makeStreamAudioDecoder(AudioSetupInfo(channelCount:2,channelMask:3,packetDurationMs:32,
-            samplesPerFrame:1536,codec:AudioCodec(rawValue:4))))
+            samplesPerFrame:1536,codec:StreamAudioCodec(rawValue:4))))
         XCTAssertThrowsError(try PCMAudioDecoder(pcmInfo(channels:1,mask:4,ms:5)))
         var info=pcmInfo(channels:2,mask:3,ms:5);info.sampleRate=44100
         XCTAssertThrowsError(try PCMAudioDecoder(info))

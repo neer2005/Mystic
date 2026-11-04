@@ -15,7 +15,7 @@ public final class StreamInputCapture {
     @ObservationIgnored var leaveStream: (() -> Void)?
     public var status: String {
         if controllerMouse,mode != .released { return "Controller mouse • A/B click, D-pad scrolls • hold Start for the controller" }
-        switch mode {
+        return switch mode {
         case .released: available ? "Click video to control • ⌃⌥⇧Esc releases input" : "Input waiting for connection"
         case .desktop: "Desktop control • ⌃⌥⇧Esc releases input"
         case .relative: "Mouse captured • ⌃⌥⇧Esc releases input"
