@@ -216,6 +216,9 @@ final class MetalPresentationReceiver: PresentationReceiver {
         layer.pixelFormat = .bgra8Unorm
         layer.colorspace=CGColorSpace(name:CGColorSpace.itur_709)
         layer.backgroundColor=CGColor(gray:0,alpha:1)
+        // The drawable is the picture's size and the frame already has its shape; Core Animation
+        // stretches one onto the other (see `DisplayLayerPresenter.drawableSize`).
+        layer.contentsGravity = .resize
     }
     func setDrawableSize(_ size: CGSize) {
         guard size.width >= 1,size.height >= 1 else { return }

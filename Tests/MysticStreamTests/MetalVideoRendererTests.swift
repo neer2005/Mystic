@@ -157,6 +157,14 @@ final class MetalVideoRendererTests: XCTestCase {
             XCTAssertTrue(synced.layer.displaySyncEnabled);XCTAssertEqual(synced.layer.maximumDrawableCount,2)
         } catch VideoDecoderError.unsupported { throw XCTSkip("No Metal device") }
     }
+    func testTheDrawableIsThePicturesSizeOnceThereIsOne() {
+        let frame=CGRect(x:0,y:0,width:1512,height:945)
+        XCTAssertEqual(DisplayLayerPresenter.drawableSize(video:.zero,frame:frame,pixelsPerPoint:2),CGSize(width:3024,height:1890),
+                       "before the first frame, the frame's pixels")
+        XCTAssertEqual(DisplayLayerPresenter.drawableSize(video:CGSize(width:1920,height:1080),frame:frame,pixelsPerPoint:2),CGSize(width:1920,height:1080),
+                       "the display scales the picture into the frame")
+        XCTAssertEqual(DisplayLayerPresenter.drawableSize(video:CGSize(width:1919.6,height:1080.2),frame:frame,pixelsPerPoint:2),CGSize(width:1920,height:1080))
+    }
     func testADrawFailureIsReportedOnce() {
         let slot=MetalFrameSlot<Int>()
         XCTAssertNil(slot.takeFailure())
