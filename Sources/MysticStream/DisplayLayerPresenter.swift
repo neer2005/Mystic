@@ -62,7 +62,15 @@ public final class DisplayLayerPresenter {
         let frame=rect.isEmpty ? container : rect
         surface.frame=frame
         CATransaction.commit()
-        metal?.setDrawableSize(CGSize(width:frame.width*pixelsPerPoint,height:frame.height*pixelsPerPoint))
+        metal?.setDrawableSize(Self.drawableSize(video:videoSize,frame:frame,pixelsPerPoint:pixelsPerPoint))
+    }
+    /// Metal draws the picture at its own size and Core Animation scales it into the frame: in
+    /// full screen the display's scaler does that, with a better filter than the shader's bilinear
+    /// one, and resizing the window no longer reallocates the drawables. Before the first frame,
+    /// when there is no size yet, the frame's own pixels.
+    nonisolated static func drawableSize(video: CGSize,frame: CGRect,pixelsPerPoint: CGFloat) -> CGSize {
+        if video.width >= 1,video.height >= 1 { return CGSize(width:video.width.rounded(),height:video.height.rounded()) }
+        return CGSize(width:frame.width*pixelsPerPoint,height:frame.height*pixelsPerPoint)
     }
     private let telemetry: VideoTelemetry?
     private let synchronizer=AVSampleBufferRenderSynchronizer()
