@@ -62,34 +62,10 @@ struct VideoLayerFormat: Equatable {
     var pixelFormat: MTLPixelFormat { transfer == .sdr && !tenBit ? .bgra8Unorm : .bgr10a2Unorm }
 }
 
-private let videoShaders="""
-#include <metal_stdlib>
-using namespace metal;
-struct Conversion { float yOffset,yScale,cOffset,cScale,codeScale,kr,kb; };
-struct Vertex { float4 position [[position]]; float2 uv; };
-vertex Vertex videoVertex(uint id [[vertex_id]]) {
-    float2 uv=float2((id << 1) & 2,id & 2);
-    return { float4(uv*float2(2,-2)+float2(-1,1),0,1),uv };
-}
-fragment float4 videoFragment(Vertex in [[stage_in]],texture2d<float> luma [[texture(0)]],texture2d<float> chroma [[texture(1)]],
-                              constant Conversion &c [[buffer(0)]]) {
-    constexpr sampler linear(filter::linear,address::clamp_to_edge);
-    float y=(luma.sample(linear,in.uv).r*c.codeScale-c.yOffset)/c.yScale;
-    float2 uv=(chroma.sample(linear,in.uv).rg*c.codeScale-c.cOffset)/c.cScale;
-    float r=y+2*(1-c.kr)*uv.y,b=y+2*(1-c.kb)*uv.x;
-    float g=(y-c.kr*r-c.kb*b)/(1-c.kr-c.kb);
-    return float4(saturate(float3(r,g,b)),1);
-}
-"""
-
 /// The video shaders and their pipelines, built once per process so no stream, reconnect or
 /// SDR/HDR switch compiles in front of a frame. `prewarm` builds the layer's two formats in the
 /// background as a stream starts, well before its first frame decodes; a frame that still beats
-/// it builds its own, as before.
-///
-/// Apple suggests compiling shaders offline into a metallib. That needs Xcode's separate Metal
-/// Toolchain download for every build, so the source is compiled at runtime instead, and Metal's
-/// on-disk shader cache makes every compile after the first one cheap.
+/// it builds its own.
 final class MetalVideoPipelines: @unchecked Sendable {
     /// Nil without a Metal device.
     static let shared: MetalVideoPipelines?=MTLCreateSystemDefaultDevice().map { MetalVideoPipelines(device:$0) }
@@ -132,9 +108,23 @@ final class MetalVideoPipelines: @unchecked Sendable {
     private func lockedLibrary() throws -> any MTLLibrary {
         lock.lock();defer { lock.unlock() }
         if let library { return try library.get() }
-        let built=Result { try device.makeLibrary(source:videoShaders,options:nil) }
+        let built=Result { try Self.library(device:device) }
         library=built
         return try built.get()
+    }
+    /// The source, shipped in the stream's resource bundle.
+    static var sourceURL: URL? { Bundle.module.url(forResource:"VideoShaders",withExtension:"metal") }
+    /// The app ships `VideoShaders.metallib`, which `build-macos-app.sh` compiles from
+    /// `VideoShaders.metal` with the Metal Toolchain, so a shader mistake fails the build and the
+    /// app parses no shader source. `swift test` and `swift run` have no app bundle, so they, or an
+    /// app whose metallib will not load, compile the same source here. SwiftPM is not left to
+    /// compile the file itself: its debug builds then warn about the resource bundle.
+    static func library(device: any MTLDevice,precompiled: URL? = Bundle.main.url(forResource:"VideoShaders",withExtension:"metallib")) throws -> any MTLLibrary {
+        if let precompiled,let library=try? device.makeLibrary(URL:precompiled) { return library }
+        guard let source=sourceURL else {
+            throw VideoDecoderError.unsupported("Metal video shaders are missing")
+        }
+        return try device.makeLibrary(source:String(contentsOf:source,encoding:.utf8),options:nil)
     }
 }
 

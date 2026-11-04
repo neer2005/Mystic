@@ -47,6 +47,13 @@ cat > "$app/Contents/Library/LaunchDaemons/com.mystic.streaming.awdl.plist" <<'P
 </dict></plist>
 PLIST
 cp -R "$binary_directory/Mystic_MysticStream.bundle" "$app/Contents/Resources/"
+# The video shaders, compiled here so a shader mistake or warning fails the build and the app
+# compiles no shader source at runtime. Needs Xcode's Metal Toolchain:
+# xcodebuild -downloadComponent MetalToolchain
+shader_flags=(-Werror -mmacosx-version-min=27.0)
+# Debug keeps the source in the library for Xcode's Metal debugger.
+[[ "$configuration" == "release" ]] || shader_flags+=(-frecord-sources -gline-tables-only)
+xcrun -sdk macosx metal "${shader_flags[@]}" -o "$app/Contents/Resources/VideoShaders.metallib" Sources/MysticStream/VideoShaders.metal
 mkdir -p "$app/Contents/Resources/ThirdPartyNotices"
 cp -R third_party/opus "$app/Contents/Resources/ThirdPartyNotices/"
 cp Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"

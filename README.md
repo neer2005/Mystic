@@ -71,7 +71,8 @@ keyboard and mouse back to the Mac at any time.
 
 ## Build it yourself
 
-You need macOS 27, Xcode 27, Rust and CMake.
+You need macOS 27, Xcode 27 with its Metal Toolchain, Rust and CMake. Xcode downloads the
+toolchain separately: `xcodebuild -downloadComponent MetalToolchain`.
 
 ```sh
 bash scripts/build-macos-app.sh
