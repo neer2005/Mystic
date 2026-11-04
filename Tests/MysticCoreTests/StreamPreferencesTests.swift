@@ -108,10 +108,25 @@ struct StreamPreferencesTests {
         #expect(ErrorCorrection.host.engineValue == -1 && ErrorCorrection.automatic.engineValue == -2 && ErrorCorrection.fifty.engineValue == 50)
     }
     @Test func nativeMacBookResolutionsSurviveValidationAndStorage() throws {
-        for resolution in ["3024x1890","3024x1964","3456x2234"] {
+        for resolution in ["3024x1890","3024x1964","3456x2160","3456x2234"] {
             var preferences=StreamPreferences();preferences.resolution=resolution
             let loaded=try JSONDecoder().decode(StreamPreferences.self,from:JSONEncoder().encode(preferences))
             #expect(loaded.validated().resolution == resolution)
+        }
+    }
+    @Test func metalStreamsSDRBelowTheCameraAndKeepsTheSavedChoice() {
+        var video=StreamVideoSettings();video.hdr=true;video.resolution="3024x1964"
+        #expect(video.limited(to:.displayLayer) == video,"the System renderer streams what was chosen")
+        let metal=video.limited(to:.metal)
+        #expect(!metal.hdr && metal.resolution == "3024x1890")
+        #expect(video.hdr && video.resolution == "3024x1964","the saved choice is untouched")
+        video.resolution="3456x2234";#expect(video.limited(to:.metal).resolution == "3456x2160")
+        for kept in [StreamPreferences.nativeResolution,"1920x1080","3024x1890","3456x2160"] {
+            video.resolution=kept;#expect(video.limited(to:.metal).resolution == kept)
+        }
+        for (full,below) in StreamPreferences.belowCamera {
+            #expect(StreamPreferences.resolutions.contains(full) && StreamPreferences.resolutions.contains(below))
+            #expect(StreamPreferences.belowCamera[below] == nil,"a size below the camera is final")
         }
     }
     @Test func supportedDefaultsRoundTripWithoutCredentials() throws {

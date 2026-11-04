@@ -64,7 +64,10 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public static let resolutions = ["640x360","854x480","1280x720","1366x768","1600x900","1920x1080","2560x1440","3840x2160",
                                      "1280x800","1920x1200","2560x1600","3840x2400",
                                      "2560x1080","3440x1440","5120x1440",
-                                     "3024x1890","3024x1964","3456x2234"]
+                                     "3024x1890","3024x1964","3456x2160","3456x2234"]
+    /// The MacBook Pro full-display sizes, each with the size below the camera that the Metal
+    /// renderer streams instead (see `StreamVideoSettings.limited(to:)`).
+    public static let belowCamera=["3024x1964":"3024x1890","3456x2234":"3456x2160"]
     /// Nightjar's frame rate menu after Display; Custom takes any rate in `customFrameRates`.
     public static let frameRates: [UInt32]=[30,60,90,120,144,165,240]
     public static let customFrameRates: ClosedRange<UInt32>=10...500
@@ -98,6 +101,7 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
         case "2560x1440": "1440p · 16:9"
         case "3024x1890": "MacBook Pro 14-inch below the camera · 16:10"
         case "3024x1964": "MacBook Pro 14-inch full display"
+        case "3456x2160": "MacBook Pro 16-inch below the camera · 16:10"
         case "3456x2234": "MacBook Pro 16-inch full display"
         case "3840x2160": "4K · 16:9"
         case "1280x800","1920x1200","2560x1600","3840x2400": "16:10"

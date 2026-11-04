@@ -7,38 +7,41 @@ struct GameVideoPreferencesView: View {
     private struct HostEditor: Identifiable { let id: String;let name: String }
     private var locked: Bool { model.hasSession || model.isBusy || model.hostProfileKey == nil }
     var body: some View {
-        Picker("Settings",selection:$model.gameVideoSource) {
-            ForEach(GameVideoSource.allCases,id:\.self) { source in Text(source.label).tag(source) }
-        }.disabled(locked)
-        if model.gameVideoSource == .custom {
-            VideoSettingsFields(value:Binding(get:{ model.effectiveVideoSettings },set:{ model.updateGameVideo($0) }),locked:locked,host:model.host?.display)
-            Text("Saved for this game on this host. Choosing inherited settings removes this game's custom video settings.")
-                .font(.caption).foregroundStyle(.secondary)
-        } else {
-            // The summary keeps Start Stream within reach; the inherited values are one click away.
-            let video=model.effectiveVideoSettings
-            LabeledContent("Stream",value:Self.summary(video))
-            DisclosureGroup("Details") {
-                LabeledContent("Resolution",value:StreamPreferences.resolutionLabel(video.resolution))
-                LabeledContent("Frame Rate",value:StreamPreferences.frameRateLabel(video.fps))
-                LabeledContent("Codec",value:Self.codec(video))
-                LabeledContent("Bitrate",value:"\(StreamPreferences.bitrateLabel(video.bitrateMbps))\(video.adaptiveBitrate ? " maximum · automatic" : "")")
-                LabeledContent("HDR",value:video.hdr ? "On" : "Off")
-                LabeledContent("Frame Pacing",value:video.framePacing.label)
-                if video.virtualDisplay || video.hostDisplay != .hostDefault {
-                    LabeledContent("PC Display",value:video.hostDisplay == .hostDefault ? "Virtual Display" : video.hostDisplay.label)
-                }
-                Text(model.gameVideoSource == .global ? "Follows Settings → Video, including future changes." :
-                    "Follows this host's defaults, or global defaults when the host has no custom settings.")
+        Group {
+            Picker("Settings",selection:$model.gameVideoSource) {
+                ForEach(GameVideoSource.allCases,id:\.self) { source in Text(source.label).tag(source) }
+            }.disabled(locked)
+            if model.gameVideoSource == .custom {
+                VideoSettingsFields(value:Binding(get:{ model.effectiveVideoSettings },set:{ model.updateGameVideo($0) }),locked:locked,host:model.host?.display)
+                Text("Saved for this game on this host. Choosing inherited settings removes this game's custom video settings.")
                     .font(.caption).foregroundStyle(.secondary)
+            } else {
+                // The summary keeps Start Stream within reach; the inherited values are one click away.
+                // It shows what streams get, which the Metal renderer limits.
+                let video=model.effectiveVideoSettings.limited(to:model.videoRenderer)
+                LabeledContent("Stream",value:Self.summary(video))
+                DisclosureGroup("Details") {
+                    LabeledContent("Resolution",value:StreamPreferences.resolutionLabel(video.resolution))
+                    LabeledContent("Frame Rate",value:StreamPreferences.frameRateLabel(video.fps))
+                    LabeledContent("Codec",value:Self.codec(video))
+                    LabeledContent("Bitrate",value:"\(StreamPreferences.bitrateLabel(video.bitrateMbps))\(video.adaptiveBitrate ? " maximum · automatic" : "")")
+                    LabeledContent("HDR",value:video.hdr ? "On" : "Off")
+                    LabeledContent("Frame Pacing",value:video.framePacing.label)
+                    if video.virtualDisplay || video.hostDisplay != .hostDefault {
+                        LabeledContent("PC Display",value:video.hostDisplay == .hostDefault ? "Virtual Display" : video.hostDisplay.label)
+                    }
+                    Text(model.gameVideoSource == .global ? "Follows Settings → Video, including future changes." :
+                        "Follows this host's defaults, or global defaults when the host has no custom settings.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
-        }
-        Button("Edit Host Defaults…") {
-            if let key=model.hostProfileKey { hostEditor=HostEditor(id:key,name:model.host?.name ?? "Host") }
-        }.disabled(locked).sheet(item:$hostEditor) { target in
-            HostVideoPreferencesView(model:model,hostKey:target.id,hostName:target.name)
-        }
-        if let error=model.profiles.error { Text(error).font(.caption).foregroundStyle(.red) }
+            Button("Edit Host Defaults…") {
+                if let key=model.hostProfileKey { hostEditor=HostEditor(id:key,name:model.host?.name ?? "Host") }
+            }.disabled(locked).sheet(item:$hostEditor) { target in
+                HostVideoPreferencesView(model:model,hostKey:target.id,hostName:target.name)
+            }
+            if let error=model.profiles.error { Text(error).font(.caption).foregroundStyle(.red) }
+        }.environment(\.videoRenderer,model.videoRenderer)
     }
     static func codec(_ video: StreamVideoSettings) -> String { video.codec == "auto" ? "Automatic" : video.codec == "h264" ? "H.264" : video.codec.uppercased() }
     /// For example "3024 × 1890 · 120 fps · HEVC · HDR".

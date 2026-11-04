@@ -392,7 +392,10 @@ public final class ConnectionModel {
     @ObservationIgnored var parseLink: (String) throws -> PairingLinkTarget = { try HostConnection.parsePairingLink($0) }
     @ObservationIgnored var launchRefreshRate: () -> Double? = { NSScreen.main.map(DisplayRefresh.hertz) }
     /// The size of that screen in pixels, for Native resolution.
-    @ObservationIgnored var launchDisplayPixels: () -> (width: UInt32,height: UInt32)? = { NSScreen.main.map(DisplayRefresh.pixels) }
+    /// The main screen in pixels for Native; true asks for the part below a notched display's camera.
+    @ObservationIgnored var launchDisplayPixels: (_ belowCamera: Bool) -> (width: UInt32,height: UInt32)? = { below in
+        NSScreen.main.map { DisplayRefresh.pixels($0,belowCamera:below) }
+    }
     /// The first headroom seen per screen this plan: macOS raises it as brightness falls, and
     /// a host that rewrote its HDR metadata for every change would restart its decoder.
     @ObservationIgnored private var reportedHeadroom: [String:Float] = [:]
@@ -642,8 +645,8 @@ public final class ConnectionModel {
     }
 
     private func preparedPlan(app: HostApp,capabilities: VideoCapabilities) throws -> StreamPlan {
-            let video=launchVideoSettings
-            let mode = video.mode(displayPixels:launchDisplayPixels(),displayHertz:launchRefreshRate())
+            let video=launchVideoSettings.limited(to:videoRenderer)
+            let mode = video.mode(displayPixels:launchDisplayPixels(videoRenderer == .metal),displayHertz:launchRefreshRate())
             var mask: UInt32 = capabilities.supportedFormats
             switch video.codec {
             case "h264": mask &= 0xF

@@ -33,7 +33,8 @@ stream over Wi-Fi reached the screen about 34 ms after the PC drew each frame, d
 **Fast, smooth video**
 - Hardware decoding of H.264, HEVC and AV1, with HDR10 and 10-bit color on Macs that support them
 - Lowest Latency, Balanced, frame-limited and Smoothest pacing, V-Sync on or off, and an optional
-  Metal renderer
+  Metal renderer that streams SDR below a MacBook's camera, so the display takes its full-screen
+  frames directly
 - Automatic bitrate, and live changes of bitrate and frame rate mid-stream on hosts that allow it
 - On Rubylight hosts, optionally test the link before a stream and lower the bitrate as soon as frames are lost
 - Can keep AirDrop's Wi-Fi link quiet during a stream, a common cause of stutter on Macs
@@ -41,7 +42,7 @@ stream over Wi-Fi reached the screen about 34 ms after the PC drew each frame, d
 **Feels like a Mac app**
 - One library of games from all your PCs, with box art, favorites and recently played
 - Wake-on-LAN, pairing with a PIN or a pairing link, and quick resume into a running game
-- Native full screen, menus and keyboard shortcuts, and settings per PC and per game; a full-display resolution such as 3024 × 1964 fills a notched MacBook screen up to the top edge
+- Native full screen, menus and keyboard shortcuts, and settings per PC and per game; a full-display resolution such as 3024 × 1964 fills a notched MacBook screen up to the top edge with the System renderer
 - Your Mac's pointer drives the desktop with no video delay; capture the mouse for games
 - Keyboard layouts, emoji and dictation reach the PC as text; saved key shortcuts for anything else
 
