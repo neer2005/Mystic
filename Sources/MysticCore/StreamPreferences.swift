@@ -31,6 +31,7 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public var videoRenderer: String? = nil // Missing in older documents; the display layer.
     public var videoSizing: String? = nil // Missing in older documents; Fit, as Nightjar.
     public var alignVideoTop: Bool? = nil // Missing in older documents; defaults off.
+    public var notchFullScreen: Bool? = nil // Missing in older documents; defaults off.
     public var playAudioOnHost: Bool? = nil // Missing in older documents; defaults off.
     public var uncompressedAudio: Bool? = nil // Missing in older documents; defaults off, as Nightjar.
     public var instantMouseInput: Bool? = nil // Missing in older documents; defaults on, as Nightjar.
@@ -65,8 +66,8 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
                                      "1280x800","1920x1200","2560x1600","3840x2400",
                                      "2560x1080","3440x1440","5120x1440",
                                      "3024x1890","3024x1964","3456x2160","3456x2234"]
-    /// The MacBook Pro full-display sizes, each with the size below the camera that the Metal
-    /// renderer streams instead (see `StreamVideoSettings.limited(to:)`).
+    /// The MacBook Pro full-display sizes, each with the size below the camera that streams
+    /// instead outside the notch mode (see `StreamVideoSettings.limited(to:)`).
     public static let belowCamera=["3024x1964":"3024x1890","3456x2234":"3456x2160"]
     /// Nightjar's frame rate menu after Display; Custom takes any rate in `customFrameRates`.
     public static let frameRates: [UInt32]=[30,60,90,120,144,165,240]
@@ -198,6 +199,18 @@ public struct HostDisplaySupport: Codable, Equatable, Sendable {
 public enum VideoRendererKind: String, Codable, CaseIterable, Sendable {
     case displayLayer,metal
     public var label: String { self == .metal ? "Metal (Experimental)" : "System" }
+}
+
+/// How streams reach the screen, which decides what a stream can use.
+public struct VideoOutput: Equatable, Sendable {
+    public var renderer: VideoRendererKind
+    /// Settings → Video → Full Screen Around the Camera, which only the System renderer uses.
+    public var notchFullScreen: Bool
+    public init(renderer: VideoRendererKind = .displayLayer,notchFullScreen: Bool = false) {
+        self.renderer=renderer;self.notchFullScreen=notchFullScreen
+    }
+    /// Whether full screen reaches the top of a notched panel (see `NotchFullScreen`).
+    public var coversNotch: Bool { renderer == .displayLayer && notchFullScreen }
 }
 
 /// How the picture fills the stream window, as Nightjar's "Video size".

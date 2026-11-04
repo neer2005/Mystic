@@ -51,6 +51,11 @@ public struct MysticSettingsView: View {
                             Text("Metal streams SDR and stays below a MacBook Pro's camera, so in full screen the display takes its pictures directly, without macOS compositing them.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
+                        Toggle("Full Screen Around the Camera",isOn:model.videoRenderer == .metal ? .constant(false) : $model.notchFullScreen)
+                            .disabled(model.hasSession || model.isBusy || model.videoRenderer == .metal)
+                        Text(model.videoRenderer == .metal ? "Off with the Metal renderer, which stays below the camera."
+                             : "On a MacBook Pro, full-display sizes such as 3024 × 1964 fill the screen to its top edge, as on the PC's panel. macOS composites every frame of this full screen, which adds delay; off, they stream at the size below the camera.")
+                            .font(.caption).foregroundStyle(.secondary)
                         Picker("Video Size",selection:$model.videoSizing) {
                             ForEach(VideoSizing.allCases,id:\.self) { Text($0.label).tag($0) }
                         }
@@ -165,7 +170,7 @@ public struct MysticSettingsView: View {
             }.formStyle(.grouped)
         }
         .frame(width:620,height:640)
-        .environment(\.videoRenderer,model.videoRenderer)
+        .environment(\.videoOutput,model.videoOutput)
         .onChange(of:model.settings.value) { model.applyLiveSettings() }
     }
     private func setting<T>(_ key: WritableKeyPath<StreamPreferences,T>) -> Binding<T> {
@@ -184,16 +189,17 @@ struct VideoPreferencesView: View {
 
 struct VideoSettingsFields: View {
     @Binding var value: StreamVideoSettings
-    @Environment(\.videoRenderer) private var renderer
+    @Environment(\.videoOutput) private var output
+    private var renderer: VideoRendererKind { output.renderer }
     var locked: Bool
     /// What this settings' host reports; nil for global settings, which offer every row.
     var host: HostDisplaySupport? = nil
     /// What Recommended comes to for these settings on this Mac's screen.
     private var recommended: StreamMode {
-        var video=value.limited(to:renderer);video.bitrateMbps=StreamPreferences.recommendedBitrate
-        return video.mode(displayPixels:NSScreen.main.map { DisplayRefresh.pixels($0,belowCamera:renderer == .metal) },displayHertz:NSScreen.main.map(DisplayRefresh.hertz))
+        var video=value.limited(to:output);video.bitrateMbps=StreamPreferences.recommendedBitrate
+        return video.mode(displayPixels:NSScreen.main.map { DisplayRefresh.pixels($0,belowCamera:!output.coversNotch) },displayHertz:NSScreen.main.map(DisplayRefresh.hertz))
     }
-    private var streamsHDR: Bool { value.limited(to:renderer).hdr }
+    private var streamsHDR: Bool { value.limited(to:output).hdr }
     var body: some View {
         Group {
             ResolutionField(resolution:$value.resolution)

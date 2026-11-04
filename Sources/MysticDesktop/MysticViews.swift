@@ -125,8 +125,9 @@ public struct StreamingView: View {
         }
         .windowToolbarFullScreenVisibility(.onHover)
         .background(WindowReader { window=$0
-            // Metal stays out of the notch mode, which macOS composites (see `StreamVideoSettings.limited(to:)`).
-            if let window=$0 { NotchFullScreen.install(on:window) { [model] in model.presenter?.renderer == .metal ? .zero : model.presenter?.videoSize ?? .zero } }
+            // The notch mode is opt-in and System-only, as macOS composites it (see `StreamVideoSettings.limited(to:)`).
+            // Both settings are locked while a stream runs, so they match the stream in this window.
+            if let window=$0 { NotchFullScreen.install(on:window) { [model] in model.videoOutput.coversNotch ? model.presenter?.videoSize ?? .zero : .zero } }
         })
         .fullScreenCommandTarget()
         // When the stream ends, a full-screen window must not be left showing an empty Space.

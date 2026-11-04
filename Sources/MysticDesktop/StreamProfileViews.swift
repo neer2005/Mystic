@@ -17,8 +17,8 @@ struct GameVideoPreferencesView: View {
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 // The summary keeps Start Stream within reach; the inherited values are one click away.
-                // It shows what streams get, which the Metal renderer limits.
-                let video=model.effectiveVideoSettings.limited(to:model.videoRenderer)
+                // It shows what streams get, which the renderer and notch mode limit.
+                let video=model.effectiveVideoSettings.limited(to:model.videoOutput)
                 LabeledContent("Stream",value:Self.summary(video))
                 DisclosureGroup("Details") {
                     LabeledContent("Resolution",value:StreamPreferences.resolutionLabel(video.resolution))
@@ -41,7 +41,7 @@ struct GameVideoPreferencesView: View {
                 HostVideoPreferencesView(model:model,hostKey:target.id,hostName:target.name)
             }
             if let error=model.profiles.error { Text(error).font(.caption).foregroundStyle(.red) }
-        }.environment(\.videoRenderer,model.videoRenderer)
+        }.environment(\.videoOutput,model.videoOutput)
     }
     static func codec(_ video: StreamVideoSettings) -> String { video.codec == "auto" ? "Automatic" : video.codec == "h264" ? "H.264" : video.codec.uppercased() }
     /// For example "3024 × 1890 · 120 fps · HEVC · HDR".

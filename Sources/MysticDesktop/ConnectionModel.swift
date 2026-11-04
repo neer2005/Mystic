@@ -645,8 +645,8 @@ public final class ConnectionModel {
     }
 
     private func preparedPlan(app: HostApp,capabilities: VideoCapabilities) throws -> StreamPlan {
-            let video=launchVideoSettings.limited(to:videoRenderer)
-            let mode = video.mode(displayPixels:launchDisplayPixels(videoRenderer == .metal),displayHertz:launchRefreshRate())
+            let output=videoOutput,video=launchVideoSettings.limited(to:output)
+            let mode = video.mode(displayPixels:launchDisplayPixels(!output.coversNotch),displayHertz:launchRefreshRate())
             var mask: UInt32 = capabilities.supportedFormats
             switch video.codec {
             case "h264": mask &= 0xF

@@ -56,7 +56,8 @@ struct ProfileDraft: Identifiable {
 }
 
 private struct NetworkProfileEditor: View {
-    @Environment(\.videoRenderer) private var renderer
+    @Environment(\.videoOutput) private var output
+    private var renderer: VideoRendererKind { output.renderer }
     @State var draft: ProfileDraft
     let document: PreferenceDocument<NetworkProfiles>
     @Environment(\.dismiss) private var dismiss
