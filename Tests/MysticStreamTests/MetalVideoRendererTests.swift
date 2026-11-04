@@ -68,6 +68,26 @@ final class MetalVideoRendererTests: XCTestCase {
         assertColor(try draw(frame(format,y:255,u:128,v:128,matrix:bt709)),[255,255,255])
         assertColor(try draw(frame(format,y:0,u:128,v:128,matrix:bt709)),[0,0,0])
     }
+    func testPrewarmBuildsBothLayerFormatsBeforeAFrameAsks() throws {
+        guard let device=MTLCreateSystemDefaultDevice() else { throw XCTSkip("No Metal device") }
+        let pipelines=MetalVideoPipelines(device:device)
+        XCTAssertFalse(MetalVideoPipelines.layerFormats.contains { pipelines.isBuilt($0) })
+        pipelines.prewarm();pipelines.prewarm()
+        let deadline=Date().addingTimeInterval(10)
+        while !MetalVideoPipelines.layerFormats.allSatisfy({ pipelines.isBuilt($0) }),Date() < deadline { usleep(5_000) }
+        for format in MetalVideoPipelines.layerFormats { XCTAssertTrue(pipelines.isBuilt(format),"\(format)") }
+        let first=try pipelines.pipeline(.bgra8Unorm)
+        XCTAssertTrue(first === (try pipelines.pipeline(.bgra8Unorm)),"a built pipeline is reused")
+        XCTAssertFalse(pipelines.isBuilt(.rgba8Unorm),"other formats wait to be asked for")
+        _=try pipelines.pipeline(.rgba8Unorm);XCTAssertTrue(pipelines.isBuilt(.rgba8Unorm))
+    }
+    func testEveryLayerFormatIsPrewarmed() throws {
+        let image=try frame(kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange,y:64,u:512,v:512,matrix:kCVImageBufferYCbCrMatrix_ITU_R_2020)
+        CVBufferSetAttachment(image,kCVImageBufferTransferFunctionKey,kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ,.shouldPropagate)
+        XCTAssertTrue(MetalVideoPipelines.layerFormats.contains(VideoLayerFormat(image:image).pixelFormat))
+        let sdr=try frame(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,y:16,u:128,v:128,matrix:kCVImageBufferYCbCrMatrix_ITU_R_709_2)
+        XCTAssertTrue(MetalVideoPipelines.layerFormats.contains(VideoLayerFormat(image:sdr).pixelFormat))
+    }
     func testTheTimelineRunsFromItsRestartWithoutFrames() {
         nonisolated(unsafe) var host=CMTime(value:5,timescale:1)
         let timeline=MetalTimeline(clock:{ host })
