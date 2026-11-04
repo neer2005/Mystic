@@ -82,31 +82,77 @@ fragment float4 videoFragment(Vertex in [[stage_in]],texture2d<float> luma [[tex
 }
 """
 
-/// Draws decoded IOSurfaces without a CPU copy. Used on one queue at a time.
-final class MetalFrameDrawer: @unchecked Sendable {
+/// The video shaders and their pipelines, built once per process so no stream, reconnect or
+/// SDR/HDR switch compiles in front of a frame. `prewarm` builds the layer's two formats in the
+/// background as a stream starts, well before its first frame decodes; a frame that still beats
+/// it builds its own, as before.
+///
+/// Apple suggests compiling shaders offline into a metallib. That needs Xcode's separate Metal
+/// Toolchain download for every build, so the source is compiled at runtime instead, and Metal's
+/// on-disk shader cache makes every compile after the first one cheap.
+final class MetalVideoPipelines: @unchecked Sendable {
+    /// Nil without a Metal device.
+    static let shared: MetalVideoPipelines?=MTLCreateSystemDefaultDevice().map { MetalVideoPipelines(device:$0) }
+    /// The formats `VideoLayerFormat` can give the layer, SDR first since most streams start there.
+    static let layerFormats: [MTLPixelFormat]=[.bgra8Unorm,.bgr10a2Unorm]
     let device: any MTLDevice
-    let queue: any MTLCommandQueue
-    private let library: any MTLLibrary
-    private let cache: CVMetalTextureCache
-    private var pipelines: [MTLPixelFormat:any MTLRenderPipelineState]=[:]
-    init() throws {
-        guard let device=MTLCreateSystemDefaultDevice(),let queue=device.makeCommandQueue() else { throw VideoDecoderError.unsupported("Metal is unavailable") }
-        var cache: CVMetalTextureCache?
-        try checked(CVMetalTextureCacheCreate(kCFAllocatorDefault,nil,device,nil,&cache),"Metal texture cache")
-        guard let cache else { throw VideoDecoderError.unsupported("Metal texture cache is unavailable") }
-        self.device=device;self.queue=queue;self.cache=cache
-        library=try device.makeLibrary(source:videoShaders,options:nil)
+    private let lock=NSLock()
+    private var library: Result<any MTLLibrary,any Error>?
+    private var states: [MTLPixelFormat:any MTLRenderPipelineState]=[:]
+    private var warming=false
+    init(device: any MTLDevice) { self.device=device }
+    /// Builds the layer formats off the caller's thread; later calls do nothing.
+    func prewarm() {
+        lock.lock();defer { lock.unlock() }
+        guard !warming else { return };warming=true
+        DispatchQueue.global(qos:.userInitiated).async {
+            for format in Self.layerFormats { _=try? self.pipeline(format) }
+        }
     }
-    private func pipeline(_ format: MTLPixelFormat) throws -> any MTLRenderPipelineState {
-        if let existing=pipelines[format] { return existing }
+    /// Whether `format` is ready without a compile.
+    func isBuilt(_ format: MTLPixelFormat) -> Bool { lock.lock();defer { lock.unlock() };return states[format] != nil }
+    func pipeline(_ format: MTLPixelFormat) throws -> any MTLRenderPipelineState {
+        lock.lock()
+        if let existing=states[format] { lock.unlock();return existing }
+        lock.unlock()
+        let library=try lockedLibrary()
+        // Built outside the lock, so a frame never waits on the other format's build; when both
+        // ask for one format at once, Metal's cache makes the second build short.
         let description=MTLRenderPipelineDescriptor()
         description.vertexFunction=library.makeFunction(name:"videoVertex")
         description.fragmentFunction=library.makeFunction(name:"videoFragment")
         description.colorAttachments[0].pixelFormat=format
         let state=try device.makeRenderPipelineState(descriptor:description)
-        pipelines[format]=state
+        lock.lock();defer { lock.unlock() }
+        if let first=states[format] { return first }
+        states[format]=state
         return state
     }
+    /// Compiled once under the lock: every pipeline needs it, so waiting for it is never wasted.
+    private func lockedLibrary() throws -> any MTLLibrary {
+        lock.lock();defer { lock.unlock() }
+        if let library { return try library.get() }
+        let built=Result { try device.makeLibrary(source:videoShaders,options:nil) }
+        library=built
+        return try built.get()
+    }
+}
+
+/// Draws decoded IOSurfaces without a CPU copy. Used on one queue at a time.
+final class MetalFrameDrawer: @unchecked Sendable {
+    var device: any MTLDevice { pipelines.device }
+    let queue: any MTLCommandQueue
+    private let pipelines: MetalVideoPipelines
+    private let cache: CVMetalTextureCache
+    init() throws {
+        guard let pipelines=MetalVideoPipelines.shared,let queue=pipelines.device.makeCommandQueue() else { throw VideoDecoderError.unsupported("Metal is unavailable") }
+        var cache: CVMetalTextureCache?
+        try checked(CVMetalTextureCacheCreate(kCFAllocatorDefault,nil,pipelines.device,nil,&cache),"Metal texture cache")
+        guard let cache else { throw VideoDecoderError.unsupported("Metal texture cache is unavailable") }
+        self.pipelines=pipelines;self.queue=queue;self.cache=cache
+        pipelines.prewarm()
+    }
+    private func pipeline(_ format: MTLPixelFormat) throws -> any MTLRenderPipelineState { try pipelines.pipeline(format) }
     private func plane(_ image: CVPixelBuffer,_ index: Int,_ format: MTLPixelFormat) throws -> (CVMetalTexture,any MTLTexture) {
         var texture: CVMetalTexture?
         try checked(CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault,cache,image,nil,format,
