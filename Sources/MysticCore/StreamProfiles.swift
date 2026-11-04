@@ -67,6 +67,18 @@ public struct StreamVideoSettings: Codable, Equatable, Sendable {
         var preferences=StreamPreferences();preferences.videoSettings=self
         return Self(preferences:preferences)
     }
+    /// What a stream drawn by `renderer` uses. The Metal renderer is kept to pictures the display
+    /// can take straight from it: macOS composites every frame of an HDR layer (its tone mapping)
+    /// and of the notch-covering full screen, which the Metal HUD shows and which adds delay. So
+    /// Metal streams SDR, and a full-display size becomes the size below the camera. The saved
+    /// choice is kept, for the System renderer. Native is limited where the screen is read.
+    public func limited(to renderer: VideoRendererKind) -> Self {
+        guard renderer == .metal else { return self }
+        var value=self
+        value.hdr=false
+        if let below=StreamPreferences.belowCamera[resolution] { value.resolution=below }
+        return value
+    }
 }
 
 /// A stream's settled size, rate and bitrate.

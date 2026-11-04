@@ -47,6 +47,10 @@ public struct MysticSettingsView: View {
                         Picker("Renderer",selection:$model.videoRenderer) {
                             ForEach(VideoRendererKind.allCases,id:\.self) { Text($0.label).tag($0) }
                         }.disabled(model.hasSession || model.isBusy)
+                        if model.videoRenderer == .metal {
+                            Text("Metal streams SDR and stays below a MacBook Pro's camera, so in full screen the display takes its pictures directly, without macOS compositing them.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                         Picker("Video Size",selection:$model.videoSizing) {
                             ForEach(VideoSizing.allCases,id:\.self) { Text($0.label).tag($0) }
                         }
@@ -161,6 +165,7 @@ public struct MysticSettingsView: View {
             }.formStyle(.grouped)
         }
         .frame(width:620,height:640)
+        .environment(\.videoRenderer,model.videoRenderer)
         .onChange(of:model.settings.value) { model.applyLiveSettings() }
     }
     private func setting<T>(_ key: WritableKeyPath<StreamPreferences,T>) -> Binding<T> {
@@ -179,14 +184,16 @@ struct VideoPreferencesView: View {
 
 struct VideoSettingsFields: View {
     @Binding var value: StreamVideoSettings
+    @Environment(\.videoRenderer) private var renderer
     var locked: Bool
     /// What this settings' host reports; nil for global settings, which offer every row.
     var host: HostDisplaySupport? = nil
     /// What Recommended comes to for these settings on this Mac's screen.
     private var recommended: StreamMode {
-        var video=value;video.bitrateMbps=StreamPreferences.recommendedBitrate
-        return video.mode(displayPixels:NSScreen.main.map(DisplayRefresh.pixels),displayHertz:NSScreen.main.map(DisplayRefresh.hertz))
+        var video=value.limited(to:renderer);video.bitrateMbps=StreamPreferences.recommendedBitrate
+        return video.mode(displayPixels:NSScreen.main.map { DisplayRefresh.pixels($0,belowCamera:renderer == .metal) },displayHertz:NSScreen.main.map(DisplayRefresh.hertz))
     }
+    private var streamsHDR: Bool { value.limited(to:renderer).hdr }
     var body: some View {
         Group {
             ResolutionField(resolution:$value.resolution)
@@ -212,14 +219,16 @@ struct VideoSettingsFields: View {
                 Stepper("Minimum Frame Rate: \(value.qualityMinFps) fps",value:$value.qualityMinFps,in:15...240,step:5)
                 Text("Lowers resolution or frame rate when this Mac or the network can't keep up, never below these minimums. Needs a PC that accepts size changes.").font(.caption).foregroundStyle(.secondary)
             }
-            Toggle("HDR",isOn:$value.hdr)
-            Text("Needs a game and PC with HDR. On displays without HDR, macOS maps the picture to SDR.")
+            // With Metal the saved choice stays for the System renderer; the toggle shows what streams get.
+            Toggle("HDR",isOn:renderer == .metal ? .constant(false) : $value.hdr).disabled(renderer == .metal)
+            Text(renderer == .metal ? "Off with the Metal renderer: macOS composites every HDR frame to tone map it, which adds delay. The System renderer streams HDR."
+                 : "Needs a game and PC with HDR. On displays without HDR, macOS maps the picture to SDR.")
                 .font(.caption).foregroundStyle(.secondary)
-            Toggle("Prefer YUV 4:4:4",isOn:$value.preferYUV444).disabled(value.hdr)
-            Text(value.hdr ? "HDR takes priority." : "Sharper colored text where the PC and this Mac support it. Can't be combined with 10-bit color.")
+            Toggle("Prefer YUV 4:4:4",isOn:$value.preferYUV444).disabled(streamsHDR)
+            Text(streamsHDR ? "HDR takes priority." : "Sharper colored text where the PC and this Mac support it. Can't be combined with 10-bit color.")
                 .font(.caption).foregroundStyle(.secondary)
-            Toggle("10-bit Color (SDR)",isOn:$value.tenBitSDR).disabled(value.hdr)
-            Text(value.hdr ? "HDR is already 10-bit and takes priority." : "Reduces banding in gradients. Needs a PC that offers it, with its display in SDR.")
+            Toggle("10-bit Color (SDR)",isOn:$value.tenBitSDR).disabled(streamsHDR)
+            Text(streamsHDR ? "HDR is already 10-bit and takes priority." : "Reduces banding in gradients. Needs a PC that offers it, with its display in SDR.")
                 .font(.caption).foregroundStyle(.secondary)
             PCDisplayFields(value:$value,host:host)
         }.disabled(locked)

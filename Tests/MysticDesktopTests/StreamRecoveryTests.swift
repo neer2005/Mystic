@@ -658,13 +658,37 @@ final class StreamRecoveryTests: XCTestCase {
         let host=RecoveryHost(),sessions=RecoverySessions()
         let model=try await running(host,sessions,RecoveryClock(),configure:{
             $0.settings.update { $0.resolution="native";$0.fps=0;$0.bitrateMbps=0;$0.playAudioOnHost=true }
-            $0.launchDisplayPixels={ (2560,1440) };$0.launchRefreshRate={ 119.88 }
+            $0.launchDisplayPixels={ _ in (2560,1440) };$0.launchRefreshRate={ 119.88 }
         })
         let launch=try XCTUnwrap(host.launches.last),configuration=try XCTUnwrap(sessions.all[0].configuration)
         XCTAssertEqual(launch.width,2560);XCTAssertEqual(launch.height,1440);XCTAssertEqual(launch.fps,120)
         XCTAssertTrue(launch.playLocalAudio)
         XCTAssertEqual(configuration.width,2560);XCTAssertEqual(configuration.fps,120)
         XCTAssertEqual(configuration.bitrateKbps,StreamMode.recommendedKbps(width:2560,height:1440,fps:120))
+        model.disconnect()
+    }
+    func testMetalLaunchesSDRBelowTheCamera() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        let model=try await running(host,sessions,RecoveryClock(),configure:{
+            $0.videoRenderer = .metal
+            $0.settings.update { $0.resolution="3024x1964";$0.hdr=true;$0.fps=120 }
+        })
+        let launch=try XCTUnwrap(host.launches.last),configuration=try XCTUnwrap(sessions.all[0].configuration)
+        XCTAssertEqual(launch.width,3024);XCTAssertEqual(launch.height,1890);XCTAssertFalse(launch.hdr)
+        XCTAssertEqual(configuration.height,1890);XCTAssertEqual(configuration.colorSpace,1,"SDR color")
+        XCTAssertTrue(model.settings.value.hdr,"the saved choice stays for the System renderer")
+        XCTAssertEqual(model.settings.value.resolution,"3024x1964")
+        model.disconnect()
+    }
+    func testMetalNativeStopsBelowTheCamera() async throws {
+        let host=RecoveryHost(),sessions=RecoverySessions()
+        let model=try await running(host,sessions,RecoveryClock(),configure:{
+            $0.videoRenderer = .metal
+            $0.settings.update { $0.resolution="native" }
+            $0.launchDisplayPixels={ below in below ? (3024,1900) : (3024,1964) }
+        })
+        let launch=try XCTUnwrap(host.launches.last)
+        XCTAssertEqual(launch.width,3024);XCTAssertEqual(launch.height,1900)
         model.disconnect()
     }
     func testPCDisplayChoicesGoToTheLaunch() async throws {
