@@ -26,6 +26,8 @@ public final class StreamInputCapture {
     @ObservationIgnored private let failure: (String) -> Void
     @ObservationIgnored private weak var view: RemoteVideoView?
     @ObservationIgnored private var controllers: StreamControllers?
+    /// The captured mouse's movement through GameController, off the main thread.
+    @ObservationIgnored private var mouse: StreamMouse?
     @ObservationIgnored private var monitor: Any?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var state = RemoteInputState()
@@ -39,6 +41,10 @@ public final class StreamInputCapture {
     @ObservationIgnored var input=InputPreferences() {
         didSet {
             guard input != oldValue else { return }
+            if let mouse,mode == .relative {
+                let scale=input.mouseScale
+                ControllerActor.run { mouse.setEnabled(true,scale:scale) }
+            }
             guard let controllers else { return }
             let input=input,changed=input.controllers != oldValue.controllers,active=input.controllers && mode != .released
             ControllerActor.run {
@@ -106,6 +112,13 @@ public final class StreamInputCapture {
         }
         mode = next
         refreshCursor()
+        if next == .relative {
+            if mouse == nil { mouse=makeMouse() }
+            if let mouse {
+                let scale=input.mouseScale
+                ControllerActor.run { mouse.setEnabled(true,scale:scale) }
+            }
+        }
         if controllers == nil { controllers=makeControllers() }
         if let controllers {
             let enabled=input.controllers
@@ -115,6 +128,18 @@ public final class StreamInputCapture {
         installMonitor(window:window)
     }
     var clipboardActive: Bool { available && NSApp.isActive && view?.window?.isKeyWindow == true }
+    private func makeMouse() -> StreamMouse {
+        let send=send
+        return ControllerActor.run {
+            StreamMouse(send:send,failure: { [weak self] in
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        self?.release();self?.failure("Input backlog was full. Control released to avoid stuck keys; click the video to resume.")
+                    }
+                }
+            })
+        }
+    }
     /// Controllers report on their own queue; what they say to the user comes back here, in order.
     private func makeControllers() -> StreamControllers {
         let send=send,input=input
@@ -159,6 +184,7 @@ public final class StreamInputCapture {
         mode = .released
         // Waits for the controller queue, so no press reaches the host after the release below.
         if let controllers { ControllerActor.run { controllers.setEnabled(false) } }
+        if let mouse { ControllerActor.run { mouse.setEnabled(false,scale:1) } }
         if let monitor { NSEvent.removeMonitor(monitor);self.monitor = nil }
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
@@ -249,6 +275,8 @@ public final class StreamInputCapture {
         if mode == .desktop { position(event,clamp:dragged) }
         else {
             if skipWarpMotion { skipWarpMotion = false;return }
+            // GameController sent this movement already, unaccelerated and off the main thread.
+            if mouse?.activity.covers == true { return }
             let (dx,dy) = movement.consume(x:event.deltaX,y:event.deltaY,scale:input.mouseScale)
             if dx != 0 || dy != 0 { emit([.motion(dx:dx,dy:dy)]) }
         }

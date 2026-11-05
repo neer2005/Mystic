@@ -1,6 +1,7 @@
 import Dispatch
 
-/// Where controllers live: their buttons and sticks, motion, battery, light and motors. Apple's
+/// Where controllers live, with their buttons and sticks, motion, battery, light and motors, and
+/// the captured mouse's movement (`StreamMouse`). Apple's
 /// "Handling input events" guide has GameController call input handlers on a device's
 /// `handlerQueue`, which is the main queue unless an app gives it its own. On the main queue a
 /// press waits behind whatever the main thread is doing: SwiftUI, the stream's stats, the
