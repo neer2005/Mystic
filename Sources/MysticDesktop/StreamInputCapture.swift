@@ -21,7 +21,8 @@ public final class StreamInputCapture {
         case .relative: "Mouse captured • ⌃⌥⇧Esc releases input"
         }
     }
-    @ObservationIgnored private let send: (RemoteInputEvent) -> Bool
+    /// Also called on the controller queue (`ControllerActor`), so it must be safe from any thread.
+    @ObservationIgnored private let send: @Sendable (RemoteInputEvent) -> Bool
     @ObservationIgnored private let failure: (String) -> Void
     @ObservationIgnored private weak var view: RemoteVideoView?
     @ObservationIgnored private var controllers: StreamControllers?
@@ -38,8 +39,12 @@ public final class StreamInputCapture {
     @ObservationIgnored var input=InputPreferences() {
         didSet {
             guard input != oldValue else { return }
-            controllers?.settings=input
-            if input.controllers != oldValue.controllers { controllers?.setActive(input.controllers && mode != .released) }
+            guard let controllers else { return }
+            let input=input,changed=input.controllers != oldValue.controllers,active=input.controllers && mode != .released
+            ControllerActor.run {
+                controllers.settings=input
+                if changed { controllers.setActive(active) }
+            }
         }
     }
     /// The host's cursor as the pointer over the video while it sends shapes.
@@ -57,7 +62,7 @@ public final class StreamInputCapture {
     /// Desktop control draws the host's cursor; the host has left it out of the video.
     var drawsHostCursor: Bool { hostCursorOn && mode == .desktop }
 
-    init(send: @escaping (RemoteInputEvent) -> Bool, failure: @escaping (String) -> Void) {
+    init(send: @escaping @Sendable (RemoteInputEvent) -> Bool, failure: @escaping (String) -> Void) {
         self.send = send;self.failure = failure
         hostCursor.changed = { [weak self] in self?.refreshCursor() }
         hostCursor.failure = { [weak self] message in
@@ -101,39 +106,59 @@ public final class StreamInputCapture {
         }
         mode = next
         refreshCursor()
-        if controllers == nil {
-            controllers=StreamControllers(feedbackFailure:failure,send:send,failure: { [weak self] in
-                self?.release();self?.failure("Controller input backlog was full. Control released; click video to resume.")
-            })
-            controllers?.settings=input
-            controllers?.leave = { [weak self] in self?.leaveStream?() }
-            // Mystic's stand-in for Nightjar's stream menu: as ⌃⌥⇧Esc, so the window's controls are in reach.
-            controllers?.guideHeld = { [weak self] in
-                guard let self else { return }
-                failure("Guide held: input released to the Mac. Click the video to control the PC again.")
-                release()
-            }
-            controllers?.mouseSwitched = { [weak self] on in
-                guard let self else { return }
-                controllerMouse=on
-                // Nightjar's toasts, in the session log.
-                failure(on ? "Controller mouse enabled. A/B click; D-pad scrolls. Hold Start to return to gamepad." : "Controller mouse disabled.")
-            }
+        if controllers == nil { controllers=makeControllers() }
+        if let controllers {
+            let enabled=input.controllers
+            ControllerActor.run { controllers.setEnabled(enabled) }
         }
-        controllers?.setEnabled(input.controllers)
         guard mode != .released else { return }
         installMonitor(window:window)
     }
     var clipboardActive: Bool { available && NSApp.isActive && view?.window?.isKeyWindow == true }
-    var feedbackEpoch: UInt64? { mode == .released ? nil : controllers?.feedbackEpoch }
+    /// Controllers report on their own queue; what they say to the user comes back here, in order.
+    private func makeControllers() -> StreamControllers {
+        let send=send,input=input
+        let toMain: @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void={ work in
+            DispatchQueue.main.async { MainActor.assumeIsolated(work) }
+        }
+        return ControllerActor.run {
+            let controllers=StreamControllers(feedbackFailure: { [weak self] message in toMain { self?.failure(message) } },send:send,failure: { [weak self] in
+                toMain { self?.release();self?.failure("Controller input backlog was full. Control released; click video to resume.") }
+            })
+            controllers.settings=input
+            controllers.leave = { [weak self] in toMain { self?.leaveStream?() } }
+            // Mystic's stand-in for Nightjar's stream menu: as ⌃⌥⇧Esc, so the window's controls are in reach.
+            controllers.guideHeld = { [weak self] in
+                toMain {
+                    guard let self else { return }
+                    self.failure("Guide held: input released to the Mac. Click the video to control the PC again.")
+                    self.release()
+                }
+            }
+            controllers.mouseSwitched = { [weak self] on in
+                toMain {
+                    guard let self else { return }
+                    self.controllerMouse=on
+                    // Nightjar's toasts, in the session log.
+                    self.failure(on ? "Controller mouse enabled. A/B click; D-pad scrolls. Hold Start to return to gamepad." : "Controller mouse disabled.")
+                }
+            }
+            return controllers
+        }
+    }
+    var feedbackEpoch: UInt64? {
+        guard mode != .released,let controllers else { return nil }
+        return ControllerActor.run { controllers.feedbackEpoch }
+    }
     func applyControllerFeedback(_ values: [ControllerFeedback],epoch: UInt64?) {
-        guard mode != .released,let epoch else { return }
-        controllers?.applyFeedback(values,epoch:epoch)
+        guard mode != .released,let epoch,let controllers else { return }
+        ControllerActor.run { controllers.applyFeedback(values,epoch:epoch) }
     }
     public func release() {
         let hadInput = mode != .released
         mode = .released
-        controllers?.setEnabled(false)
+        // Waits for the controller queue, so no press reaches the host after the release below.
+        if let controllers { ControllerActor.run { controllers.setEnabled(false) } }
         if let monitor { NSEvent.removeMonitor(monitor);self.monitor = nil }
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()

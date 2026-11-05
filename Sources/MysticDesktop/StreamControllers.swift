@@ -2,12 +2,12 @@ import Foundation
 import GameController
 import MysticCore
 
-/// Handlers live on the main queue alongside capture focus. Extended profiles provide
-/// positional face buttons for both Xbox and PlayStation controllers. Up to 16 controllers,
-/// as Nightjar; the engine folds them to four for hosts that take no more.
-@MainActor
+/// Runs on `ControllerActor`'s queue, where GameController delivers every pad's input. Extended
+/// profiles provide positional face buttons for both Xbox and PlayStation controllers. Up to 16
+/// controllers, as Nightjar; the engine folds them to four for hosts that take no more.
+@ControllerActor
 final class StreamControllers {
-    static let slots=16
+    nonisolated static let slots=16
     private var devices: [Int:GCController] = [:]
     private let connectedDevices: () -> [GCController]
     private var observers: [NSObjectProtocol] = []
@@ -26,7 +26,7 @@ final class StreamControllers {
     private var physical: [Int:UInt32] = [:]
     private var lastState: [Int:ControllerState] = [:]
     private var guides: [Int:GuideHold] = [:]
-    private var mouseTimer: Timer?
+    private var mouseTimer: (any DispatchSourceTimer)?
     private let nowMillis: () -> UInt64
     /// The leave combo was pressed.
     var leave: () -> Void = {}
@@ -59,15 +59,16 @@ final class StreamControllers {
          send: @escaping (RemoteInputEvent) -> Bool, failure: @escaping () -> Void) {
         self.send=send;self.failure=failure;self.connectedDevices=connectedDevices;self.nowMillis=nowMillis
         self.makeHaptics=makeHaptics;self.makeExtras=makeExtras;self.feedbackFailure=feedbackFailure
-        let center=NotificationCenter.default
+        let center=NotificationCenter.default,queue=OperationQueue()
+        queue.underlyingQueue=ControllerActor.queue;queue.maxConcurrentOperationCount=1
         for name in [NSNotification.Name.GCControllerDidConnect,NSNotification.Name.GCControllerDidDisconnect] {
-            observers.append(center.addObserver(forName:name,object:nil,queue:.main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refresh() }
+            observers.append(center.addObserver(forName:name,object:nil,queue:queue) { [weak self] _ in
+                ControllerActor.assumeIsolated { self?.refresh() }
             })
         }
     }
     isolated deinit {
-        mouseTimer?.invalidate()
+        mouseTimer?.cancel()
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         for controller in devices.values { controller.extendedGamepad?.valueChangedHandler=nil }
         for feedback in haptics.values { feedback.stop() }
@@ -125,11 +126,11 @@ final class StreamControllers {
         feedbackEpoch &+= 1
         for slot in devices.keys.sorted() {
             guard enabled,let device=devices[slot] else { return }
-            device.handlerQueue = .main
+            device.handlerQueue=ControllerActor.queue
             guard emit(arrival(slot:slot,device:device)) else { return }
             startExtras(slot:slot,device:device)
             device.extendedGamepad?.valueChangedHandler = { [weak self,weak device] _,_ in
-                MainActor.assumeIsolated {
+                ControllerActor.assumeIsolated {
                     guard let self,let device,self.enabled,self.devices[slot] === device else { return }
                     self.submit(slot:slot)
                 }
@@ -249,12 +250,13 @@ final class StreamControllers {
     }
     /// The sticks move the pointer between changes too, so a held stick keeps moving it.
     private func updateMouseTimer() {
-        guard enabled,mouseActive || guides.values.contains(where: \.waiting) else { mouseTimer?.invalidate();mouseTimer=nil;return }
+        guard enabled,mouseActive || guides.values.contains(where: \.waiting) else { mouseTimer?.cancel();mouseTimer=nil;return }
         guard mouseTimer == nil else { return }
         // Wakes more often than the mouse's 50 ms step, so steps don't slip to every other tick.
-        mouseTimer=Timer.scheduledTimer(withTimeInterval:1.0/60,repeats:true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tickMice() }
-        }
+        let timer=DispatchSource.makeTimerSource(queue:ControllerActor.queue)
+        timer.schedule(deadline:.now()+1.0/60,repeating:1.0/60,leeway:.milliseconds(1))
+        timer.setEventHandler { [weak self] in ControllerActor.assumeIsolated { self?.tickMice() } }
+        timer.resume();mouseTimer=timer
     }
     func tickMice() {
         guard enabled else { return }

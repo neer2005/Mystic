@@ -3,9 +3,9 @@ import GameController
 import MysticCore
 @testable import MysticDesktop
 
-@MainActor
+@ControllerActor
 final class ControllerExtrasTests: XCTestCase {
-    func testArrivalAdvertisesExtrasAndBatteryFollowsIt() {
+    func testArrivalAdvertisesExtrasAndBatteryFollowsIt() async {
         let controller=GCController.withExtendedGamepad(),other=GCController.withExtendedGamepad()
         let extras=FakeControllerExtras(capabilities:[.accelerometer,.gyroscope,.battery,.light])
         extras.initialBattery=ControllerBattery(state:.charging,level:0.8)
@@ -23,7 +23,7 @@ final class ControllerExtrasTests: XCTestCase {
         manager.setEnabled(false)
         XCTAssertEqual(extras.stops,1)
     }
-    func testMotionOffStopsSensorsAndIsNoLongerAdvertised() {
+    func testMotionOffStopsSensorsAndIsNoLongerAdvertised() async {
         let controller=GCController.withExtendedGamepad(),extras=FakeControllerExtras(capabilities:[.gyroscope,.accelerometer])
         var events:[RemoteInputEvent]=[]
         let manager=StreamControllers(connectedDevices:{ [controller] },makeHaptics:{ _ in nil },makeExtras:{ _ in extras },
@@ -38,7 +38,7 @@ final class ControllerExtrasTests: XCTestCase {
         XCTAssertTrue(extras.rates.isEmpty)
         manager.setEnabled(false)
     }
-    func testLightAndMotionRatesReachOnlyControllersThatHaveThem() {
+    func testLightAndMotionRatesReachOnlyControllersThatHaveThem() async {
         let lit=GCController.withExtendedGamepad(),plain=GCController.withExtendedGamepad()
         let light=FakeControllerExtras(capabilities:[.light,.gyroscope]),none=FakeControllerExtras(capabilities:[])
         let manager=StreamControllers(connectedDevices:{ [lit,plain] },makeHaptics:{ _ in nil },
@@ -60,7 +60,7 @@ final class ControllerExtrasTests: XCTestCase {
         XCTAssertEqual(light.lights.count,1,"a stale poll is dropped")
         manager.setEnabled(false)
     }
-    func testMotionFromAReleasedOrReplacedControllerIsDropped() {
+    func testMotionFromAReleasedOrReplacedControllerIsDropped() async {
         let first=GCController.withExtendedGamepad(),second=GCController.withExtendedGamepad()
         let old=FakeControllerExtras(capabilities:[.gyroscope]),new=FakeControllerExtras(capabilities:[.gyroscope])
         var connected=[first],events:[RemoteInputEvent]=[]
@@ -81,7 +81,7 @@ final class ControllerExtrasTests: XCTestCase {
         new.motion?(.gyroscope,1,1,1)
         XCTAssertEqual(events.last,.controllerMotion(slot:0,kind:.gyroscope,x:7,y:8,z:9),"nothing after release")
     }
-    func testGenericPadKeepsClassicButtonsAndGuideFollowsHome() throws {
+    func testGenericPadKeepsClassicButtonsAndGuideFollowsHome() async throws {
         let controller=GCController.withExtendedGamepad()
         let pad=try XCTUnwrap(controller.extendedGamepad)
         XCTAssertEqual(StreamControllers.kind(controller),.unknown)
@@ -95,14 +95,14 @@ final class ControllerExtrasTests: XCTestCase {
             home.setValue(0)
         }
     }
-    func testBatteryLevelsBecomeMoonlightPercentages() {
+    func testBatteryLevelsBecomeMoonlightPercentages() async {
         XCTAssertEqual(ControllerBattery(state:.discharging,level:0.456).percent,46)
         XCTAssertEqual(ControllerBattery(state:.full,level:1).percent,100)
         for level in [Float(-0.1),1.1,.nan,.infinity] { XCTAssertEqual(ControllerBattery(state:.unknown,level:level).percent,0xFF) }
     }
 }
 
-@MainActor
+@ControllerActor
 private final class FakeControllerExtras: ControllerExtras {
     let capabilities: ControllerCapabilities
     var initialBattery: ControllerBattery?

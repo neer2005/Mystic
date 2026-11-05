@@ -3,7 +3,7 @@ import GameController
 import MysticCore
 
 /// A controller's light, motion sensors and battery, beside its buttons and motors.
-@MainActor
+@ControllerActor
 protocol ControllerExtras: AnyObject {
     /// Some of accelerometer, gyroscope, battery and light; never analog triggers or motors.
     var capabilities: ControllerCapabilities { get }
@@ -18,7 +18,7 @@ protocol ControllerExtras: AnyObject {
 /// GameController's light, GCMotion and battery. Motion is converted to Moonlight's units
 /// (m/s² with gravity as an upward reaction, degrees per second) in GameController's axes;
 /// whether those match the host's pad axes is unverified until a physical playtest.
-@MainActor
+@ControllerActor
 final class NativeControllerExtras: ControllerExtras {
     private let controller: GCController
     let capabilities: ControllerCapabilities
@@ -27,7 +27,7 @@ final class NativeControllerExtras: ControllerExtras {
     private var motion: ((ControllerMotionKind,Float,Float,Float) -> Void)?
     private var battery: ((ControllerBattery) -> Void)?
     private var lastBattery: ControllerBattery?
-    private var batteryTimer: Timer?
+    private var batteryTimer: (any DispatchSourceTimer)?
     private var restoredGestures: [(GCControllerElement,GCControllerElement.SystemGestureState)] = []
     private var stopped=false
 
@@ -57,12 +57,13 @@ final class NativeControllerExtras: ControllerExtras {
     func start(motion: @escaping (ControllerMotionKind,Float,Float,Float) -> Void,battery: @escaping (ControllerBattery) -> Void) {
         guard !stopped else { return }
         self.motion=motion;self.battery=battery
-        batteryTimer?.invalidate();batteryTimer=nil;lastBattery=nil
+        batteryTimer?.cancel();batteryTimer=nil;lastBattery=nil
         guard capabilities.contains(.battery) else { return }
         reportBattery()
-        batteryTimer=Timer.scheduledTimer(withTimeInterval:5,repeats:true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reportBattery() }
-        }
+        let timer=DispatchSource.makeTimerSource(queue:ControllerActor.queue)
+        timer.schedule(deadline:.now()+5,repeating:5,leeway:.seconds(1))
+        timer.setEventHandler { [weak self] in ControllerActor.assumeIsolated { self?.reportBattery() } }
+        timer.resume();batteryTimer=timer
     }
     private func reportBattery() {
         guard !stopped,let device=controller.battery else { return }
@@ -86,7 +87,7 @@ final class NativeControllerExtras: ControllerExtras {
         let active = !rates.isEmpty
         if device.sensorsRequireManualActivation { device.sensorsActive=active }
         device.valueChangedHandler = active ? { [weak self] motion in
-            MainActor.assumeIsolated { self?.report(motion) }
+            ControllerActor.assumeIsolated { self?.report(motion) }
         } : nil
     }
     private func report(_ device: GCMotion) {
@@ -109,7 +110,7 @@ final class NativeControllerExtras: ControllerExtras {
     }
     func stop() {
         guard !stopped else { return };stopped=true
-        batteryTimer?.invalidate();batteryTimer=nil
+        batteryTimer?.cancel();batteryTimer=nil
         if let device=controller.motion {
             device.valueChangedHandler=nil
             if device.sensorsRequireManualActivation { device.sensorsActive=false }

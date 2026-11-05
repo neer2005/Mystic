@@ -3,9 +3,9 @@ import GameController
 import MysticCore
 @testable import MysticDesktop
 
-@MainActor
+@ControllerActor
 final class StreamControllerTests: XCTestCase {
-    func testPositionalFaceButtonsAndAnalogSnapshot() throws {
+    func testPositionalFaceButtonsAndAnalogSnapshot() async throws {
         let controller=GCController.withExtendedGamepad()
         let pad=try XCTUnwrap(controller.extendedGamepad)
         let buttons:[(GCControllerButtonInput?,UInt32)] = [
@@ -29,7 +29,7 @@ final class StreamControllerTests: XCTestCase {
         pad.rightThumbstick.setValueForXAxis(0,yAxis:1)
         XCTAssertEqual(StreamControllers.snapshot(pad),ControllerState(leftTrigger:128,rightTrigger:255,leftX:-32768,rightY:32767))
     }
-    func testDiscoverySlotsReleaseReconnectAndCapacity() {
+    func testDiscoverySlotsReleaseReconnectAndCapacity() async {
         let all=(0..<17).map { _ in GCController.withExtendedGamepad() }
         var connected=all,events:[RemoteInputEvent]=[]
         let manager=StreamControllers(connectedDevices:{ connected },send:{ events.append($0);return true },failure:{ XCTFail("Unexpected overflow") })
@@ -51,12 +51,13 @@ final class StreamControllerTests: XCTestCase {
         XCTAssertGreaterThan(events.count,count)
         manager.setEnabled(false)
     }
-    func testValueCallbacksAndCallbacksAfterReleaseOrUnplug() throws {
+    func testValueCallbacksAndCallbacksAfterReleaseOrUnplug() async throws {
         let controller=GCController.withExtendedGamepad()
         let pad=try XCTUnwrap(controller.extendedGamepad)
         var connected=[controller],events:[RemoteInputEvent]=[]
         let manager=StreamControllers(connectedDevices:{ connected },send:{ events.append($0);return true },failure:{ XCTFail("Unexpected failure") })
         manager.setEnabled(true)
+        XCTAssertTrue(controller.handlerQueue === ControllerActor.queue,"GameController calls in on the controller queue, not main")
         let callback=try XCTUnwrap(pad.valueChangedHandler)
         pad.buttonA.setValue(1);callback(pad,pad.buttonA)
         XCTAssertEqual(events.last,.controller(slot:0,activeMask:1,state:ControllerState(buttons:0x1000)))
@@ -72,7 +73,19 @@ final class StreamControllerTests: XCTestCase {
         XCTAssertEqual(events.count,unplugged)
         manager.setEnabled(false)
     }
-    func testBacklogFailureDisablesDiscoveryAndLateCallbacks() {
+    /// The main actor waits for the controller queue, behind what is already on it, as a release
+    /// does; on the queue itself the call runs inline.
+    nonisolated func testRunWaitsFromMainAndRunsInlineOnTheQueue() async {
+        let order=SentInput()
+        let ran=await MainActor.run {
+            ControllerActor.queue.async { Thread.sleep(forTimeInterval:0.05);order.append(.releaseAll) }
+            return ControllerActor.run { order.all }
+        }
+        XCTAssertEqual(ran,[.releaseAll],"work already on the queue finishes first")
+        let nested=ControllerActor.run { ControllerActor.run { 42 } }
+        XCTAssertEqual(nested,42,"no deadlock when already on the queue")
+    }
+    func testBacklogFailureDisablesDiscoveryAndLateCallbacks() async {
         let controller=GCController.withExtendedGamepad()
         var failures=0,attempts=0
         let manager=StreamControllers(connectedDevices:{ [controller] },send:{ _ in attempts+=1;return false },failure:{ failures+=1 })
@@ -87,7 +100,7 @@ final class StreamControllerTests: XCTestCase {
 extension RemoteInputEvent {
     /// The arrival a test controller gets: its own type, buttons and sensors, as the manager
     /// reads them (Apple's virtual pad has an accelerometer). `extras: false` for fake extras.
-    @MainActor static func arrival(_ controller: GCController,slot: UInt8,mask: UInt16,
+    @ControllerActor static func arrival(_ controller: GCController,slot: UInt8,mask: UInt16,
                                    capabilities: ControllerCapabilities = .analogTriggers,epoch: UInt64,extras: Bool = true) -> RemoteInputEvent {
         let native=extras ? NativeControllerExtras.capabilities(of:controller) : []
         return .controllerArrival(slot:slot,activeMask:mask,capabilities:capabilities.union(native),feedbackEpoch:epoch,

@@ -3,7 +3,7 @@ import GameController
 import CoreHaptics
 import MysticCore
 
-@MainActor
+@ControllerActor
 protocol ControllerHaptics: AnyObject {
     var capabilities: ControllerCapabilities { get }
     func apply(_ feedback: ControllerFeedback) throws
@@ -11,7 +11,7 @@ protocol ControllerHaptics: AnyObject {
 }
 
 /// Only controller-created engines are used; the Mac's own haptic device is never a fallback.
-@MainActor
+@ControllerActor
 final class NativeControllerHaptics: ControllerHaptics {
     private let low: Motor?
     private let high: Motor?
@@ -67,7 +67,7 @@ final class NativeControllerHaptics: ControllerHaptics {
 }
 
 /// Reuses a continuous player while a motor is active. Zero stops the pattern immediately.
-@MainActor
+@ControllerActor
 private final class Motor {
     private let engine: CHHapticEngine
     private let sharpness: Float
