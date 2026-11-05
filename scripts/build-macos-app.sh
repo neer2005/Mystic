@@ -57,7 +57,10 @@ xcrun -sdk macosx metal "${shader_flags[@]}" -o "$app/Contents/Resources/VideoSh
 mkdir -p "$app/Contents/Resources/ThirdPartyNotices"
 cp -R third_party/opus "$app/Contents/Resources/ThirdPartyNotices/"
 cp Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
-cat > "$app/Contents/Info.plist" <<'PLIST'
+# The games category is what lets macOS turn on Game Mode while Mystic is full screen: Mystic
+# gets CPU and GPU priority over background work, and Bluetooth controllers and AirPods are
+# polled twice as often, which cuts their input and audio delay. Windowed streams don't get it.
+cat >"$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -69,6 +72,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>__VERSION__</string>
 <key>CFBundleVersion</key><string>__BUILD__</string>
+<key>LSApplicationCategoryType</key><string>public.app-category.games</string>
 <key>LSMinimumSystemVersion</key><string>27.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSMicrophoneUsageDescription</key><string>Mystic sends your microphone to the streaming host when you enable Use Mac Microphone.</string>

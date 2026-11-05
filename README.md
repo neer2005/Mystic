@@ -38,6 +38,8 @@ stream over Wi-Fi reached the screen about 34 ms after the PC drew each frame, d
 - Automatic bitrate, and live changes of bitrate and frame rate mid-stream on hosts that allow it
 - On Rubylight hosts, optionally test the link before a stream and lower the bitrate as soon as frames are lost
 - Can keep AirDrop's Wi-Fi link quiet during a stream, a common cause of stutter on Macs
+- macOS Game Mode in full screen: priority over background work, and half the Bluetooth delay for
+  controllers and AirPods
 
 **Feels like a Mac app**
 - One library of games from all your PCs, with box art, favorites and recently played
