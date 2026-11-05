@@ -14,9 +14,9 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 # Pinned engine revision. Bump deliberately and re-run the ABI tests.
-nightjar-core = { git = "https://github.com/RamazanKara/nightjar", rev = "f25e40b6ebacb7ab0d7fcea5f55f63006670df58", package = "nightjar-core" }
-rubylight-protocol = { git = "https://github.com/RamazanKara/nightjar", rev = "f25e40b6ebacb7ab0d7fcea5f55f63006670df58", package = "rubylight-protocol" }
-nightjar-policy = { git = "https://github.com/RamazanKara/nightjar", rev = "f25e40b6ebacb7ab0d7fcea5f55f63006670df58", package = "nightjar-policy" }
+nightjar-core = { git = "https://github.com/RamazanKara/nightjar", rev = "30a31fd3de760bb41107b8b61cad61c94f7599af", package = "nightjar-core" }
+rubylight-protocol = { git = "https://github.com/RamazanKara/nightjar", rev = "30a31fd3de760bb41107b8b61cad61c94f7599af", package = "rubylight-protocol" }
+nightjar-policy = { git = "https://github.com/RamazanKara/nightjar", rev = "30a31fd3de760bb41107b8b61cad61c94f7599af", package = "nightjar-policy" }
 
 serde_json = "1"
 opus = "=0.4.0"
