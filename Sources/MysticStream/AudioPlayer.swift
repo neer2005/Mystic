@@ -51,7 +51,9 @@ extension AudioOutputPipeline { var outputFrames: Int { 0 } }
 
 /// Serialized decode/control feeds a real-time SPSC reader. Device recovery never runs on the render thread.
 public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
-    private let queue = DispatchQueue(label:"Mystic.Audio")
+    /// User-interactive: the concealment timer fires here and must land before the next Core Audio
+    /// read. At the default priority a busy Mac can run it late and the read finds the ring dry.
+    private let queue = DispatchQueue(label:"Mystic.Audio",qos:.userInteractive)
     private let log: @Sendable (String) -> Void
     /// The start of the packet trimmed last, which the next one fades in from.
     private var trimHead: [Float]=[]

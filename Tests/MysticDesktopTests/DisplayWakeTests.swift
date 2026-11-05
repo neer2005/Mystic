@@ -16,4 +16,8 @@ final class DisplayWakeTests: XCTestCase {
         native.update(streaming:true);XCTAssertTrue(native.held)
         native.update(streaming:false);XCTAssertFalse(native.held)
     }
+    func testStreamingAsksForPreciseTimersAndAwakeDisplay() {
+        XCTAssertTrue(DisplayWake.activityOptions.contains(.latencyCritical))
+        XCTAssertTrue(DisplayWake.activityOptions.contains(.idleDisplaySleepDisabled))
+    }
 }
