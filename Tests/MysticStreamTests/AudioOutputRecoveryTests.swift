@@ -331,7 +331,22 @@ final class AudioPlayoutTests: XCTestCase {
     /// jitter, read 512 frames at a time. Concealing below 10 ms with no lead replaced about 12
     /// packets a second (6 %) with concealment and threw the real ones away.
     func testOrdinaryWiFiJitterIsNeverConcealed() {
-        var playout=AudioPlayout(packetMs:5)
+        let run=wifiJitter(read:512)
+        XCTAssertEqual(run.concealed,0,"no real packet was replaced")
+        XCTAssertEqual(run.underrun,512,"silent only for the read before the first packet arrived")
+    }
+    /// The 5 ms buffer Mystic asks the Mac for: the same jitter, nothing concealed, and about
+    /// 10 ms less queued, since the lead holds one read.
+    func testAFiveMillisecondReadQueuesLessWithoutConcealing() {
+        let usual=wifiJitter(read:512),short=wifiJitter(read:240)
+        XCTAssertEqual(short.concealed,0)
+        XCTAssertEqual(short.underrun,240,"silent only for the read before the first packet arrived")
+        XCTAssertLessThan(short.queuedMs,usual.queuedMs-8,"\(short.queuedMs) ms against \(usual.queuedMs) ms")
+    }
+    /// 60 s of 5 ms packets with about 3 ms of jitter, read `read` frames at a time, with the
+    /// late-packet timer ticking every 5 ms. `queuedMs` is the average before each read.
+    private func wifiJitter(read: Int) -> (concealed: Int,underrun: Int,queuedMs: Double) {
+        var playout=AudioPlayout(packetMs:5,outputFrames:read)
         var seed: UInt64=7
         func uniform() -> Double { seed=seed &* 6364136223846793005 &+ 1442695040888963407;return Double(seed >> 11)/Double(1 << 53) }
         var arrivals: [Double]=[],previous=0.0
@@ -342,21 +357,22 @@ final class AudioPlayoutTests: XCTestCase {
         }
         enum Event { case packet,read,tick }
         var events: [(Double,Event)]=arrivals.map { ($0,.packet) }
-        events+=stride(from:0.0,to:60_000,by:512.0/48).map { ($0,.read) }
+        events+=stride(from:0.0,to:60_000,by:Double(read)/48).map { ($0,.read) }
         events+=stride(from:0.0,to:60_000,by:5.0).map { ($0,.tick) }
         events.sort { $0.0 < $1.0 }
-        var queued=0,concealed=0,underrun=0
+        var queued=0,concealed=0,underrun=0,total=0,reads=0
         for (at,event) in events {
             let now=UInt64(at*1_000_000)
             switch event {
             case .packet:
                 if case let .play(lead)=playout.packet(lost:false,queued:queued,nowNanos:now) { queued=min(2880,queued+lead+240) }
-            case .read: if queued < 512 { underrun+=512-queued;queued=0 } else { queued-=512 }
+            case .read:
+                total+=queued;reads+=1
+                if queued < read { underrun+=read-queued;queued=0 } else { queued-=read }
             case .tick: let n=playout.tick(queued:queued,nowNanos:now);concealed+=n;queued+=n*240
             }
         }
-        XCTAssertEqual(concealed,0,"no real packet was replaced")
-        XCTAssertEqual(underrun,512,"silent only for the read before the first packet arrived")
+        return (concealed,underrun,Double(total)/Double(max(1,reads))/48)
     }
 }
 

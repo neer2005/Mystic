@@ -103,6 +103,28 @@ final class AudioOutputMonitor: AudioOutputMonitoring, @unchecked Sendable {
         guard AudioObjectGetPropertyData(id,&address,0,nil,&size,&frames) == noErr,(1...16384).contains(frames) else { return nil }
         return Int(frames)
     }
+    /// Asks `id` to read Mystic's audio `seconds` at a time and returns the frames it settled on.
+    /// macOS keeps this per process, so other apps playing on the same device keep their own
+    /// buffer, and it lapses when Mystic stops using the device. The playout's lead is 10 ms plus
+    /// one read (`AudioPlayout.lead`), so macOS's usual 512 frames held about 11 ms of that.
+    @discardableResult
+    static func requestBufferDuration(_ seconds: Double,on id: AudioDeviceID) -> Int? {
+        guard id != kAudioObjectUnknown else { return nil }
+        var rateAddress=address(kAudioDevicePropertyNominalSampleRate)
+        var rate: Float64=0,rateSize=UInt32(MemoryLayout<Float64>.size)
+        guard AudioObjectGetPropertyData(id,&rateAddress,0,nil,&rateSize,&rate) == noErr,rate > 0 else { return nil }
+        var rangeAddress=address(kAudioDevicePropertyBufferFrameSizeRange,scope:kAudioObjectPropertyScopeOutput)
+        var range=AudioValueRange(),rangeSize=UInt32(MemoryLayout<AudioValueRange>.size)
+        guard AudioObjectGetPropertyData(id,&rangeAddress,0,nil,&rangeSize,&range) == noErr else { return nil }
+        var frames=UInt32(bufferFrames(seconds:seconds,sampleRate:rate,range:range.mMinimum...range.mMaximum))
+        var sizeAddress=address(kAudioDevicePropertyBufferFrameSize,scope:kAudioObjectPropertyScopeOutput)
+        guard AudioObjectSetPropertyData(id,&sizeAddress,0,nil,UInt32(MemoryLayout<UInt32>.size),&frames) == noErr else { return nil }
+        return bufferFrames(id)
+    }
+    /// `seconds` at `sampleRate`, within what the device allows.
+    static func bufferFrames(seconds: Double,sampleRate: Double,range: ClosedRange<Double>) -> Int {
+        Int(min(max((seconds*sampleRate).rounded(),range.lowerBound),range.upperBound))
+    }
     static func describe(_ id: AudioDeviceID) -> AudioOutputDevice? {
         guard id != kAudioObjectUnknown else { return nil }
         var address=address(kAudioObjectPropertyName)

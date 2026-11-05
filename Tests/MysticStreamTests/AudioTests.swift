@@ -116,6 +116,27 @@ final class AudioTests: XCTestCase {
             XCTAssertGreaterThan((0..<256).map { abs(channels[0][$0]) }.max() ?? 0,0.1)
         }
     }
+    func testTheBufferAskedForIsFiveMillisecondsWithinTheDevicesRange() {
+        XCTAssertEqual(AudioOutputMonitor.bufferFrames(seconds:0.005,sampleRate:48000,range:15...4096),240)
+        XCTAssertEqual(AudioOutputMonitor.bufferFrames(seconds:0.005,sampleRate:44100,range:15...4096),221)
+        XCTAssertEqual(AudioOutputMonitor.bufferFrames(seconds:0.005,sampleRate:96000,range:15...4096),480)
+        XCTAssertEqual(AudioOutputMonitor.bufferFrames(seconds:0.005,sampleRate:48000,range:512...4096),512,"a device that reads no less")
+        XCTAssertEqual(AudioOutputMonitor.bufferFrames(seconds:0.005,sampleRate:48000,range:15...128),128)
+    }
+    /// The Mac's own output, when there is one: the engine keeps the shorter read once it runs.
+    func testANativeOutputReadsFiveMillisecondsAtATime() throws {
+        let graph: AudioPipeline
+        do { graph=try AudioPipeline(volume:0) } catch { throw XCTSkip("No audio output: \(error.localizedDescription)") }
+        defer { graph.stop() }
+        let id=graph.engine.outputNode.withAUAudioUnit { $0.deviceID }
+        var address=AudioObjectPropertyAddress(mSelector:kAudioDevicePropertyBufferFrameSizeRange,
+                                               mScope:kAudioObjectPropertyScopeOutput,mElement:kAudioObjectPropertyElementMain)
+        var range=AudioValueRange(),size=UInt32(MemoryLayout<AudioValueRange>.size)
+        try XCTSkipUnless(AudioObjectGetPropertyData(id,&address,0,nil,&size,&range) == noErr)
+        let expected=AudioOutputMonitor.bufferFrames(seconds:0.005,sampleRate:graph.sampleRate,range:range.mMinimum...range.mMaximum)
+        XCTAssertEqual(AudioOutputMonitor.bufferFrames(id),expected)
+        XCTAssertEqual(graph.outputFrames,Int((Double(expected)*48000/graph.sampleRate).rounded(.up)))
+    }
     func testNativeOutputMonitorCanBeRestartedAndStoppedWithoutChangingDevices() throws {
         let monitor=AudioOutputMonitor()
         defer { monitor.stop() }

@@ -360,6 +360,7 @@ final class AudioPipeline: AudioOutputPipeline, @unchecked Sendable {
             let output=AVAudioFormat(standardFormatWithSampleRate:targetRate,channelLayout:layout)
             try engine.connectNode(engine.mainMixerNode,to:engine.outputNode,format:output)
         }
+        if !manualRendering { AudioOutputRoute.requestLowLatencyBuffer(engine) }
         engine.prepare()
         if let configurationChanged {
             observer=NotificationCenter.default.addObserver(forName:.AVAudioEngineConfigurationChange,object:engine,queue:nil) { _ in configurationChanged() }
