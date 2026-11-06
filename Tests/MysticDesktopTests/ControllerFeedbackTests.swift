@@ -4,9 +4,9 @@ import CoreHaptics
 import MysticCore
 @testable import MysticDesktop
 
-@MainActor
+@ControllerActor
 final class ControllerFeedbackTests: XCTestCase {
-    func testAdvertisesOnlyAvailableMotorsAndRoutesBySlotAndKind() {
+    func testAdvertisesOnlyAvailableMotorsAndRoutesBySlotAndKind() async {
         let first=GCController.withExtendedGamepad(),second=GCController.withExtendedGamepad()
         let handles=FakeControllerHaptics(capabilities:.rumble)
         let full=FakeControllerHaptics(capabilities:[.rumble,.triggerRumble])
@@ -30,7 +30,7 @@ final class ControllerFeedbackTests: XCTestCase {
         manager.setEnabled(false)
         XCTAssertEqual(handles.stops,1);XCTAssertEqual(full.stops,1)
     }
-    func testReleaseAndSlotReuseFencePendingFeedback() {
+    func testReleaseAndSlotReuseFencePendingFeedback() async {
         let first=GCController.withExtendedGamepad(),replacement=GCController.withExtendedGamepad()
         var connected=[first]
         let old=FakeControllerHaptics(capabilities:.rumble),new=FakeControllerHaptics(capabilities:.rumble)
@@ -54,7 +54,7 @@ final class ControllerFeedbackTests: XCTestCase {
         connected=[];manager.refresh();XCTAssertEqual(new.stops,1)
         manager.setEnabled(false)
     }
-    func testMotorFailureStopsFeedbackWithoutDisablingControllerInput() {
+    func testMotorFailureStopsFeedbackWithoutDisablingControllerInput() async {
         let controller=GCController.withExtendedGamepad(),motor=FakeControllerHaptics(capabilities:.rumble)
         motor.reject=true
         var warnings:[String]=[],events:[RemoteInputEvent]=[]
@@ -68,7 +68,7 @@ final class ControllerFeedbackTests: XCTestCase {
         XCTAssertTrue(events.contains(.arrival(controller,slot:0,mask:1,epoch:manager.feedbackEpoch)))
         manager.setEnabled(false)
     }
-    func testMissingHapticsKeepBasicControllerSupport() {
+    func testMissingHapticsKeepBasicControllerSupport() async {
         let controller=GCController.withExtendedGamepad()
         var events:[RemoteInputEvent]=[]
         let manager=StreamControllers(connectedDevices:{ [controller] },makeHaptics:{ _ in nil },
@@ -79,7 +79,7 @@ final class ControllerFeedbackTests: XCTestCase {
         XCTAssertNotNil(controller.extendedGamepad?.valueChangedHandler)
         manager.setEnabled(false)
     }
-    func testDisablingVibrationSilencesMotorsAndIgnoresTheHost() {
+    func testDisablingVibrationSilencesMotorsAndIgnoresTheHost() async {
         let controller=GCController.withExtendedGamepad(),motor=FakeControllerHaptics(capabilities:[.rumble,.triggerRumble])
         let manager=StreamControllers(connectedDevices:{ [controller] },makeHaptics:{ _ in motor },
             send:{ _ in true },failure:{ XCTFail("Input failure") })
@@ -94,7 +94,7 @@ final class ControllerFeedbackTests: XCTestCase {
         XCTAssertEqual(motor.applied.count,count)
         manager.setEnabled(false)
     }
-    func testContinuousControllerPatternsAreAcceptedByCoreHaptics() throws {
+    func testContinuousControllerPatternsAreAcceptedByCoreHaptics() async throws {
         // Real framework validation catches invalid controller-duration or dynamic-parameter syntax.
         for intensity:Float in [0.001,0.5,1] {
             _=try NativeControllerHaptics.pattern(intensity:intensity,sharpness:0)
@@ -103,7 +103,7 @@ final class ControllerFeedbackTests: XCTestCase {
     }
 }
 
-@MainActor
+@ControllerActor
 private final class FakeControllerHaptics: ControllerHaptics {
     let capabilities: ControllerCapabilities
     var applied:[ControllerFeedback]=[]

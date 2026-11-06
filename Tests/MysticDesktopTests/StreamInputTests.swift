@@ -63,7 +63,7 @@ final class StreamInputTests: XCTestCase {
         window.close()
     }
     func testCaptureNeverStartsWithoutConnectionOrVideo() {
-        var events:[RemoteInputEvent]=[]
+        let events=SentInput()
         let capture=StreamInputCapture(send:{ events.append($0);return true },failure:{ _ in })
         let presenter=DisplayLayerPresenter()
         let view=RemoteVideoView(presenter:presenter,capture:capture)
@@ -74,7 +74,7 @@ final class StreamInputTests: XCTestCase {
         capture.controlDesktop();capture.captureMouse()
         XCTAssertEqual(capture.mode,.released)
         capture.release();capture.setAvailable(false)
-        XCTAssertTrue(events.isEmpty)
+        XCTAssertTrue(events.all.isEmpty)
         capture.detach(view)
     }
     func testVideoDisplayTracksWindowAttachmentReplacementAndScreenNotifications() {
@@ -100,4 +100,12 @@ final class StreamInputTests: XCTestCase {
         XCTAssertNil(replacement.videoOutput.screenName)
         window.close()
     }
+}
+
+/// What a capture sent; controllers send from their own queue, so this is locked.
+final class SentInput: @unchecked Sendable {
+    private let lock=NSLock()
+    private var events:[RemoteInputEvent]=[]
+    func append(_ event: RemoteInputEvent) { lock.withLock { events.append(event) } }
+    var all:[RemoteInputEvent] { lock.withLock { events } }
 }

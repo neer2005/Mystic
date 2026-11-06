@@ -51,7 +51,9 @@ extension AudioOutputPipeline { var outputFrames: Int { 0 } }
 
 /// Serialized decode/control feeds a real-time SPSC reader. Device recovery never runs on the render thread.
 public final class AudioPlayer: AudioConsumer, @unchecked Sendable {
-    private let queue = DispatchQueue(label:"Mystic.Audio")
+    /// User-interactive: the concealment timer fires here and must land before the next Core Audio
+    /// read. At the default priority a busy Mac can run it late and the read finds the ring dry.
+    private let queue = DispatchQueue(label:"Mystic.Audio",qos:.userInteractive)
     private let log: @Sendable (String) -> Void
     /// The start of the packet trimmed last, which the next one fades in from.
     private var trimHead: [Float]=[]
@@ -358,6 +360,7 @@ final class AudioPipeline: AudioOutputPipeline, @unchecked Sendable {
             let output=AVAudioFormat(standardFormatWithSampleRate:targetRate,channelLayout:layout)
             try engine.connectNode(engine.mainMixerNode,to:engine.outputNode,format:output)
         }
+        if !manualRendering { AudioOutputRoute.requestLowLatencyBuffer(engine) }
         engine.prepare()
         if let configurationChanged {
             observer=NotificationCenter.default.addObserver(forName:.AVAudioEngineConfigurationChange,object:engine,queue:nil) { _ in configurationChanged() }

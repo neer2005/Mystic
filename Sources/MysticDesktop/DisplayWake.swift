@@ -6,11 +6,15 @@ import Foundation
 /// the screen saver off while its window is open.
 @MainActor
 final class DisplayWake {
+    /// `.latencyCritical` asks macOS for its most precise timers while a stream runs. Mystic
+    /// times each frame's present and the audio concealment ahead of every Core Audio read with
+    /// timers, and macOS otherwise coalesces timers by up to milliseconds to save power.
+    nonisolated static let activityOptions: ProcessInfo.ActivityOptions=[.idleDisplaySleepDisabled,.userInitiated,.latencyCritical]
     private var activity: (any NSObjectProtocol)?
     private let begin: () -> any NSObjectProtocol
     private let end: (any NSObjectProtocol) -> Void
     init(begin: @escaping () -> any NSObjectProtocol = {
-            ProcessInfo.processInfo.beginActivity(options:[.idleDisplaySleepDisabled,.userInitiated],reason:"Streaming a game")
+            ProcessInfo.processInfo.beginActivity(options:DisplayWake.activityOptions,reason:"Streaming a game")
          },
          end: @escaping (any NSObjectProtocol) -> Void = { ProcessInfo.processInfo.endActivity($0) }) {
         self.begin=begin;self.end=end
