@@ -6,9 +6,14 @@ implement a Rust trait.
 ## Nightjar revision
 
 Pinned to Nightjar 4.7.0, `30a31fd3de760bb41107b8b61cad61c94f7599af`
-(synced 2026-10-30). `nightjar-core`, `rubylight-protocol`,
-and `nightjar-policy` must use the same revision; commit the updated `Cargo.lock`
-with all three pins.
+(synced 2026-10-30), plus one Mac commit on Mystic's fork:
+[`neer2005/nightjar`](https://github.com/neer2005/nightjar/tree/mac-service-type) at
+`8a341cbc11618ee5babc697ef18a5fc65440af59`. Upstream leaves the stream sockets unmarked on
+macOS; that commit gives them the same DSCP marking as Linux and a network service type
+(interactive voice for control, input and audio, interactive video for video). When moving to
+a newer Nightjar, rebase that commit onto it and pin the result. `nightjar-core`,
+`rubylight-protocol`, and `nightjar-policy` must use the same revision; commit the updated
+`Cargo.lock` with all three pins.
 
 This brings in upstream engine fixes, including HEVC prefix-SEI preservation,
 FEC loss reporting for hosts that negotiate it, session-start failure reporting,
