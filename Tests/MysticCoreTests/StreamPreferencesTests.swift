@@ -121,8 +121,8 @@ struct StreamPreferencesTests {
         #expect(video.limited(to:notch) == video,"the notch mode streams what was chosen")
         let below=video.limited(to:system)
         #expect(below.hdr && below.resolution == "3024x1890","the System renderer keeps HDR")
-        let sdr=video.limited(to:metal)
-        #expect(!sdr.hdr && sdr.resolution == "3024x1890")
+        let metalStream=video.limited(to:metal)
+        #expect(metalStream.hdr && metalStream.resolution == "3024x1890","Metal tone maps HDR itself and keeps it")
         #expect(video.hdr && video.resolution == "3024x1964","the saved choice is untouched")
         video.resolution="3456x2234"
         #expect(video.limited(to:system).resolution == "3456x2160" && video.limited(to:metal).resolution == "3456x2160")

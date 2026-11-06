@@ -48,7 +48,7 @@ public struct MysticSettingsView: View {
                             ForEach(VideoRendererKind.allCases,id:\.self) { Text($0.label).tag($0) }
                         }.disabled(model.hasSession || model.isBusy)
                         if model.videoRenderer == .metal {
-                            Text("Metal streams SDR and stays below a MacBook Pro's camera, so in full screen the display takes its pictures directly, without macOS compositing them.")
+                            Text("Metal stays below a MacBook Pro's camera and fits HDR to the screen itself, so in full screen the display takes its pictures directly, without macOS compositing them. The performance overlay is drawn over the picture, so macOS composites while it shows.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Toggle("Full Screen Around the Camera",isOn:model.videoRenderer == .metal ? .constant(false) : $model.notchFullScreen)
@@ -225,9 +225,8 @@ struct VideoSettingsFields: View {
                 Stepper("Minimum Frame Rate: \(value.qualityMinFps) fps",value:$value.qualityMinFps,in:15...240,step:5)
                 Text("Lowers resolution or frame rate when this Mac or the network can't keep up, never below these minimums. Needs a PC that accepts size changes.").font(.caption).foregroundStyle(.secondary)
             }
-            // With Metal the saved choice stays for the System renderer; the toggle shows what streams get.
-            Toggle("HDR",isOn:renderer == .metal ? .constant(false) : $value.hdr).disabled(renderer == .metal)
-            Text(renderer == .metal ? "Off with the Metal renderer: macOS composites every HDR frame to tone map it, which adds delay. The System renderer streams HDR."
+            Toggle("HDR",isOn:$value.hdr)
+            Text(renderer == .metal ? "Needs a game and PC with HDR. Metal fits the picture's highlights to what this screen can show right now."
                  : "Needs a game and PC with HDR. On displays without HDR, macOS maps the picture to SDR.")
                 .font(.caption).foregroundStyle(.secondary)
             Toggle("Prefer YUV 4:4:4",isOn:$value.preferYUV444).disabled(streamsHDR)

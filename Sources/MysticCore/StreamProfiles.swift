@@ -68,14 +68,14 @@ public struct StreamVideoSettings: Codable, Equatable, Sendable {
         return Self(preferences:preferences)
     }
     /// What a stream shown through `output` uses. Streams are kept to pictures the display can
-    /// take straight from the renderer where they can be: macOS composites every frame of an
-    /// HDR layer drawn by Metal (its tone mapping) and of the notch-covering full screen, which
-    /// the Metal HUD shows and which adds delay. So Metal streams SDR, and a full-display size
-    /// becomes the size below the camera unless the notch mode is on. The saved choice is kept,
-    /// so turning the mode on later brings it back. Native is limited where the screen is read.
+    /// take straight from the renderer where they can be: macOS composites every frame of the
+    /// notch-covering full screen, which the Metal HUD shows and which adds delay, so a
+    /// full-display size becomes the size below the camera unless the notch mode is on. The saved
+    /// choice is kept, so turning the mode on later brings it back. Native is limited where the
+    /// screen is read. HDR stays as chosen: the Metal renderer tone maps it itself, so it goes
+    /// direct to the display too (`HDRToneMap`).
     public func limited(to output: VideoOutput) -> Self {
         var value=self
-        if output.renderer == .metal { value.hdr=false }
         if !output.coversNotch,let below=StreamPreferences.belowCamera[resolution] { value.resolution=below }
         return value
     }

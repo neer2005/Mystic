@@ -151,7 +151,8 @@ final class MetalFrameDrawer: @unchecked Sendable {
         return (texture,metal)
     }
     /// Encodes one frame filling `target`; the planes stay alive until the buffer completes.
-    func encode(_ image: CVPixelBuffer,to target: any MTLTexture,commands: any MTLCommandBuffer) throws {
+    /// `toneMap` rolls a PQ frame's highlights off for the screen (`HDRToneMap`).
+    func encode(_ image: CVPixelBuffer,to target: any MTLTexture,commands: any MTLCommandBuffer,toneMap: HDRToneMap? = nil) throws {
         let format=CVPixelBufferGetPixelFormatType(image)
         let matrix=CVBufferCopyAttachment(image,kCVImageBufferYCbCrMatrixKey,nil) as! CFString?
         guard let conversion=VideoColorConversion(pixelFormat:format,matrix:matrix) else {
@@ -166,7 +167,9 @@ final class MetalFrameDrawer: @unchecked Sendable {
         guard let encoder=commands.makeRenderCommandEncoder(descriptor:pass) else { throw VideoDecoderError.invalidSample("no render encoder") }
         encoder.setRenderPipelineState(try pipeline(target.pixelFormat))
         encoder.setFragmentTexture(luma.1,index:0);encoder.setFragmentTexture(chroma.1,index:1)
-        var values=[conversion.yOffset,conversion.yScale,conversion.cOffset,conversion.cScale,conversion.codeScale,conversion.kr,conversion.kb]
+        let curve=toneMap.flatMap { $0.active ? $0 : nil }
+        var values=[conversion.yOffset,conversion.yScale,conversion.cOffset,conversion.cScale,conversion.codeScale,conversion.kr,conversion.kb,
+                    curve == nil ? 0 : 1,curve?.sourcePeak ?? 1,curve?.displayPeak ?? 1]
         encoder.setFragmentBytes(&values,length:MemoryLayout<Float>.stride*values.count,index:0)
         encoder.drawPrimitives(type:.triangle,vertexStart:0,vertexCount:3)
         encoder.endEncoding()
@@ -201,6 +204,8 @@ final class MetalPresentationReceiver: PresentationReceiver {
     func setRefresh(hertz: Double) { slot.setRefresh(hertz:hertz) }
     /// Seconds since the decoder finished the frame about to be enqueued.
     var nextFrameAge: CFTimeInterval?
+    /// The screen's current EDR headroom, which a PQ frame is tone mapped to (`HDRToneMap`).
+    var headroom=1.0
     init(clock: @escaping @Sendable () -> CMTime,waitsForRefresh: Bool = true) throws {
         drawer=try MetalFrameDrawer();self.clock=clock;self.waitsForRefresh=waitsForRefresh
         layer.device=drawer.device
@@ -232,9 +237,12 @@ final class MetalPresentationReceiver: PresentationReceiver {
         guard let image=CMSampleBufferGetImageBuffer(sample) else { throw VideoDecoderError.invalidSample("sample has no image") }
         let format=VideoLayerFormat(image:image)
         if format != lastFormat { configure(format,image:image);lastFormat=format }
+        let toneMap=format.transfer == .pq ? HDRToneMap(sourceNits:HDRToneMap.sourceNits(
+            masteringDisplay:CVBufferCopyAttachment(image,kCVImageBufferMasteringDisplayColorVolumeKey,nil) as? Data,
+            contentLightLevel:CVBufferCopyAttachment(image,kCVImageBufferContentLightLevelInfoKey,nil) as? Data),headroom:headroom) : nil
         if waitsForRefresh {
             let frame=RenderFrame(image:image,time:CMSampleBufferGetPresentationTimeStamp(sample),
-                                  readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime(),timing:nextFrameTiming,shown:nextFrameShown)
+                                  readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime(),timing:nextFrameTiming,shown:nextFrameShown,toneMap:toneMap)
             let target=UnsafeLayer(layer:layer),drawer=drawer,clock=clock,slot=slot,phaseReport=phaseReport
             await withCheckedContinuation { (done: CheckedContinuation<Void,Never>) in
                 renderQueue.async {
@@ -254,7 +262,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
             return .enqueued
         }
         if slot.offer(RenderFrame(image:image,time:CMSampleBufferGetPresentationTimeStamp(sample),
-                                  readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime(),timing:nextFrameTiming,shown:nextFrameShown)) {
+                                  readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime(),timing:nextFrameTiming,shown:nextFrameShown,toneMap:toneMap)) {
             let target=UnsafeLayer(layer:layer),drawer=drawer,clock=clock,slot=slot
             renderQueue.async { Self.drain(target,drawer,clock,slot) }
         }
@@ -274,7 +282,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
         let picked=CACurrentMediaTime()
         guard let commands=drawer.queue.makeCommandBuffer() else { slot.countMissed();return }
         do {
-            try drawer.encode(frame.image,to:drawable.texture,commands:commands)
+            try drawer.encode(frame.image,to:drawable.texture,commands:commands,toneMap:frame.toneMap)
             let times=FrameTimes()
             commands.addCompletedHandler { _ in times.set(CACurrentMediaTime()) }
             drawable.addPresentedHandler { [committed=CACurrentMediaTime()] in
@@ -294,7 +302,9 @@ final class MetalPresentationReceiver: PresentationReceiver {
     /// Frames replaced, timed out or never shown, like the display layer's own drop count.
     var droppedFrames: UInt64 { slot.missed }
     var cadence: ShownCadence { slot.cadence }
-    /// macOS tone maps from the metadata, as it does for the display layer.
+    /// PQ goes without `edrMetadata`: with it macOS tone maps in the compositor and full screen is
+    /// no longer direct to the display, so the shader tone maps instead (`HDRToneMap`). HLG keeps
+    /// macOS's tone map, and the compositor with it; GameStream hosts send PQ.
     private func configure(_ format: VideoLayerFormat,image: CVPixelBuffer) {
         CATransaction.begin();CATransaction.setDisableActions(true)
         layer.pixelFormat=format.pixelFormat
@@ -302,11 +312,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
         switch format.transfer {
         case .sdr: layer.edrMetadata=nil;layer.wantsExtendedDynamicRangeContent=false
         case .hlg: layer.edrMetadata = .hlg;layer.wantsExtendedDynamicRangeContent=true
-        case .pq:
-            let display=CVBufferCopyAttachment(image,kCVImageBufferMasteringDisplayColorVolumeKey,nil) as? Data
-            let content=CVBufferCopyAttachment(image,kCVImageBufferContentLightLevelInfoKey,nil) as? Data
-            layer.edrMetadata=CAEDRMetadata.hdr10(displayInfo:display,contentInfo:content,opticalOutputScale:100)
-            layer.wantsExtendedDynamicRangeContent=true
+        case .pq: layer.edrMetadata=nil;layer.wantsExtendedDynamicRangeContent=true
         }
         CATransaction.commit()
     }
@@ -341,7 +347,7 @@ final class MetalTimeline: @unchecked Sendable {
     func now() -> CMTime { lock.lock();defer { lock.unlock() };return CMTimeSubtract(clock(),origin) }
 }
 
-private struct RenderFrame: @unchecked Sendable { let image: CVPixelBuffer;let time: CMTime;let readySeconds: CFTimeInterval?;let enqueuedSeconds: CFTimeInterval;let timing: VideoFrameTiming?;let shown: (@Sendable (CFTimeInterval) -> Void)? }
+private struct RenderFrame: @unchecked Sendable { let image: CVPixelBuffer;let time: CMTime;let readySeconds: CFTimeInterval?;let enqueuedSeconds: CFTimeInterval;let timing: VideoFrameTiming?;let shown: (@Sendable (CFTimeInterval) -> Void)?;let toneMap: HDRToneMap? }
 /// When the GPU finished, from one Metal callback to the next.
 private final class FrameTimes: @unchecked Sendable {
     private let lock=NSLock();private var completed: CFTimeInterval?

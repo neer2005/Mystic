@@ -33,8 +33,8 @@ stream over Wi-Fi reached the screen about 34 ms after the PC drew each frame, d
 **Fast, smooth video**
 - Hardware decoding of H.264, HEVC and AV1, with HDR10 and 10-bit color on Macs that support them
 - Lowest Latency, Balanced, frame-limited and Smoothest pacing, V-Sync on or off, and an optional
-  Metal renderer that streams SDR below a MacBook's camera, so the display takes its full-screen
-  frames directly
+  Metal renderer that stays below a MacBook's camera and tone maps HDR itself, so the display
+  takes its full-screen frames directly, SDR or HDR
 - Automatic bitrate, and live changes of bitrate and frame rate mid-stream on hosts that allow it
 - On Rubylight hosts, optionally test the link before a stream and lower the bitrate as soon as frames are lost
 - Can keep AirDrop's Wi-Fi link quiet during a stream, a common cause of stutter on Macs

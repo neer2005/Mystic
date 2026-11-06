@@ -117,8 +117,16 @@ public final class DisplayLayerPresenter {
     /// Called by the owning view when its actual destination or screen headroom changes.
     public func updateDisplay(name: String?,currentHeadroom: Double?,potentialHeadroom: Double?) {
         videoOutput.updateDisplay(name:name,currentHeadroom:currentHeadroom,potentialHeadroom:potentialHeadroom)
+        metal?.headroom=videoOutput.currentHeadroom ?? 1
         configureDynamicRange()
         displayChanged?()
+    }
+    /// The screen's current EDR headroom alone, which moves with its brightness and with whether
+    /// HDR is on screen, and which the Metal renderer tone maps PQ to. Not a display change: the
+    /// host isn't told.
+    public func updateHeadroom(_ current: Double?) {
+        videoOutput.updateCurrentHeadroom(current)
+        metal?.headroom=videoOutput.currentHeadroom ?? 1
     }
     private func configureDynamicRange() {
         // Preserve the tagged YCbCr surface. Core Animation owns the sole output tone map.

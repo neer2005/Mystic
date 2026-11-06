@@ -9,6 +9,7 @@ final class RemoteVideoView: NSView {
     private weak var movementWindow: NSWindow?
     private var previousAcceptsMouseMoved = false
     private var displayObservers: [any NSObjectProtocol] = []
+    private var headroomTimer: Timer?
     init(presenter: DisplayLayerPresenter,capture: StreamInputCapture?) {
         self.presenter = presenter;self.capture = capture
         super.init(frame:.zero)
@@ -53,6 +54,7 @@ final class RemoteVideoView: NSView {
             }
         }
         updateDisplay()
+        if window != nil { watchHeadroom() }
         if window != nil { capture?.attach(self) } else { capture?.detach(self) }
     }
     private func updateDisplay() {
@@ -66,6 +68,20 @@ final class RemoteVideoView: NSView {
     private func stopObservingDisplay() {
         for observer in displayObservers { NotificationCenter.default.removeObserver(observer) }
         displayObservers.removeAll()
+        headroomTimer?.invalidate();headroomTimer=nil
+    }
+    /// macOS sends no notice when a screen's EDR headroom moves (brightness, ambient light, HDR
+    /// coming on screen), and the Metal renderer tone maps HDR to it, so it is read four times a
+    /// second; only a change reaches the presenter.
+    private func watchHeadroom() {
+        headroomTimer?.invalidate()
+        headroomTimer=Timer.scheduledTimer(withTimeInterval:0.25,repeats:true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self,let screen=self.window?.screen else { return }
+                let current=Double(screen.maximumExtendedDynamicRangeColorComponentValue)
+                if current != self.presenter.videoOutput.currentHeadroom { self.presenter.updateHeadroom(current) }
+            }
+        }
     }
     func install(_ presenter: DisplayLayerPresenter,capture: StreamInputCapture?) {
         if self.presenter !== presenter {
