@@ -45,6 +45,7 @@ stream over Wi-Fi reached the screen about 34 ms after the PC drew each frame, d
 - One library of games from all your PCs, with box art, favorites and recently played
 - Wake-on-LAN, pairing with a PIN or a pairing link, and quick resume into a running game
 - Native full screen, menus and keyboard shortcuts, and settings per PC and per game; full screen stays below a MacBook's camera, or can fill the notched screen to the top edge at a full-display resolution such as 3024 × 1964 (Settings → Video, System renderer; macOS composites that mode, which adds delay)
+- The Dock stays out of a full-screen stream while it has your input, and comes back when you release it
 - Your Mac's pointer drives the desktop with no video delay; capture the mouse for games, which sends the mouse's own unaccelerated movement, so the PC's mouse settings apply as if it were plugged in
 - Keyboard layouts, emoji and dictation reach the PC as text; saved key shortcuts for anything else
 
@@ -52,6 +53,9 @@ stream over Wi-Fi reached the screen about 34 ms after the PC drew each frame, d
 - Xbox, PlayStation and Nintendo controllers, with rumble, motion, battery and light
 - Hold Start to drive the PC's pointer with a controller, hold Guide to get your Mac's input back, and
   hold Start + Select + LB + RB to leave the stream
+- Browse and start games from the couch with a controller: D-pad or stick to move, A to start, B to
+  go back, LB and RB to switch between Home and your PCs, Menu for Settings
+- The stream window says when a controller connects or disconnects
 - Stereo, 5.1 and 7.1 sound, uncompressed from Rubylight hosts if you choose, and your Mac's microphone
 - Clipboard text and images both ways, file transfer and shared folders on Rubylight hosts
 - The host's night mode and headphone surround, from the stream window

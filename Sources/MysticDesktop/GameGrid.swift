@@ -152,6 +152,10 @@ final class GridKeyView: NSView {
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
     override func isAccessibilityElement() -> Bool { false }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { LibraryControllerNavigation.visibleGrid=self }
+    }
     override func becomeFirstResponder() -> Bool { focusChanged(true);return true }
     override func resignFirstResponder() -> Bool { focusChanged(false);return true }
     override func keyDown(with event: NSEvent) { interpretKeyEvents([event]) }

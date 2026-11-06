@@ -1,5 +1,7 @@
 import SwiftUI
 import AppKit
+import Combine
+import GameController
 import MysticStream
 import MysticCore
 import MysticKit
@@ -8,7 +10,9 @@ public struct StreamingView: View {
     @State private var showingHostSession=false
     @State private var showingHealth=false
     @State private var window: NSWindow?
+    @State private var controllerNotice: ControllerNotice?
     @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.openWindow) private var openWindow
     @Bindable private var model: ConnectionModel
     public init(model: ConnectionModel) { self.model = model }
     private var streaming: Bool { model.phase == .streaming }
@@ -19,6 +23,33 @@ public struct StreamingView: View {
     }
     private func showHostSession() { showingHostSession=true;model.inputCapture?.release() }
     private func showHealth() { showingHealth=true;model.inputCapture?.release() }
+    private var controlling: Bool { (model.inputCapture?.mode ?? .released) != .released }
+    private func updateDock() { StreamDock.update(window:window,controlling:controlling) }
+    /// Full-screen and key changes of this window, which decide whether the Dock may show.
+    private var windowChanges: AnyPublisher<Notification,Never> {
+        let center=NotificationCenter.default
+        return Publishers.MergeMany([NSWindow.didEnterFullScreenNotification,NSWindow.didExitFullScreenNotification,
+                                     NSWindow.didBecomeKeyNotification,NSWindow.didResignKeyNotification,
+                                     NotchFullScreen.didChangeNotification].map { center.publisher(for:$0) })
+            .eraseToAnyPublisher()
+    }
+    private var controllerChanges: AnyPublisher<Notification,Never> {
+        let center=NotificationCenter.default
+        return center.publisher(for:.GCControllerDidConnect).merge(with:center.publisher(for:.GCControllerDidDisconnect))
+            .receive(on:DispatchQueue.main).eraseToAnyPublisher()
+    }
+    /// The HIG asks games to say when a controller comes or goes; mid-game, input that stops
+    /// for no visible reason is the alternative. Only pads the stream sends count.
+    private func controllerChanged(_ note: Notification) {
+        guard streaming,model.inputPreferences.controllers,let controller=note.object as? GCController,
+              controller.extendedGamepad != nil else { return }
+        let notice=ControllerNotice(name:controller.vendorName ?? "Controller",connected:note.name == .GCControllerDidConnect)
+        withAnimation(.easeOut(duration:0.2)) { controllerNotice=notice }
+        Task { @MainActor in
+            try? await Task.sleep(for:.seconds(3))
+            if controllerNotice == notice { withAnimation(.easeIn(duration:0.3)) { controllerNotice=nil } }
+        }
+    }
     @ToolbarContentBuilder private var toolbarItems: some CustomizableToolbarContent {
         ToolbarItem(id:"capture") {
             Button("Capture Mouse",systemImage:"computermouse") { model.inputCapture?.captureMouse() }
@@ -88,6 +119,18 @@ public struct StreamingView: View {
                             .transition(.opacity)
                         }
                     }
+                    // Drawn over the picture, so macOS composites while it shows: three seconds,
+                        // only when a pad comes or goes, the same trade as the performance overlay.
+                        .overlay(alignment:.top) {
+                            if let controllerNotice {
+                                Label(controllerNotice.text,systemImage:controllerNotice.connected ? "gamecontroller.fill" : "gamecontroller")
+                                    .padding(.horizontal,14).padding(.vertical,8)
+                                    .background(.regularMaterial,in:Capsule())
+                                    .padding(16).allowsHitTesting(false)
+                                    .transition(.move(edge:.top).combined(with:.opacity))
+                                    .accessibilityAddTraits(.updatesFrequently)
+                            }
+                        }
                     .overlay(alignment:.bottom) {
                         if model.latencyTestRunning {
                             Label("Measuring… show a still desktop with the mouse pointer and don't touch anything for a few seconds.",systemImage:"timer")
@@ -101,7 +144,8 @@ public struct StreamingView: View {
                 ZStack {
                     Color.black
                     if model.isBusy { ProgressView(model.status).tint(.white).foregroundStyle(.white) }
-                    else { Text(model.errorMessage ?? "Not connected").foregroundStyle(.white).multilineTextAlignment(.center).padding() }
+                    else if let error=model.errorMessage { streamEnded(error) }
+                    else { Text("Not connected").foregroundStyle(.white) }
                 }
             }
         }
@@ -130,6 +174,9 @@ public struct StreamingView: View {
             if let window=$0 { NotchFullScreen.install(on:window) { [model] in model.videoOutput.coversNotch ? model.presenter?.videoSize ?? .zero : .zero } }
         })
         .fullScreenCommandTarget()
+        .onChange(of:controlling,initial:true) { updateDock() }
+        .onReceive(windowChanges) { note in if let window,note.object as? NSWindow === window { updateDock() } }
+        .onReceive(controllerChanges,perform:controllerChanged)
         // When the stream ends, a full-screen window must not be left showing an empty Space.
         // A deliberate end closes the window; one that ended with an error stays to show it.
         .onChange(of:model.phase) { old,new in
@@ -138,8 +185,43 @@ public struct StreamingView: View {
             else if let window,window.isStreamFullScreen { window.toggleFullScreen(nil) }
         }
         // Entering or leaving the notch-covering full screen briefly remounts the view.
-        .onDisappear { if model.hasSession,!NotchFullScreen.isRestyling(window) { model.leave() } }
+        .onDisappear {
+            guard !NotchFullScreen.isRestyling(window) else { return }
+            StreamDock.update(window:nil,controlling:false)
+            if model.hasSession { model.leave() }
+        }
     }
+    /// A stream that ended with an error keeps its window, so it says what happened and offers
+    /// the way on, as the library's empty states do, instead of leaving text on black.
+    private func streamEnded(_ error: String) -> some View {
+        ContentUnavailableView {
+            Label("Stream Ended",systemImage:"exclamationmark.triangle")
+        } description: {
+            Text(error).textSelection(.enabled)
+        } actions: {
+            HStack {
+                Button("Close") { dismissWindow(id:"stream") }.keyboardShortcut(.cancelAction)
+                if model.canPlay,let app=model.library.selected {
+                    Button("Start \(app.name) Again") {
+                        Task {
+                            await model.requestGameAction(startSelected:true)
+                            // Quitting another game first is confirmed in the library window.
+                            if model.pendingGameAction != nil { openWindow(id:"library") }
+                        }
+                    }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                }
+            }.controlSize(.large)
+        }
+        .environment(\.colorScheme,.dark)
+    }
+}
+
+/// A controller arriving or leaving during a stream.
+private struct ControllerNotice: Equatable {
+    let id=UUID()
+    let name: String
+    let connected: Bool
+    var text: String { "\(name) \(connected ? "connected" : "disconnected")" }
 }
 
 private struct VideoSurface: NSViewRepresentable {

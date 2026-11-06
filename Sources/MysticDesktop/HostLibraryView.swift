@@ -12,6 +12,8 @@ public struct HostLibraryView: View {
     @State private var foldersModel: SharedFoldersModel?
     @State private var searchFocus=0
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
+    @State private var controllerNavigation=LibraryControllerNavigation()
     /// A stream asked for on the command line, started once the library appears.
     private let startup: ShortcutLaunch?
     public init(model: ConnectionModel,startup: ShortcutLaunch? = nil) { self.model=model;self.startup=startup }
@@ -83,6 +85,11 @@ public struct HostLibraryView: View {
                 await finish(model.offer(startup),commandLine:true)
             }
             await model.updates.startOnce(enabled:model.checkForUpdates)
+        }
+        .onChange(of:model.hasSession,initial:true) {
+            controllerNavigation.switchSection={ step in switchSection(step) }
+            controllerNavigation.openSettings={ openSettings() }
+            controllerNavigation.setActive(!model.hasSession)
         }
         .onChange(of:model.quickResumeLaunch) { if model.quickResumeLaunch != nil,model.hasSession { openWindow(id:"stream") } }
         .onChange(of:model.showingHome) { if model.showingHome { Task { await model.homeSync.refresh() } } }
@@ -189,6 +196,15 @@ public struct HostLibraryView: View {
     }
     private func setting<T>(_ key: WritableKeyPath<StreamPreferences,T>) -> Binding<T> {
         Binding(get:{ model.settings.value[keyPath:key] },set:{ value in model.settings.update { $0[keyPath:key]=value } })
+    }
+    /// LB and RB step through the sidebar, Home first, as clicking its rows would. They stop at
+    /// either end rather than wrapping, so a held press can't loop round into a connection.
+    private func switchSection(_ step: Int) {
+        guard !model.isBusy,!model.hasSession else { return }
+        let ids=["__home__"]+model.savedHosts.hosts.map(\.id)
+        let current=model.selectedHostEndpointID.flatMap { ids.firstIndex(of:$0) } ?? 0
+        let next=min(max(current+step,0),ids.count-1)
+        if next != current { model.selectHost(ids[next]) }
     }
     private var canShowHostDetails: Bool { !model.showingHome && model.host != nil && !model.hasSession }
     private var canShowHostSession: Bool { !model.showingHome && model.phase == .ready && model.host?.paired == true }
@@ -310,6 +326,7 @@ public struct HostLibraryView: View {
     private var streamDetails: some View {
         Form {
             if let error=model.errorMessage { Section { Label(error,systemImage:"exclamationmark.triangle").foregroundStyle(.red).textSelection(.enabled) } }
+            if model.library.selected != nil { LockedSettingsNotice(model:model) }
             if let app=model.library.selected {
                 Section {
                     HStack(alignment:.top,spacing:12) {
