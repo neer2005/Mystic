@@ -14,9 +14,12 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 # Pinned engine revision. Bump deliberately and re-run the ABI tests.
-nightjar-core = { git = "https://github.com/RamazanKara/nightjar", rev = "30a31fd3de760bb41107b8b61cad61c94f7599af", package = "nightjar-core" }
-rubylight-protocol = { git = "https://github.com/RamazanKara/nightjar", rev = "30a31fd3de760bb41107b8b61cad61c94f7599af", package = "rubylight-protocol" }
-nightjar-policy = { git = "https://github.com/RamazanKara/nightjar", rev = "30a31fd3de760bb41107b8b61cad61c94f7599af", package = "nightjar-policy" }
+# The pin is Mystic's fork (branch mac-service-type): upstream 30a31fd plus one commit that marks
+# the stream sockets on macOS, where upstream leaves them unmarked (IP_TOS / IPV6_TCLASS, and
+# SO_NET_SERVICE_TYPE for interactive voice and video). Moving the pin means rebasing that commit.
+nightjar-core = { git = "https://github.com/neer2005/nightjar", rev = "8a341cbc11618ee5babc697ef18a5fc65440af59", package = "nightjar-core" }
+rubylight-protocol = { git = "https://github.com/neer2005/nightjar", rev = "8a341cbc11618ee5babc697ef18a5fc65440af59", package = "rubylight-protocol" }
+nightjar-policy = { git = "https://github.com/neer2005/nightjar", rev = "8a341cbc11618ee5babc697ef18a5fc65440af59", package = "nightjar-policy" }
 
 serde_json = "1"
 opus = "=0.4.0"
