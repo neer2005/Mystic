@@ -9,6 +9,7 @@ public struct MysticSettingsView: View {
         VStack(spacing:0) {
             TabView(selection:setting(\.settingsPane)) {
                 Form {
+                    LockedSettingsNotice(model:model)
                     Section("Library") {
                         Picker("View",selection:setting(\.libraryLayout)) { Text("Grid").tag("grid");Text("List").tag("list") }
                         Picker("Sort Games",selection:setting(\.librarySort)) { Text("Name").tag("name");Text("PC's Order").tag("host") }
@@ -20,11 +21,12 @@ public struct MysticSettingsView: View {
                         Picker("Overlay Detail",selection:$model.overlayMode) {
                             ForEach(OverlayMode.allCases,id:\.self) { Text($0.label).tag($0) }
                         }
-                        Text("Compact shows frame rate, network delay and packet loss. Statistics adds video, PC and decode figures. Debug adds every timing.").font(.caption).foregroundStyle(.secondary)
+                        Text("Compact: frame rate, delay and loss. Statistics adds video and PC figures; Debug, every timing.").font(.caption).foregroundStyle(.secondary)
                         Toggle("Sync Clipboard Text",isOn:$model.clipboardSync).disabled(model.hasSession || model.isBusy)
                         Text("Shares text you copy while the stream window is active. Files and images stay on this Mac.").font(.caption).foregroundStyle(.secondary)
                         Toggle("Local Cursor",isOn:$model.localCursor)
-                        Text("When you control the desktop, the PC's cursor becomes the Mac pointer, so it moves without video delay. Needs a PC that sends its cursor.").font(.caption).foregroundStyle(.secondary)
+                            .help("When you control the desktop, the PC's cursor becomes the Mac pointer, so it moves without video delay. Needs a PC that sends its cursor.")
+                        Text("Shows the PC's cursor as the Mac pointer, without video delay.").font(.caption).foregroundStyle(.secondary)
                     }
                     Section("Updates") {
                         Toggle("Check for Updates",isOn:$model.checkForUpdates)
@@ -39,22 +41,26 @@ public struct MysticSettingsView: View {
                     }
                 }.tabItem { Label("General",systemImage:"gearshape") }.tag("general")
                 Form {
+                    LockedSettingsNotice(model:model)
                     Section("Stream Defaults") { VideoPreferencesView(model:model) }
                     Section("Picture") {
                         Toggle("V-Sync",isOn:$model.vsync).disabled(model.hasSession || model.isBusy || model.framePacing.forcesVsync)
-                        Text("Turning it off shows each picture at once with Lowest Latency on Metal: less delay, but the picture may tear. The other pacing modes always wait for the display.")
+                            .help("Turning it off shows each picture at once with Lowest Latency on Metal: less delay, but the picture may tear. The other pacing modes always wait for the display.")
+                        Text("Off, Lowest Latency on Metal shows each picture at once. Less delay, but it may tear.")
                             .font(.caption).foregroundStyle(.secondary)
                         Picker("Renderer",selection:$model.videoRenderer) {
                             ForEach(VideoRendererKind.allCases,id:\.self) { Text($0.label).tag($0) }
                         }.disabled(model.hasSession || model.isBusy)
+                        .help("Metal stays below a MacBook Pro's camera and fits HDR to the screen itself, so in full screen the display takes its pictures directly, without macOS compositing them. The performance overlay is drawn over the picture, so macOS composites while it shows.")
                         if model.videoRenderer == .metal {
-                            Text("Metal stays below a MacBook Pro's camera and fits HDR to the screen itself, so in full screen the display takes its pictures directly, without macOS compositing them. The performance overlay is drawn over the picture, so macOS composites while it shows.")
+                            Text("In full screen, pictures go straight to the display, HDR included.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Toggle("Full Screen Around the Camera",isOn:model.videoRenderer == .metal ? .constant(false) : $model.notchFullScreen)
                             .disabled(model.hasSession || model.isBusy || model.videoRenderer == .metal)
+                            .help("On a MacBook Pro, full-display sizes such as 3024 × 1964 fill the screen to its top edge, as on the PC's panel. macOS composites every frame of this full screen, which adds delay; off, they stream at the size below the camera.")
                         Text(model.videoRenderer == .metal ? "Off with the Metal renderer, which stays below the camera."
-                             : "On a MacBook Pro, full-display sizes such as 3024 × 1964 fill the screen to its top edge, as on the PC's panel. macOS composites every frame of this full screen, which adds delay; off, they stream at the size below the camera.")
+                             : "Fills a MacBook Pro's screen to the top edge. macOS composites every frame, which adds delay.")
                             .font(.caption).foregroundStyle(.secondary)
                         Picker("Video Size",selection:$model.videoSizing) {
                             ForEach(VideoSizing.allCases,id:\.self) { Text($0.label).tag($0) }
@@ -65,10 +71,12 @@ public struct MysticSettingsView: View {
                     Section { Text("These are the defaults. A PC or a game can have its own settings, chosen next to the library.").font(.caption).foregroundStyle(.secondary) }
                 }.tabItem { Label("Video",systemImage:"display") }.tag("video")
                 Form {
+                    LockedSettingsNotice(model:model)
                     Section("Playback") { AudioPreferencesView(model:model) }
                     Section { Text("Surround plays on a multichannel output set up in Audio MIDI Setup; other outputs play stereo.").font(.caption).foregroundStyle(.secondary) }
                 }.tabItem { Label("Audio",systemImage:"speaker.wave.2") }.tag("audio")
                 Form {
+                    LockedSettingsNotice(model:model)
                     Section("Mouse") {
                         Stepper("Mouse Speed: \(model.inputPreferences.mouseSpeedPercent)%",value:$model.inputPreferences.mouseSpeedPercent,in:25...400,step:25)
                         Toggle("Send Back and Forward Buttons",isOn:$model.inputPreferences.mouseNavigationButtons)
@@ -106,6 +114,7 @@ public struct MysticSettingsView: View {
                 KeyboardSettingsView(model:model)
                     .tabItem { Label("Keyboard",systemImage:"keyboard") }.tag("keyboard")
                 Form {
+                    LockedSettingsNotice(model:model)
                     Section("Stream Recovery") {
                         Toggle("Reconnect Interrupted Streams",isOn:$model.automaticReconnect)
                             .disabled(model.hasSession || model.isBusy)
@@ -115,22 +124,26 @@ public struct MysticSettingsView: View {
                         Picker("Ride Out Network Drops",selection:$model.networkGrace) {
                             ForEach(NetworkGrace.allCases,id:\.self) { Text($0.label).tag($0) }
                         }.disabled(model.hasSession || model.isBusy)
-                        Text("Keeps a stream alive through a network drop for this long. The picture freezes and held keys are released until the PC answers. The PC's own timeout must be at least this long.")
+                        .help("Keeps a stream alive through a network drop for this long. The picture freezes and held keys are released until the PC answers. The PC's own timeout must be at least this long.")
+                        Text("Keeps a stream alive through a drop this long. The PC's own timeout must be at least as long.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Section("Error Correction") {
                         Picker("Error Correction",selection:$model.errorCorrection) {
                             ForEach(ErrorCorrection.allCases,id:\.self) { Text($0.label).tag($0) }
                         }.disabled(model.hasSession || model.isBusy)
-                        Text("Extra data the PC sends so lost packets can be rebuilt. Automatic follows the loss this Mac sees. PCs that don't take the request keep their own setting.")
+                        .help("Extra data the PC sends so lost packets can be rebuilt. Automatic follows the loss this Mac sees. PCs that don't take the request keep their own setting.")
+                        Text("Extra data so lost packets can be rebuilt. Automatic follows the loss this Mac sees.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Section("Bitrate") {
                         Toggle("Lower Bitrate When Frames Are Lost",isOn:$model.lowerBitrateOnLoss)
-                        Text("Turns the bitrate down as soon as frames go missing, and back up after a few clean seconds. Works with PCs that can change the bitrate during a stream, and replaces Automatic Bitrate there.")
+                            .help("Turns the bitrate down as soon as frames go missing, and back up after a few clean seconds. Works with PCs that can change the bitrate during a stream, and replaces Automatic Bitrate there.")
+                        Text("Turns it down when frames go missing and back up after a few clean seconds.")
                             .font(.caption).foregroundStyle(.secondary)
                         Toggle("Test the Link Before Starting",isOn:$model.testLinkBeforeStart)
-                        Text("A new stream at the Recommended bitrate first measures the connection to the PC and starts no higher than it holds. Works with PCs that support it.")
+                            .help("A new stream at the Recommended bitrate first measures the connection to the PC and starts no higher than it holds. Works with PCs that support it.")
+                        Text("At Recommended, measures the connection first and starts no higher than it holds.")
                             .font(.caption).foregroundStyle(.secondary)
                     }.disabled(model.hasSession || model.isBusy)
                     Section("Link Hints") {
@@ -141,6 +154,7 @@ public struct MysticSettingsView: View {
                     }.disabled(model.hasSession || model.isBusy)
                     Section("Wi-Fi") {
                         Toggle("Keep AWDL Off While Streaming",isOn:$model.holdAWDL)
+                            .help("AWDL is the Wi-Fi link behind AirDrop and Continuity, and can stall a stream. This installs a small helper that turns it off during Wi-Fi streams, so those features pause until the stream ends.")
                         switch model.awdl.status {
                         case .needsApproval:
                             LabeledContent("Mystic's helper needs your approval in System Settings.") {
@@ -149,7 +163,7 @@ public struct MysticSettingsView: View {
                         case .unavailable(let reason): Text(reason).foregroundStyle(.secondary)
                         case .off,.ready: EmptyView()
                         }
-                        Text("AWDL is the Wi-Fi link behind AirDrop and Continuity, and can stall a stream. This installs a small helper that turns it off during Wi-Fi streams, so those features pause until the stream ends.")
+                        Text("AirDrop and Continuity use AWDL, which can stall Wi-Fi streams. A small helper pauses it while one runs.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     .onAppear { model.awdl.refresh() }
@@ -175,6 +189,21 @@ public struct MysticSettingsView: View {
     }
     private func setting<T>(_ key: WritableKeyPath<StreamPreferences,T>) -> Binding<T> {
         Binding(get:{ model.settings.value[keyPath:key] },set:{ value in model.settings.update { $0[keyPath:key]=value } })
+    }
+}
+
+/// Says why controls are dimmed instead of leaving them silently dead, as the HIG asks of a
+/// settings window people rely on to behave the same each time.
+struct LockedSettingsNotice: View {
+    let model: ConnectionModel
+    var body: some View {
+        if model.hasSession || model.isBusy {
+            Section {
+                Label(model.hasSession ? "Settings that shape a stream are locked while it runs. Changes to them apply to the next stream."
+                                       : "Settings that shape a stream are locked while Mystic connects.",systemImage:"lock")
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }
 
@@ -250,7 +279,8 @@ struct AudioPreferencesView: View {
         Slider(value:$model.volume,in:0...1) { Text("Volume") }
         Toggle("Play Audio on the PC Too",isOn:$model.playAudioOnHost).disabled(model.hasSession || model.isBusy)
         Toggle("Uncompressed Audio",isOn:$model.uncompressedAudio).disabled(model.hasSession || model.isBusy)
-        Text("Asks the PC for lossless sound instead of compressed audio. Uses 1.5 Mbps for stereo, up to 6 Mbps for 7.1. PCs that don't support it keep sending compressed audio.")
+            .help("Asks the PC for lossless sound instead of compressed audio. Uses 1.5 Mbps for stereo, up to 6 Mbps for 7.1. PCs that don't support it keep sending compressed audio.")
+        Text("Lossless sound: 1.5 Mbps for stereo, up to 6 Mbps for 7.1, where the PC supports it.")
             .font(.caption).foregroundStyle(.secondary)
         Toggle("Use Mac Microphone",isOn:$model.microphoneEnabled).disabled(model.hasSession || model.isBusy)
         if model.microphoneEnabled {
