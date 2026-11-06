@@ -42,6 +42,7 @@ public final class VideoOutputState {
         self.currentHeadroom=Self.valid(currentHeadroom)
         self.potentialHeadroom=Self.valid(potentialHeadroom)
     }
+    func updateCurrentHeadroom(_ value: Double?) { currentHeadroom=Self.valid(value) }
     private static func valid(_ value: Double?) -> Double? {
         guard let value,value.isFinite,value >= 1 else { return nil };return value
     }

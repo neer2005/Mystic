@@ -32,22 +32,22 @@ final class MetalVideoRendererTests: XCTestCase {
         }
         return buffer
     }
-    private func draw(_ image: CVPixelBuffer) throws -> [Int] {
+    private func draw(_ image: CVPixelBuffer,toneMap: HDRToneMap? = nil) throws -> [Int] {
         let drawer: MetalFrameDrawer
         do { drawer=try MetalFrameDrawer() } catch { throw XCTSkip("No Metal device") }
         let description=MTLTextureDescriptor.texture2DDescriptor(pixelFormat:.rgba8Unorm,width:4,height:4,mipmapped:false)
         description.usage=[.renderTarget,.shaderRead];description.storageMode = .shared
         let target=try XCTUnwrap(drawer.device.makeTexture(descriptor:description))
         let commands=try XCTUnwrap(drawer.queue.makeCommandBuffer())
-        try drawer.encode(image,to:target,commands:commands)
+        try drawer.encode(image,to:target,commands:commands,toneMap:toneMap)
         commands.commit();commands.waitUntilCompleted()
         XCTAssertNil(commands.error)
         var pixel=[UInt8](repeating:0,count:4)
         target.getBytes(&pixel,bytesPerRow:16,from:MTLRegionMake2D(1,1,1,1),mipmapLevel:0)
         return pixel.prefix(3).map(Int.init)
     }
-    private func assertColor(_ actual: [Int],_ expected: [Int],line: UInt = #line) {
-        for (a,e) in zip(actual,expected) { XCTAssertEqual(a,e,accuracy:3,"\(actual) vs \(expected)",line:line) }
+    private func assertColor(_ actual: [Int],_ expected: [Int],_ message: String = "",line: UInt = #line) {
+        for (a,e) in zip(actual,expected) { XCTAssertEqual(a,e,accuracy:3,"\(actual) vs \(expected) \(message)",line:line) }
     }
     func testEightBitVideoRangeColorsMatchTheirCodes() throws {
         let format=kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,bt709=kCVImageBufferYCbCrMatrix_ITU_R_709_2
@@ -62,6 +62,34 @@ final class MetalVideoRendererTests: XCTestCase {
         assertColor(try draw(frame(format,y:64,u:512,v:512,matrix:bt2020)),[0,0,0])
         // BT.2020 red: Y' = 0.2627, Cb = -0.1396, Cr = 0.5.
         assertColor(try draw(frame(format,y:294,u:387,v:960,matrix:bt2020)),[255,0,0])
+    }
+    /// The shader's tone map is the CPU's (`HDRToneMap.map`): a grey PQ frame, codes as decoded.
+    func testTheShaderRollsPQHighlightsOffAsTheCurveSays() throws {
+        let format=kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange,bt2020=kCVImageBufferYCbCrMatrix_ITU_R_2020
+        let curve=HDRToneMap(sourceNits:1000,headroom:2)
+        for code in [UInt16(327),721,940] {
+            let value=Float(Int(code)-64)/876
+            let expected=Int((curve.map(value)*255).rounded())
+            assertColor(try draw(frame(format,y:code,u:512,v:512,matrix:bt2020),toneMap:curve),[expected,expected,expected])
+        }
+        assertColor(try draw(frame(format,y:721,u:512,v:512,matrix:bt2020),toneMap:HDRToneMap(sourceNits:1000,headroom:16)),
+                    [192,192,192],"a screen with room for the peak gets the codes as they are")
+    }
+    /// macOS tone maps PQ in the compositor when the layer carries HDR10 metadata, and full screen
+    /// then isn't direct to the display; Mystic tone maps itself and the layer goes without.
+    @MainActor func testAPQLayerShowsHDRWithoutMetadataForMacOSToToneMap() async throws {
+        let receiver: MetalPresentationReceiver
+        do { receiver=try MetalPresentationReceiver(clock:{ .zero },waitsForRefresh:false) }
+        catch VideoDecoderError.unsupported { throw XCTSkip("No Metal device") }
+        let image=try frame(kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange,y:721,u:512,v:512,matrix:kCVImageBufferYCbCrMatrix_ITU_R_2020)
+        CVBufferSetAttachment(image,kCVImageBufferTransferFunctionKey,kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ,.shouldPropagate)
+        CVBufferSetAttachment(image,kCVImageBufferColorPrimariesKey,kCVImageBufferColorPrimaries_ITU_R_2020,.shouldPropagate)
+        let sample=try DecodedVideoFrame(pixelBuffer:image,presentationTime:.zero,generation:1).sampleBuffer()
+        _=try await receiver.enqueue(sample)
+        XCTAssertNil(receiver.layer.edrMetadata)
+        XCTAssertTrue(receiver.layer.wantsExtendedDynamicRangeContent)
+        XCTAssertEqual(receiver.layer.pixelFormat,.bgr10a2Unorm)
+        receiver.flush()
     }
     func testFullRangeUsesTheWholeScale() throws {
         let format=kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,bt709=kCVImageBufferYCbCrMatrix_ITU_R_709_2

@@ -56,8 +56,6 @@ struct ProfileDraft: Identifiable {
 }
 
 private struct NetworkProfileEditor: View {
-    @Environment(\.videoOutput) private var output
-    private var renderer: VideoRendererKind { output.renderer }
     @State var draft: ProfileDraft
     let document: PreferenceDocument<NetworkProfiles>
     @Environment(\.dismiss) private var dismiss
@@ -91,9 +89,6 @@ private struct NetworkProfileEditor: View {
                 }
                 Toggle("HDR",isOn:hdr.0)
                 if hdr.0.wrappedValue { Toggle("On",isOn:hdr.1) }
-                if renderer == .metal,hdr.0.wrappedValue && hdr.1.wrappedValue {
-                    Text("The Metal renderer streams SDR, so this applies with the System renderer.").font(.caption).foregroundStyle(.secondary)
-                }
             }
             Text(draft.overrides.summary).font(.caption).foregroundStyle(.secondary)
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
