@@ -25,19 +25,6 @@ public struct StreamingView: View {
     private func showHealth() { showingHealth=true;model.inputCapture?.release() }
     private var controlling: Bool { (model.inputCapture?.mode ?? .released) != .released }
     private func updateDock() { StreamDock.update(window:window,controlling:controlling) }
-    /// Full-screen and key changes of this window, which decide whether the Dock may show.
-    private var windowChanges: AnyPublisher<Notification,Never> {
-        let center=NotificationCenter.default
-        return Publishers.MergeMany([NSWindow.didEnterFullScreenNotification,NSWindow.didExitFullScreenNotification,
-                                     NSWindow.didBecomeKeyNotification,NSWindow.didResignKeyNotification,
-                                     NotchFullScreen.didChangeNotification].map { center.publisher(for:$0) })
-            .eraseToAnyPublisher()
-    }
-    private var controllerChanges: AnyPublisher<Notification,Never> {
-        let center=NotificationCenter.default
-        return center.publisher(for:.GCControllerDidConnect).merge(with:center.publisher(for:.GCControllerDidDisconnect))
-            .receive(on:DispatchQueue.main).eraseToAnyPublisher()
-    }
     /// The HIG asks games to say when a controller comes or goes; mid-game, input that stops
     /// for no visible reason is the alternative. Only pads the stream sends count.
     private func controllerChanged(_ note: Notification) {
@@ -175,8 +162,8 @@ public struct StreamingView: View {
         })
         .fullScreenCommandTarget()
         .onChange(of:controlling,initial:true) { updateDock() }
-        .onReceive(windowChanges) { note in if let window,note.object as? NSWindow === window { updateDock() } }
-        .onReceive(controllerChanges,perform:controllerChanged)
+        .onReceive(StreamWindowEvents.windowChanges) { note in if let window,note.object as? NSWindow === window { updateDock() } }
+        .onReceive(StreamWindowEvents.controllerChanges,perform:controllerChanged)
         // When the stream ends, a full-screen window must not be left showing an empty Space.
         // A deliberate end closes the window; one that ended with an error stays to show it.
         .onChange(of:model.phase) { old,new in
@@ -214,6 +201,26 @@ public struct StreamingView: View {
         }
         .environment(\.colorScheme,.dark)
     }
+}
+
+/// Built once: the stream view re-renders several times a second while the overlay updates,
+/// and a publisher made in `body` would have `onReceive` subscribe again on each render,
+/// main-thread work the stream doesn't need beside it.
+@MainActor
+private enum StreamWindowEvents {
+    /// Full-screen and key changes of any window; the view keeps those of its own.
+    static let windowChanges: AnyPublisher<Notification,Never>={
+        let center=NotificationCenter.default
+        return Publishers.MergeMany([NSWindow.didEnterFullScreenNotification,NSWindow.didExitFullScreenNotification,
+                                     NSWindow.didBecomeKeyNotification,NSWindow.didResignKeyNotification,
+                                     NotchFullScreen.didChangeNotification].map { center.publisher(for:$0) })
+            .eraseToAnyPublisher()
+    }()
+    static let controllerChanges: AnyPublisher<Notification,Never>={
+        let center=NotificationCenter.default
+        return center.publisher(for:.GCControllerDidConnect).merge(with:center.publisher(for:.GCControllerDidDisconnect))
+            .receive(on:DispatchQueue.main).eraseToAnyPublisher()
+    }()
 }
 
 /// A controller arriving or leaving during a stream.
