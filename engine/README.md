@@ -5,20 +5,26 @@ implement a Rust trait.
 
 ## Nightjar revision
 
-Pinned to Nightjar 4.7.0, `30a31fd3de760bb41107b8b61cad61c94f7599af`
-(synced 2026-10-30), plus one Mac commit on Mystic's fork:
-[`neer2005/nightjar`](https://github.com/neer2005/nightjar/tree/mac-service-type) at
-`8a341cbc11618ee5babc697ef18a5fc65440af59`. Upstream leaves the stream sockets unmarked on
+Pinned to Nightjar 4.8.0 plus 20 later upstream commits, `e21b182f4`
+(synced 2026-11-07), plus one Mac commit on Mystic's fork:
+[`neer2005/nightjar`](https://github.com/neer2005/nightjar/tree/mac-service-type-4.8.0) at
+`866386b912dddf0f4e9086c93aab5be7fb2899c1`. Upstream leaves the stream sockets unmarked on
 macOS; that commit gives them the same DSCP marking as Linux and a network service type
 (interactive voice for control, input and audio, interactive video for video). When moving to
-a newer Nightjar, rebase that commit onto it and pin the result. `nightjar-core`,
+a newer Nightjar, rebase that commit onto it, push it as a new branch (older Mystic commits
+still build from the old one) and pin the result. `nightjar-core`,
 `rubylight-protocol`, and `nightjar-policy` must use the same revision; commit the updated
-`Cargo.lock` with all three pins.
+`Cargo.lock` with all three pins, and update `NIGHTJAR_RELEASE` in `src/host.rs`.
 
-This brings in upstream engine fixes, including HEVC prefix-SEI preservation,
-FEC loss reporting for hosts that negotiate it, session-start failure reporting,
-and encrypted microphone setup diagnostics. New Nightjar application features
-still require their own Mystic integration.
+Since 4.8.0, `nightjar-core` refuses to build for aarch64 without `--cfg aes_armv8 --cfg
+polyval_armv8`, which turn on the ARMv8 AES and GHASH instructions for the stream's
+encryption. The repository's `.cargo/config.toml` sets them for every build.
+
+Earlier syncs brought in HEVC prefix-SEI preservation, FEC loss reporting for hosts that
+negotiate it, session-start failure reporting, and encrypted microphone setup diagnostics.
+4.8.0 adds engine support for pairing links, approving a device from a paired one and
+Continue here, and drops `otp=` and `pass=` values from logs. Mystic doesn't use those
+features yet: new Nightjar application features still need their own Mystic integration.
 
 Mystic is on ABI 6. ABI 3 added `network_grace_ms`, `video_fec` and `link_mbps` to
 `MysticStreamConfig`; ABI 5 added location and roaming. The stream doctor functions
