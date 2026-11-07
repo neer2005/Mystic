@@ -1,0 +1,11 @@
+# RustCrypto's AES and GHASH use the ARMv8 crypto instructions only with these two flags; without
+# them every Apple silicon build encrypts and decrypts the stream in software. With them the
+# crates still check the CPU at run time. Nightjar's nightjar-core refuses an aarch64 build
+# without them (protocol/client/src/crypto.rs), as Nightjar's own protocol/.cargo/config.toml sets them.
+#
+# This sits at the repository root, not in engine/, because cargo reads config from its working
+# directory and that directory's parents, not from the manifest's: scripts/build-macos-app.sh
+# runs cargo from here with --manifest-path, while the engine scripts run it from engine/.
+# A RUSTFLAGS environment variable replaces these flags, so a build that sets one must repeat them.
+[target.'cfg(target_arch = "aarch64")']
+rustflags = ["--cfg", "aes_armv8", "--cfg", "polyval_armv8"]
