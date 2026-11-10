@@ -935,7 +935,9 @@ public final class ConnectionModel {
             var toldOpus=false
             while !Task.isCancelled {
                 guard let self, let player, self.generation == token else { return }
-                let snapshot = telemetry.snapshot()
+                // Summarized off the main thread, which the stream's frames also pass through.
+                let snapshot = await Task.detached(priority:.userInitiated) { telemetry.snapshot() }.value
+                guard self.generation == token else { return }
                 self.processMediaSnapshot(snapshot)
                 await self.health.tick(snapshot)
                 guard self.generation == token else { return }
@@ -947,7 +949,8 @@ public final class ConnectionModel {
                 await self.rates.refresh()
                 guard self.generation == token else { return }
                 let stats = player.statistics
-                self.audioOutputStatus=stats.outputStatus
+                // Only a change: an assignment tells the stream window to draw its toolbar again.
+                if self.audioOutputStatus != stats.outputStatus { self.audioOutputStatus=stats.outputStatus }
                 let route=stats.outputDevice.map { " · "+$0 } ?? ""
                 let rate=stats.outputSampleRate.map { String(format:" · %.1f kHz",$0/1000) } ?? ""
                 let layout=stats.outputLayout.map { " · "+$0 } ?? ""
@@ -1016,10 +1019,14 @@ public final class ConnectionModel {
             var cursorShapes=false
             while !Task.isCancelled {
                 guard let self,self.generation == token else { return }
-                let epoch=self.inputCapture?.feedbackEpoch
-                let values=await session.takeControllerFeedback()
-                guard self.generation == token,!Task.isCancelled else { return }
-                self.inputCapture?.applyControllerFeedback(values,epoch:epoch)
+                // Without a controller there is no feedback to fetch, and each fetch crosses to the
+                // controller and session queues and back.
+                let epoch=GCController.controllers().isEmpty ? nil : self.inputCapture?.feedbackEpoch
+                if epoch != nil {
+                    let values=await session.takeControllerFeedback()
+                    guard self.generation == token,!Task.isCancelled else { return }
+                    self.inputCapture?.applyControllerFeedback(values,epoch:epoch)
+                }
                 // As Nightjar: shapes only in desktop control, where the pointer is visible.
                 let wanted=self.hostCursorOffered && self.localCursor && self.inputCapture?.mode == .desktop
                 if wanted != cursorShapes {
@@ -1034,7 +1041,8 @@ public final class ConnectionModel {
                     guard self.generation == token,!Task.isCancelled else { return }
                     self.inputCapture?.applyHostCursor(shapes)
                 }
-                do { try await Task.sleep(for:.milliseconds(16)) } catch { return }
+                // Idle, the loop only watches for a controller or desktop control to begin.
+                do { try await Task.sleep(for:.milliseconds(epoch == nil && !cursorShapes ? 250 : 16)) } catch { return }
             }
         }
     }

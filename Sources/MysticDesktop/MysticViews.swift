@@ -45,7 +45,9 @@ public struct StreamingView: View {
         }
         ToolbarItem(id:"sound") {
             Button(model.muted ? "Unmute Sound" : "Mute Sound",systemImage:model.muted ? "speaker.slash" : "speaker.wave.2") { model.muted.toggle() }
-                .help(model.audioStatus)
+                // The output's state, not `audioStatus`: its counts change every second, and reading
+                // them here would draw the whole toolbar again each time. Settings → Audio shows them.
+                .help(model.audioOutputStatus.label)
         }
         ToolbarItem(id:"microphone") {
             Button(model.microphoneMuted ? "Unmute Microphone" : "Mute Microphone",systemImage:model.microphoneMuted ? "mic.slash" : "mic") { model.microphoneMuted.toggle() }
@@ -96,15 +98,7 @@ public struct StreamingView: View {
             if let presenter = model.presenter {
                 VideoSurface(presenter: presenter,capture:model.inputCapture)
                     .overlay(alignment:.topLeading) {
-                        if model.showLatencyHUD {
-                            PerformanceOverlay(mode:model.overlayMode,stream:model.overlayStreamLine,
-                                               measures:OverlayMeasures(snapshot:model.videoTelemetry,network:model.health.measures),
-                                               hardware:model.hostHardware.reading) {
-                                LatencyHUD(snapshot:model.videoTelemetry,mode:presenter.pacingMode,output:presenter.videoOutput,bitrate:model.rates.status,network:model.health.measures)
-                            }
-                            .padding(12).allowsHitTesting(false)
-                            .transition(.opacity)
-                        }
+                        if model.showLatencyHUD { StreamOverlay(model:model,presenter:presenter).transition(.opacity) }
                     }
                     // Drawn over the picture, so macOS composites while it shows: three seconds,
                         // only when a pad comes or goes, the same trade as the performance overlay.
@@ -151,7 +145,7 @@ public struct StreamingView: View {
         .toolbar {
             // Appears only while the output is lost, so the problem is visible without a menu.
             if model.canRetryAudio {
-                ToolbarItem { Button("Retry Audio",systemImage:"speaker.badge.exclamationmark") { model.retryAudioOutput() }.help(model.audioStatus) }
+                ToolbarItem { Button("Retry Audio",systemImage:"speaker.badge.exclamationmark") { model.retryAudioOutput() }.help(model.audioOutputStatus.label) }
             }
         }
         .windowToolbarFullScreenVisibility(.onHover)
@@ -200,6 +194,21 @@ public struct StreamingView: View {
             }.controlSize(.large)
         }
         .environment(\.colorScheme,.dark)
+    }
+}
+
+/// The performance overlay as its own view: its figures change every second, and read here
+/// they redraw only the overlay, not the stream window's toolbar and video surface with it.
+private struct StreamOverlay: View {
+    let model: ConnectionModel
+    let presenter: DisplayLayerPresenter
+    var body: some View {
+        PerformanceOverlay(mode:model.overlayMode,stream:model.overlayStreamLine,
+                           measures:OverlayMeasures(snapshot:model.videoTelemetry,network:model.health.measures),
+                           hardware:model.hostHardware.reading) {
+            LatencyHUD(snapshot:model.videoTelemetry,mode:presenter.pacingMode,output:presenter.videoOutput,bitrate:model.rates.status,network:model.health.measures)
+        }
+        .padding(12).allowsHitTesting(false)
     }
 }
 
