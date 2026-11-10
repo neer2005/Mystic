@@ -112,8 +112,14 @@ extension StreamSessionService {
 
 /// Owns one engine on one worker queue. Interrupt may be called while start blocks;
 /// stop/free are serialized after start returns. A fresh instance is used on reconnect.
+///
+/// Keys, buttons and motion go to the engine through this queue, so it runs at user-interactive
+/// priority and nothing slow is put on it: once the stream runs, every job is a short engine
+/// call. The microphone converts and encodes on a queue of its own and only hands its finished
+/// packets over.
 final class StreamSession: StreamSessionService, @unchecked Sendable {
-    private let queue = DispatchQueue(label: "Mystic.StreamSession")
+    private let queue = DispatchQueue(label: "Mystic.StreamSession",qos: .userInteractive)
+    private let microphoneQueue = DispatchQueue(label: "Mystic.Microphone",qos: .userInitiated)
     private let engine: StreamingEngine
     private let recoveryRequests = KeyframeRequestGate()
     private let inputMailbox = StreamInputMailbox()
@@ -139,11 +145,15 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
                 acceptingInput = true
                 if configuration.microphone {
                     if engine.microphoneAvailable {
-                        let capture=MicrophoneCapture(queue:queue,send:{ [weak self] packet in
-                            guard let self,self.acceptingInput else { throw HostConnectionError("Stream ended.") }
-                            try self.engine.sendMicrophone(packet)
+                        // The microphone queue never waits for this one, so this one may wait for it.
+                        let capture=MicrophoneCapture(queue:microphoneQueue,send:{ [weak self] packet in
+                            let bytes=Data(packet)
+                            self?.queue.async { [weak self] in self?.sendMicrophone(bytes,status:microphoneStatus) }
                         },report:microphoneStatus)
-                        do { try capture.start();capture.setMuted(microphoneMuted);microphone=capture }
+                        do {
+                            try microphoneQueue.sync { try capture.start();capture.setMuted(microphoneMuted) }
+                            microphone=capture
+                        }
                         catch { microphoneStatus("Microphone unavailable: \(error.localizedDescription)") }
                     } else { microphoneStatus("Host did not negotiate encrypted microphone passthrough.") }
                 } else { microphoneStatus("Microphone off") }
@@ -154,7 +164,7 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
         inputMailbox.close();recoveryRequests.close()
         engine.interrupt()
         queue.async { [self] in
-            microphone?.stop();microphone=nil
+            stopMicrophone()
             try? delivery.deliver(.releaseAll, send: performInput)
             acceptingInput = false
             engine.stop(); completion()
@@ -329,7 +339,23 @@ final class StreamSession: StreamSessionService, @unchecked Sendable {
             do { try engine.requestIDR() } catch { recoveryFailure("Keyframe request failed: \(error.localizedDescription)") }
         }
     }
-    func setMicrophoneMuted(_ muted: Bool) { queue.async { [self] in microphone?.setMuted(muted) } }
+    func setMicrophoneMuted(_ muted: Bool) {
+        queue.async { [self] in
+            guard let microphone else { return }
+            microphoneQueue.async { microphone.setMuted(muted) }
+        }
+    }
+    /// One encoded packet, on the session queue. A packet the engine refuses ends the microphone.
+    private func sendMicrophone(_ packet: Data,status: @Sendable (String) -> Void) {
+        guard acceptingInput,microphone != nil else { return }
+        do { try packet.withUnsafeBytes { try engine.sendMicrophone($0) } }
+        catch { stopMicrophone();status("Microphone stopped: \(error.localizedDescription)") }
+    }
+    private func stopMicrophone() {
+        guard let capture=microphone else { return }
+        microphone=nil
+        microphoneQueue.sync { capture.stop() }
+    }
     @discardableResult
     func send(_ event: RemoteInputEvent) -> Bool {
         let result = inputMailbox.offer(event)
