@@ -332,7 +332,6 @@ public final class ConnectionModel {
     func hostEnded(_ message: String) {
         guard hasSession else { disconnect();status=message;return }
         endStreamToLibrary(notice:message)
-        if phase == .idle { status=message }
     }
     /// The stream cannot continue; the message explains why.
     func endStream(_ message: String) { endRecovery(message) }
@@ -487,7 +486,8 @@ public final class ConnectionModel {
         // A link names the certificate the PC must have, which may replace a saved pin.
         let link=pendingPairingLink;pendingPairingLink=nil
         pairingError=nil
-        phase = .connecting; status = "Loading client identity from Keychain…"; errorMessage = nil
+        // Back from a stream that ended on an error, the error stays beside the library.
+        phase = .connecting; status = "Loading client identity from Keychain…"; errorMessage = keepingLibrary ? returnError : nil
         SessionLog.addSecrets([address]);sessionLog?.write("Connecting to \(address):\(port).")
         networkKind=nil;quickResumePending=quickResume && !keepingLibrary
         cancelGameAction()
@@ -495,7 +495,7 @@ public final class ConnectionModel {
         graphics.reset()
         hostAudioControls.reset();sessionControls.reset()
         remoteCheck.reset()
-        if !keepingLibrary { library.clear();diagnostics = [];returnNotice=nil }
+        if !keepingLibrary { library.clear();diagnostics = [];returnNotice=nil;returnError=nil }
         host = nil; pairingPIN = nil
         operation = Task { [weak self] in
             do {
@@ -519,14 +519,16 @@ public final class ConnectionModel {
                 } else if info.paired { try await self.loadApps(connection, token: token) }
                 else {
                     // The games kept on screen are no longer this Mac's to see.
-                    if keepingLibrary { self.library.clear() }
+                    if keepingLibrary { self.library.clear();self.returnNotice=nil;self.returnError=nil }
                     self.rememberConnectedHost(info)
                     self.phase = .ready; self.status = "Pair with \(info.name) to view its apps." }
             } catch {
                 guard let self,self.generation == token else { return }
                 // A PC that no longer answers leaves no library to choose from.
-                if keepingLibrary { self.library.clear();self.returnNotice=nil }
-                self.fail(error.localizedDescription, token: token)
+                // The stream's own error is the one to read; this one only says the PC is gone.
+                let ended=keepingLibrary ? self.returnError : nil
+                if keepingLibrary { self.library.clear();self.returnNotice=nil;self.returnError=nil }
+                self.fail(ended.map { "\($0)\n\nThe PC could not be reached afterwards: \(error.localizedDescription)" } ?? error.localizedDescription, token: token)
             }
         }
     }
@@ -644,7 +646,7 @@ public final class ConnectionModel {
         library.replace(apps:list,library:native,notice:notice,keeping:previous)
         phase = .ready
         status = library.apps.isEmpty ? "The host has no streamable apps configured." : (returnNotice ?? "Connected to \(host?.name ?? address).")
-        returnNotice=nil
+        returnNotice=nil;returnError=nil
         // Quick resume: a PC chosen while it runs a game goes straight back into that game.
         if quickResumePending {
             quickResumePending=false
@@ -759,23 +761,24 @@ public final class ConnectionModel {
             guard self.generation == token,self.phase == .idle else { return }
             self.status=message
             // After the quit, so the library does not show the game as still running.
-            self.reopenLibrary(notice:message)
+            self.returnNotice=message;self.reopenLibrary()
         }
     }
-    /// A stream the player ended goes back to the PC's library it was started from, not to an
-    /// empty window: the stream is stopped, and the PC is asked again for what it is running.
-    /// The games stay on screen meanwhile. A stream that ended on an error still disconnects.
-    private func endStreamToLibrary(notice: String) {
+    /// A stream that ends goes back to the PC's library it was started from, not to an empty
+    /// window: the stream is stopped, and the PC is asked again for what it is running. The
+    /// games stay on screen meanwhile. One the player ended says so in the status (`notice`);
+    /// one that ended on an error keeps its `error` on screen, so the game can be started
+    /// again from where the error is read. A PC that no longer answers is disconnected.
+    private func endStreamToLibrary(notice: String?,error: String? = nil) {
         disconnect(keepingLibrary:true)
-        returnNotice=notice;returnsToLibrary=true
+        returnNotice=notice;returnError=error;errorMessage=error;returnsToLibrary=true
         // Nothing to stop: the disconnect is already over.
-        if phase == .idle { reopenLibrary(notice:notice) }
+        if phase == .idle { reopenLibrary() }
     }
-    private func reopenLibrary(notice: String) {
+    private func reopenLibrary() {
         returnsToLibrary=false
-        guard phase == .idle,!connectedAddress.isEmpty else { library.clear();return }
+        guard phase == .idle,!connectedAddress.isEmpty else { library.clear();returnNotice=nil;returnError=nil;return }
         address=connectedAddress;port=String(connectedPort)
-        returnNotice=notice
         connect(keepingLibrary:true)
     }
     /// A new stream's window is still to be sent to full screen (Start Streams in Full Screen).
@@ -787,6 +790,8 @@ public final class ConnectionModel {
     }
     /// What the library's status says once it is back from a stream.
     @ObservationIgnored private var returnNotice: String?
+    /// The error of the stream it is back from, kept on screen while the PC is asked again.
+    @ObservationIgnored private var returnError: String?
     @ObservationIgnored private var returnsToLibrary=false
     public func play() {
         guard canPlay,let connection,let app=library.selected,let capabilities else { return }
@@ -941,7 +946,7 @@ public final class ConnectionModel {
     public func disconnect() { disconnect(keepingLibrary:false) }
     /// `keepingLibrary`: the games stay listed for `reopenLibrary`, which must follow.
     private func disconnect(keepingLibrary: Bool) {
-        returnsToLibrary=false;returnNotice=nil
+        returnsToLibrary=false;returnNotice=nil;returnError=nil
         homeSync.cancel()
         clipboard?.stop();clipboard=nil;clipboardBusy=false;clipboardStatus="Clipboard sharing idle"
         networkWatch?.stop();networkWatch=nil;networkLost=false
@@ -974,7 +979,7 @@ public final class ConnectionModel {
                 guard let self, self.generation == token else { return }
                 self.session = nil; self.decoder = nil; self.presenter = nil; self.audioPlayer = nil
                 self.phase = .idle; self.status = "Disconnected. The app remains running on the host."
-                if self.returnsToLibrary,let notice=self.returnNotice { self.reopenLibrary(notice:notice) }
+                if self.returnsToLibrary { self.reopenLibrary() }
             }
         }
     }
@@ -1278,7 +1283,7 @@ public final class ConnectionModel {
         }
     }
     private func endRecovery(_ message: String) {
-        disconnect();errorMessage=message
+        endStreamToLibrary(notice:nil,error:message)
     }
     func processMediaSnapshot(_ snapshot: VideoTelemetrySnapshot) {
         videoTelemetry=snapshot

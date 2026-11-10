@@ -131,8 +131,10 @@ public struct StreamingView: View {
             else {
                 ZStack {
                     Color.black
-                    if model.isBusy { ProgressView(model.status).tint(.white).foregroundStyle(.white) }
-                    else if let error=model.errorMessage { streamEnded(error) }
+                    // An ended stream's error first: Mystic is busy going back to the PC's
+                    // library behind it, and Start Again appears once that is there.
+                    if let error=model.errorMessage,!model.hasSession { streamEnded(error) }
+                    else if model.isBusy { ProgressView(model.status).tint(.white).foregroundStyle(.white) }
                     else { Text("Not connected").foregroundStyle(.white) }
                 }
             }
