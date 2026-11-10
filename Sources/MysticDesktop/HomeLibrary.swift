@@ -148,15 +148,20 @@ public final class HomeLibrary {
         do {
             try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
             try data.write(to:root.appendingPathComponent(key),options:.atomic)
-            // Keep at most 64 MiB of encoded covers on disk, oldest files first.
-            let files=try FileManager.default.contentsOfDirectory(at:root,includingPropertiesForKeys:[.fileSizeKey,.contentModificationDateKey]).filter { $0.lastPathComponent.count == 64 }
-            let info=files.compactMap { url -> (URL,Int,Date)? in
-                guard let v=try? url.resourceValues(forKeys:[.fileSizeKey,.contentModificationDateKey]) else { return nil }
-                return (url,v.fileSize ?? 0,v.contentModificationDate ?? .distantPast)
-            }.sorted { $0.2 < $1.2 }
-            var total=info.reduce(0,{$0+$1.1})
-            for file in info where total > 64*1024*1024 { try? FileManager.default.removeItem(at:file.0);total-=file.1 }
+            // Off the main thread: the write above is one small file, but this looks at every cover.
+            Self.artHousekeeping.async { Self.pruneArt(root) }
         } catch { /* Cover caches are disposable; metadata and streaming remain usable. */ }
+    }
+    private static let artHousekeeping=DispatchQueue(label:"Mystic.HomeArt",qos:.utility)
+    /// Keeps at most 64 MiB of encoded covers on disk, oldest files first.
+    private nonisolated static func pruneArt(_ root: URL) {
+        guard let files=try? FileManager.default.contentsOfDirectory(at:root,includingPropertiesForKeys:[.fileSizeKey,.contentModificationDateKey]) else { return }
+        let info=files.filter { $0.lastPathComponent.count == 64 }.compactMap { url -> (URL,Int,Date)? in
+            guard let v=try? url.resourceValues(forKeys:[.fileSizeKey,.contentModificationDateKey]) else { return nil }
+            return (url,v.fileSize ?? 0,v.contentModificationDate ?? .distantPast)
+        }.sorted { $0.2 < $1.2 }
+        var total=info.reduce(0,{$0+$1.1})
+        for file in info where total > 64*1024*1024 { try? FileManager.default.removeItem(at:file.0);total-=file.1 }
     }
     public func image(_ copy: HomeInstallation) -> Data? { images[artKey(copy)] }
     private func rememberImage(_ data: Data,key: String) {
