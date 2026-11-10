@@ -34,7 +34,7 @@ struct VideoColorConversion: Equatable {
 }
 
 /// What a frame's tags ask of its layer.
-struct VideoLayerFormat: Equatable {
+struct VideoLayerFormat: Equatable, @unchecked Sendable {
     enum Transfer: Equatable { case sdr,pq,hlg }
     let transfer: Transfer
     let colorSpaceName: CFString
@@ -183,10 +183,12 @@ final class MetalFrameDrawer: @unchecked Sendable {
 private struct KeptAlive<Value>: @unchecked Sendable { let value: Value }
 
 /// Stands where the display layer's receiver does, so the presenter's pacing, resets and failures
-/// are the same on either path. Drawing and waits for a drawable stay off the main actor.
-@MainActor
+/// are the same on either path. It lives with the presenter's loop, off the main actor, and
+/// drawing and waits for a drawable are on a queue of their own. The layer belongs to the main
+/// actor: it is made and sized there, and a change of format is sent there.
+@PresentationActor
 final class MetalPresentationReceiver: PresentationReceiver {
-    let layer=CAMetalLayer()
+    nonisolated(unsafe) let layer=CAMetalLayer()
     private let drawer: MetalFrameDrawer
     private let renderQueue=DispatchQueue(label:"mystic.video.metal",qos:.userInteractive)
     /// The presenter's timeline, to turn a frame's timestamp into a moment.
@@ -195,18 +197,19 @@ final class MetalPresentationReceiver: PresentationReceiver {
     /// As a V-Sync present blocks: the pacer's next picture waits for a drawable for this one.
     private let waitsForRefresh: Bool
     private var lastFormat: VideoLayerFormat?
-    var phaseReport: (@Sendable (UInt64,UInt64,Int64,Int64) -> Void)?
+    nonisolated func setPhaseReport(_ report: (@Sendable (UInt64,UInt64,Int64,Int64) -> Void)?) { slot.setPhaseReport(report) }
     var nextFrameTiming: VideoFrameTiming?
     var nextFrameShown: (@Sendable (CFTimeInterval) -> Void)?
-    func setClockOffset(_ offset: Int64,engineNow: UInt64) {
+    nonisolated func setClockOffset(_ offset: Int64,engineNow: UInt64) {
         slot.setClock(hostToEngine:offset,engineToMedia:Int64(CACurrentMediaTime()*1_000_000)-Int64(engineNow))
     }
-    func setRefresh(hertz: Double) { slot.setRefresh(hertz:hertz) }
+    nonisolated func setRefresh(hertz: Double) { slot.setRefresh(hertz:hertz) }
     /// Seconds since the decoder finished the frame about to be enqueued.
     var nextFrameAge: CFTimeInterval?
     /// The screen's current EDR headroom, which a PQ frame is tone mapped to (`HDRToneMap`).
-    var headroom=1.0
-    init(clock: @escaping @Sendable () -> CMTime,waitsForRefresh: Bool = true) throws {
+    nonisolated func setHeadroom(_ headroom: Double) { slot.setHeadroom(headroom) }
+    /// On the main actor, where the layer is made.
+    nonisolated init(clock: @escaping @Sendable () -> CMTime,waitsForRefresh: Bool = true) throws {
         drawer=try MetalFrameDrawer();self.clock=clock;self.waitsForRefresh=waitsForRefresh
         layer.device=drawer.device
         layer.framebufferOnly=true;layer.isOpaque=true
@@ -225,7 +228,7 @@ final class MetalPresentationReceiver: PresentationReceiver {
         // stretches one onto the other (see `DisplayLayerPresenter.drawableSize`).
         layer.contentsGravity = .resize
     }
-    func setDrawableSize(_ size: CGSize) {
+    @MainActor func setDrawableSize(_ size: CGSize) {
         guard size.width >= 1,size.height >= 1 else { return }
         CATransaction.begin();CATransaction.setDisableActions(true)
         layer.drawableSize=size
@@ -236,14 +239,14 @@ final class MetalPresentationReceiver: PresentationReceiver {
         if let failure=slot.takeFailure() { throw failure }
         guard let image=CMSampleBufferGetImageBuffer(sample) else { throw VideoDecoderError.invalidSample("sample has no image") }
         let format=VideoLayerFormat(image:image)
-        if format != lastFormat { configure(format,image:image);lastFormat=format }
+        if format != lastFormat { await configure(format);lastFormat=format }
         let toneMap=format.transfer == .pq ? HDRToneMap(sourceNits:HDRToneMap.sourceNits(
             masteringDisplay:CVBufferCopyAttachment(image,kCVImageBufferMasteringDisplayColorVolumeKey,nil) as? Data,
-            contentLightLevel:CVBufferCopyAttachment(image,kCVImageBufferContentLightLevelInfoKey,nil) as? Data),headroom:headroom) : nil
+            contentLightLevel:CVBufferCopyAttachment(image,kCVImageBufferContentLightLevelInfoKey,nil) as? Data),headroom:slot.headroom) : nil
         if waitsForRefresh {
             let frame=RenderFrame(image:image,time:CMSampleBufferGetPresentationTimeStamp(sample),
                                   readySeconds:nextFrameAge.map { CACurrentMediaTime()-$0 },enqueuedSeconds:CACurrentMediaTime(),timing:nextFrameTiming,shown:nextFrameShown,toneMap:toneMap)
-            let target=UnsafeLayer(layer:layer),drawer=drawer,clock=clock,slot=slot,phaseReport=phaseReport
+            let target=UnsafeLayer(layer:layer),drawer=drawer,clock=clock,slot=slot,phaseReport=slot.phaseReport
             await withCheckedContinuation { (done: CheckedContinuation<Void,Never>) in
                 renderQueue.async {
                     defer { done.resume() }
@@ -300,21 +303,27 @@ final class MetalPresentationReceiver: PresentationReceiver {
         } catch { slot.fail(error) }
     }
     /// Frames replaced, timed out or never shown, like the display layer's own drop count.
-    var droppedFrames: UInt64 { slot.missed }
-    var cadence: ShownCadence { slot.cadence }
+    nonisolated var droppedFrames: UInt64 { slot.missed }
+    nonisolated var cadence: ShownCadence { slot.cadence }
     /// PQ goes without `edrMetadata`: with it macOS tone maps in the compositor and full screen is
     /// no longer direct to the display, so the shader tone maps instead (`HDRToneMap`). HLG keeps
     /// macOS's tone map, and the compositor with it; GameStream hosts send PQ.
-    private func configure(_ format: VideoLayerFormat,image: CVPixelBuffer) {
-        CATransaction.begin();CATransaction.setDisableActions(true)
-        layer.pixelFormat=format.pixelFormat
-        layer.colorspace=CGColorSpace(name:format.colorSpaceName)
-        switch format.transfer {
-        case .sdr: layer.edrMetadata=nil;layer.wantsExtendedDynamicRangeContent=false
-        case .hlg: layer.edrMetadata = .hlg;layer.wantsExtendedDynamicRangeContent=true
-        case .pq: layer.edrMetadata=nil;layer.wantsExtendedDynamicRangeContent=true
+    /// Only when the format changes, at the first frame and on a switch between SDR and HDR, and
+    /// waited for, so the frame that brought the change is drawn into the layer it asked for.
+    private func configure(_ format: VideoLayerFormat) async {
+        let target=UnsafeLayer(layer:layer)
+        await MainActor.run {
+            let layer=target.layer
+            CATransaction.begin();CATransaction.setDisableActions(true)
+            layer.pixelFormat=format.pixelFormat
+            layer.colorspace=CGColorSpace(name:format.colorSpaceName)
+            switch format.transfer {
+            case .sdr: layer.edrMetadata=nil;layer.wantsExtendedDynamicRangeContent=false
+            case .hlg: layer.edrMetadata = .hlg;layer.wantsExtendedDynamicRangeContent=true
+            case .pq: layer.edrMetadata=nil;layer.wantsExtendedDynamicRangeContent=true
+            }
+            CATransaction.commit()
         }
-        CATransaction.commit()
     }
     func flush() { slot.clear() }
     func flush(removingDisplayedImage: Bool) async {
@@ -394,6 +403,13 @@ final class MetalFrameSlot<Frame>: @unchecked Sendable {
     func recordStages(_ stages: PresentationStages) { lock.lock();defer { lock.unlock() };shown.record(stages:stages) }
     private var lastShown: CFTimeInterval?
     private var refresh: Int64?
+    private var screenHeadroom=1.0
+    private var phase: (@Sendable (UInt64,UInt64,Int64,Int64) -> Void)?
+    /// The screen's current EDR headroom, set on the main actor and read where frames are drawn.
+    var headroom: Double { lock.lock();defer { lock.unlock() };return screenHeadroom }
+    func setHeadroom(_ value: Double) { lock.lock();defer { lock.unlock() };screenHeadroom=value }
+    var phaseReport: (@Sendable (UInt64,UInt64,Int64,Int64) -> Void)? { lock.lock();defer { lock.unlock() };return phase }
+    func setPhaseReport(_ report: (@Sendable (UInt64,UInt64,Int64,Int64) -> Void)?) { lock.lock();defer { lock.unlock() };phase=report }
     /// The panel's last present, which is on its refresh grid with V-Sync on.
     var lastShownSeconds: CFTimeInterval? { lock.lock();defer { lock.unlock() };return lastShown }
     var refreshNanos: Int64? { lock.lock();defer { lock.unlock() };return refresh }
