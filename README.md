@@ -92,7 +92,7 @@ open .build/Mystic.app
 The script builds the engine, then the app, and signs it. It uses the Apple Development
 certificate in your keychain; with several, pick one with
 `git config --local mystic.signingIdentity <SHA-1>`, or set `MYSTIC_SIGNING_IDENTITY=-` for an
-ad-hoc build. Pass `release` for an optimized build.
+ad-hoc build. The build is optimized; pass `debug` for one to step through in a debugger.
 
 ### iOS (groundwork)
 
