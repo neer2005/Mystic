@@ -25,6 +25,13 @@ public struct StreamingView: View {
     private func showHealth() { showingHealth=true;model.inputCapture?.release() }
     private var controlling: Bool { (model.inputCapture?.mode ?? .released) != .released }
     private func updateDock() { StreamDock.update(window:window,controlling:controlling) }
+    /// Start Streams in Full Screen: once for each stream, as soon as its window exists. The
+    /// model holds the request, not this view, which the notch-covering full screen remounts:
+    /// leaving full screen must not be undone by that.
+    private func startFullScreenIfChosen(_ window: NSWindow?) {
+        guard model.hasSession,let window,model.takeFullScreenStart() else { return }
+        if !window.isStreamFullScreen { window.toggleFullScreen(nil) }
+    }
     /// The HIG asks games to say when a controller comes or goes; mid-game, input that stops
     /// for no visible reason is the alternative. Only pads the stream sends count.
     private func controllerChanged(_ note: Notification) {
@@ -153,7 +160,9 @@ public struct StreamingView: View {
             // The notch mode is opt-in and System-only, as macOS composites it (see `StreamVideoSettings.limited(to:)`).
             // Both settings are locked while a stream runs, so they match the stream in this window.
             if let window=$0 { NotchFullScreen.install(on:window) { [model] in model.videoOutput.coversNotch ? model.presenter?.videoSize ?? .zero : .zero } }
+            startFullScreenIfChosen($0)
         })
+        .onChange(of:model.hasSession,initial:true) { startFullScreenIfChosen(window) }
         .fullScreenCommandTarget()
         .onChange(of:controlling,initial:true) { updateDock() }
         .onReceive(StreamWindowEvents.windowChanges) { note in if let window,note.object as? NSWindow === window { updateDock() } }

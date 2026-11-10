@@ -719,6 +719,7 @@ public final class ConnectionModel {
     private func startPreparedPlan(_ plan: StreamPlan,connection: any HostService,capabilities: VideoCapabilities) {
         recovery=StreamRecovery();recovering=false;hadVideo=false;connectedAt=nil
         self.plan=plan;streamingAppName=plan.app.name;reportedHeadroom=[:]
+        fullScreenStartPending=startFullScreen
         statistics=StreamStatistics();statisticsStart=nowMillis();canSaveStatistics=false
         launchStream(plan,connection:connection,capabilities:capabilities)
     }
@@ -776,6 +777,13 @@ public final class ConnectionModel {
         address=connectedAddress;port=String(connectedPort)
         returnNotice=notice
         connect(keepingLibrary:true)
+    }
+    /// A new stream's window is still to be sent to full screen (Start Streams in Full Screen).
+    @ObservationIgnored private var fullScreenStartPending=false
+    /// True once for each new stream that should open in full screen; a reconnect is not one.
+    public func takeFullScreenStart() -> Bool {
+        guard fullScreenStartPending else { return false }
+        fullScreenStartPending=false;return true
     }
     /// What the library's status says once it is back from a stream.
     @ObservationIgnored private var returnNotice: String?

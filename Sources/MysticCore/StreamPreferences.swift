@@ -51,6 +51,7 @@ public struct StreamPreferences: Codable, Equatable, Sendable {
     public var localCursor: Bool? = nil // Missing in older documents; defaults on, as Nightjar.
     public var checkForUpdates: Bool? = nil // Missing in older documents; defaults on, as Nightjar.
     public var quickResume: Bool? = nil // Missing in older documents; defaults off, as Nightjar.
+    public var startFullScreen: Bool? = nil // Missing in older documents; defaults off, a window as before.
     public var showLatencyHUD = false
     public var overlayMode: String? = nil // Missing in older documents; Compact, as Nightjar.
     public var libraryLayout = "grid"

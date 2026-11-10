@@ -17,6 +17,8 @@ public struct MysticSettingsView: View {
                         Text("Choosing a PC that is already running a game goes straight back into it.").font(.caption).foregroundStyle(.secondary)
                     }
                     Section("Streaming") {
+                        Toggle("Start Streams in Full Screen",isOn:$model.startFullScreen)
+                        Text("Full screen is where macOS gives a stream Game Mode and its shortest path to the display.").font(.caption).foregroundStyle(.secondary)
                         Toggle("Show Performance Overlay",isOn:$model.showLatencyHUD)
                         Picker("Overlay Detail",selection:$model.overlayMode) {
                             ForEach(OverlayMode.allCases,id:\.self) { Text($0.label).tag($0) }

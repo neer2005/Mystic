@@ -46,6 +46,7 @@ stream over Wi-Fi reached the screen about 34 ms after the PC drew each frame, d
 **Feels like a Mac app**
 - One library of games from all your PCs, with box art, favorites and recently played
 - Wake-on-LAN, pairing with a PIN or a pairing link, and quick resume into a running game
+- Leaving a stream brings you back to that PC's library, and streams can open in full screen from the start (Settings → General)
 - Native full screen, menus and keyboard shortcuts, and settings per PC and per game; full screen stays below a MacBook's camera, or can fill the notched screen to the top edge at a full-display resolution such as 3024 × 1964 (Settings → Video, System renderer; macOS composites that mode, which adds delay)
 - The Dock stays out of a full-screen stream while it has your input, and comes back when you release it
 - Your Mac's pointer drives the desktop with no video delay; capture the mouse for games, which sends the mouse's own unaccelerated movement, so the PC's mouse settings apply as if it were plugged in
