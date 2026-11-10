@@ -33,21 +33,27 @@ public enum AnnexB {
         }
     }
 
-    static func nalUnitRanges(in raw: UnsafeRawBufferPointer) -> [Range<Int>] {
-        let bytes = raw.bindMemory(to: UInt8.self)
-        let count = bytes.count
-        guard count >= 3 else { return [] }
+    /// The same, over bytes that are only borrowed, such as the engine's frame during its
+    /// callback. This runs once for every frame of the stream, so it looks for a start code's
+    /// final `01` with `memchr` rather than comparing three bytes at every offset.
+    public static func nalUnitRanges(in raw: UnsafeRawBufferPointer) -> [Range<Int>] {
+        let count = raw.count
+        guard count >= 3, let base = raw.baseAddress else { return [] }
+        let bytes = base.assumingMemoryBound(to: UInt8.self)
 
         var ranges: [Range<Int>] = []
         var payloadStart: Int?
-        var index = 0
+        // The earliest offset the next start code may begin at.
+        var search = 0
 
-        while index + 2 < count {
-            let isStartCode = bytes[index] == 0 && bytes[index + 1] == 0 && bytes[index + 2] == 1
-            guard isStartCode else {
-                index += 1
+        while search + 2 < count {
+            guard let found = memchr(base + search + 2, 1, count - search - 2) else { break }
+            let one = base.distance(to: UnsafeRawPointer(found))
+            guard bytes[one - 1] == 0, bytes[one - 2] == 0 else {
+                search = one - 1
                 continue
             }
+            let index = one - 2
 
             if let start = payloadStart {
                 var end = index
@@ -60,7 +66,7 @@ public enum AnnexB {
                 }
             }
             payloadStart = index + 3
-            index += 3
+            search = index + 3
         }
 
         if let start = payloadStart, start < count {
@@ -94,6 +100,23 @@ public enum AnnexB {
         return out
     }
 
+    /// The size of the AVCC sample `writeAVCC` makes of these units.
+    public static func avccLength(ranges: [Range<Int>]) -> Int {
+        ranges.reduce(0) { $0 + 4 + $1.count }
+    }
+
+    /// Writes the units of `raw` as an AVCC sample straight into `out`, which holds exactly
+    /// `avccLength(ranges:)` bytes: the frame's one copy on its way to the decoder.
+    public static func writeAVCC(from raw: UnsafeRawBufferPointer, ranges: [Range<Int>], to out: UnsafeMutableRawBufferPointer) {
+        precondition(out.count == avccLength(ranges: ranges), "AVCC destination has the wrong size")
+        var offset = 0
+        for range in ranges {
+            out.storeBytes(of: UInt32(range.count).bigEndian, toByteOffset: offset, as: UInt32.self)
+            out.baseAddress!.advanced(by: offset + 4).copyMemory(from: raw.baseAddress!.advanced(by: range.lowerBound), byteCount: range.count)
+            offset += 4 + range.count
+        }
+    }
+
     /// Removes emulation prevention bytes (`00 00 03` → `00 00`) for bitstream syntax inspection.
     /// Do not use this on NAL units passed to VideoToolbox.
     public static func stripEmulationPrevention(_ nal: Data) -> Data {
@@ -122,19 +145,23 @@ public struct ParameterSets: Sendable, Equatable {
     /// Returns nil when the frame does not carry a complete set — which is the signal that the
     /// caller must ask the host for a key frame rather than guess.
     public static func extract(from data: Data, codec: VideoCodec) -> ParameterSets? {
+        data.withUnsafeBytes { extract(from: $0, ranges: AnnexB.nalUnitRanges(in: $0), codec: codec) }
+    }
+
+    /// The same, from units already found in borrowed bytes; only the sets themselves are copied.
+    public static func extract(from raw: UnsafeRawBufferPointer, ranges: [Range<Int>], codec: VideoCodec) -> ParameterSets? {
         var vps: Data?
         var sps: Data?
         var pps: Data?
 
-        for range in AnnexB.nalUnitRanges(in: data) {
-            let nal = data[range]
-            guard let header = nal.first else { continue }
-            let type = codec.nalUnitType(header)
+        for range in ranges {
+            let type = codec.nalUnitType(raw[range.lowerBound])
+            func unit() -> Data { Data(UnsafeRawBufferPointer(rebasing: raw[range])) }
 
             switch (codec, type) {
-            case (.hevc, 32): if vps == nil { vps = Data(nal) }
-            case (.h264, 7), (.hevc, 33): if sps == nil { sps = Data(nal) }
-            case (.h264, 8), (.hevc, 34): if pps == nil { pps = Data(nal) }
+            case (.hevc, 32): if vps == nil { vps = unit() }
+            case (.h264, 7), (.hevc, 33): if sps == nil { sps = unit() }
+            case (.h264, 8), (.hevc, 34): if pps == nil { pps = unit() }
             default: continue
             }
         }
