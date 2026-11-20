@@ -168,5 +168,16 @@ struct FramePacingTests {
         #expect(metrics.queueDepth == 0 && metrics.peakQueueDepth == 2)
         #expect(metrics.rendererDroppedFrames == 7 && metrics.rendererCorruptedFrames == 1)
         #expect(metrics.resynchronizations == 1)
+        #expect(metrics.rendererDropCauses == nil,"the display layer gives only a total")
+    }
+    @Test func rendererDropCausesAreKeptApartAndListedInAFixedOrder() {
+        var causes=RendererDropCauses()
+        #expect(causes.total == 0 && causes.summary.isEmpty)
+        causes.count(.notShown);causes.count(.waited);causes.count(.waited)
+        #expect(causes.total == 3 && causes[.waited] == 2 && causes[.notShown] == 1 && causes[.failed] == 0)
+        #expect(causes.summary == "waited 2, not shown 1")
+        var recorder=VideoTelemetryAccumulator()
+        recorder.rendererMetrics(dropped:causes.total,corrupted:nil,causes:causes)
+        #expect(recorder.snapshot(nowMicros:1).presentation.rendererDropCauses == causes)
     }
 }

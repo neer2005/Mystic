@@ -256,7 +256,8 @@ public final class DisplayLayerPresenter {
     public func refreshRendererMetrics() async {
         guard let generation=displayedGeneration,mailbox.isCurrent(generation) else { return }
         if let metal {
-            telemetry?.rendererMetrics(generation:generation,dropped:metal.droppedFrames,corrupted:nil)
+            let causes=metal.dropCauses
+            telemetry?.rendererMetrics(generation:generation,dropped:causes.total,corrupted:nil,causes:causes)
             telemetry?.presentationShown(generation:generation,cadence:metal.cadence)
             return
         }

@@ -55,9 +55,9 @@ public final class VideoTelemetry: @unchecked Sendable {
         lock.lock();defer { lock.unlock() };guard self.generation == generation else { return }
         accumulator.presentationHold(micros:micros)
     }
-    func rendererMetrics(generation: UInt64,dropped: UInt64?,corrupted: UInt64?) {
+    func rendererMetrics(generation: UInt64,dropped: UInt64?,corrupted: UInt64?,causes: RendererDropCauses? = nil) {
         lock.lock();defer { lock.unlock() };guard self.generation == generation else { return }
-        accumulator.rendererMetrics(dropped:dropped,corrupted:corrupted)
+        accumulator.rendererMetrics(dropped:dropped,corrupted:corrupted,causes:causes)
     }
     public func snapshot() -> VideoTelemetrySnapshot {
         lock.lock();defer { lock.unlock() };return accumulator.snapshot(nowMicros:Self.nowMicros())

@@ -166,7 +166,11 @@ final class MetalVideoRendererTests: XCTestCase {
         XCTAssertFalse(slot.isWaiting)
         XCTAssertTrue(slot.offer(5));slot.clear()
         XCTAssertEqual(slot.missed,3,"a flush is not a miss");XCTAssertNil(slot.take())
-        slot.countMissed();XCTAssertEqual(slot.missed,4)
+        slot.countMissed(.waited);XCTAssertEqual(slot.missed,4)
+        slot.countMissed(.notShown);slot.countMissed(.notShown)
+        XCTAssertEqual(slot.causes[.replaced],2);XCTAssertEqual(slot.causes[.noDrawable],1)
+        XCTAssertEqual(slot.causes[.waited],1);XCTAssertEqual(slot.causes[.notShown],2)
+        XCTAssertEqual(slot.causes.summary,"waited 1, no drawable 1, not shown 2, replaced 2","each loss is kept by its cause")
     }
     func testAnInOrderSlotDrawsOldestFirstAndMissesOnlyPastItsCapacity() {
         let slot=MetalFrameSlot<Int>(capacity:3)

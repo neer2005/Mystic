@@ -71,7 +71,9 @@ public struct VideoTelemetryAccumulator: Sendable {
     public mutating func presentationHold(micros: Int64) { presentation.hold(micros:micros) }
     public mutating func presentationPhase(leadMicros: Int32) { presentation.phase(leadMicros:leadMicros) }
     public mutating func presentationShown(_ cadence: ShownCadence) { presentation.shown(cadence) }
-    public mutating func rendererMetrics(dropped: UInt64?,corrupted: UInt64?) { presentation.renderer(dropped:dropped,corrupted:corrupted) }
+    public mutating func rendererMetrics(dropped: UInt64?,corrupted: UInt64?,causes: RendererDropCauses? = nil) {
+        presentation.renderer(dropped:dropped,corrupted:corrupted,causes:causes)
+    }
     public mutating func snapshot(nowMicros: UInt64) -> VideoTelemetrySnapshot {
         var summaries: [VideoTimingStage: VideoTimingSummary]=[:]
         for stage in VideoTimingStage.allCases {
