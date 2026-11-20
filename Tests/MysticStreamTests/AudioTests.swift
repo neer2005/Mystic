@@ -129,6 +129,12 @@ final class AudioTests: XCTestCase {
         do { graph=try AudioPipeline(volume:0) } catch { throw XCTSkip("No audio output: \(error.localizedDescription)") }
         defer { graph.stop() }
         let id=graph.engine.outputNode.withAUAudioUnit { $0.deviceID }
+        // The default output may be a Bluetooth headset, whose buffer sizes are its own.
+        var transportAddress=AudioObjectPropertyAddress(mSelector:kAudioDevicePropertyTransportType,
+                                                        mScope:kAudioObjectPropertyScopeGlobal,mElement:kAudioObjectPropertyElementMain)
+        var transport: UInt32=0,transportSize=UInt32(MemoryLayout<UInt32>.size)
+        try XCTSkipUnless(AudioObjectGetPropertyData(id,&transportAddress,0,nil,&transportSize,&transport) == noErr
+                          && transport == kAudioDeviceTransportTypeBuiltIn,"The default output is not the Mac's own")
         var address=AudioObjectPropertyAddress(mSelector:kAudioDevicePropertyBufferFrameSizeRange,
                                                mScope:kAudioObjectPropertyScopeOutput,mElement:kAudioObjectPropertyElementMain)
         var range=AudioValueRange(),size=UInt32(MemoryLayout<AudioValueRange>.size)
