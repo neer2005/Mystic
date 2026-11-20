@@ -9,3 +9,9 @@
 # A RUSTFLAGS environment variable replaces these flags, so a build that sets one must repeat them.
 [target.'cfg(target_arch = "aarch64")']
 rustflags = ["--cfg", "aes_armv8", "--cfg", "polyval_armv8"]
+
+# The app's deployment target, Package.swift's `.macOS("27.0")`. Without it the C libraries the
+# engine builds (Opus, through CMake) target the SDK's macOS, newer than the app, and the app's link
+# warns once for every object in them. Cargo hands [env] to build scripts and rustc alike.
+[env]
+MACOSX_DEPLOYMENT_TARGET = "27.0"
