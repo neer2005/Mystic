@@ -210,9 +210,15 @@ final class MetalPresentationReceiver: PresentationReceiver {
         drawer=try MetalFrameDrawer();self.clock=clock;self.waitsForRefresh=waitsForRefresh
         layer.device=drawer.device
         layer.framebufferOnly=true;layer.isOpaque=true
-        // V-Sync on two, as SDL's double buffering on Windows: a shorter queue. Without V-Sync a
-        // frame goes at once, and on two it could wait out a refresh for a drawable.
-        layer.maximumDrawableCount=waitsForRefresh ? 2 : 3
+        // Three drawables, chosen for even frames over delay. V-Sync had two, as SDL's double
+        // buffering on Windows, for a shorter queue. On macOS 27.2.1 two lost a fifth to a third of
+        // frames at 120 fps: frames reached the Mac about 4 ms after the refresh phase lock aimed
+        // for, so the next one waited out a refresh for a drawable and was skipped. With three, a
+        // late frame waits a refresh instead: on TestUFO at home, 0.6% lost and every gap 8.3 ms,
+        // but PC to screen about 32 ms against 22 ms, a refresh more. Back to two once phase lock
+        // lands frames before the refresh. The skip after `drawableWaitLimit` still keeps the queue
+        // from filling. Without V-Sync a frame goes at once, and on two it could wait out a refresh.
+        layer.maximumDrawableCount=3
         // Off presents at once, as Nightjar's immediate mode. iOS has no such switch: its layer
         // always waits for the refresh.
         #if os(macOS)

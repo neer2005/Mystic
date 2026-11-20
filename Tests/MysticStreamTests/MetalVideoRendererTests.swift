@@ -186,7 +186,7 @@ final class MetalVideoRendererTests: XCTestCase {
             let free=try MetalPresentationReceiver(clock:{ .zero },waitsForRefresh:false)
             XCTAssertFalse(free.layer.displaySyncEnabled);XCTAssertEqual(free.layer.maximumDrawableCount,3)
             let synced=try MetalPresentationReceiver(clock:{ .zero })
-            XCTAssertTrue(synced.layer.displaySyncEnabled);XCTAssertEqual(synced.layer.maximumDrawableCount,2)
+            XCTAssertTrue(synced.layer.displaySyncEnabled);XCTAssertEqual(synced.layer.maximumDrawableCount,3)
         } catch VideoDecoderError.unsupported { throw XCTSkip("No Metal device") }
     }
     func testTheDrawableIsThePicturesSizeOnceThereIsOne() {
