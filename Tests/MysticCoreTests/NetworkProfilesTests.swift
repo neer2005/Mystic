@@ -42,6 +42,18 @@ struct NetworkProfilesTests {
         }
         for remote in ["100.101.102.103","8.8.8.8","172.32.0.1","pc.example.com","2001:db8::1"] { #expect(!NetworkKind.isLocal(remote),"\(remote)") }
     }
+    @Test func sharedAddressSpaceIsHomeOnlyOffATunnel() {
+        // A home router that numbers its network from 100.64.0.0/10, reached over Wi-Fi.
+        #expect(NetworkKind.isLocal("100.66.0.33",tunneled:false))
+        #expect(NetworkKind.of(metered:false,vpn:false,localHost:NetworkKind.isLocal("100.66.0.33",tunneled:false),wireless:true) == .wifi)
+        // Tailscale's address, reached through its tunnel, or a route that couldn't be found.
+        #expect(!NetworkKind.isLocal("100.66.0.33",tunneled:true) && !NetworkKind.isLocal("100.66.0.33"))
+        // Only 100.64 to 100.127 is shared; the rest of 100/8 is public, and other addresses
+        // don't depend on the route.
+        #expect(NetworkKind.isLocal("100.127.255.254",tunneled:false) && !NetworkKind.isLocal("100.128.0.1",tunneled:false))
+        #expect(!NetworkKind.isLocal("100.63.0.1",tunneled:false) && !NetworkKind.isLocal("8.8.8.8",tunneled:false))
+        #expect(NetworkKind.isLocal("192.168.1.20",tunneled:true))
+    }
     @Test func quitOnLeaveIsPerHostAndGame() throws {
         var quits=QuitOnLeave()
         quits.set(true,host:"id:a",game:"uuid:g")

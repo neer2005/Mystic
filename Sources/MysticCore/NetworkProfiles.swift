@@ -21,11 +21,18 @@ public enum NetworkKind: String, Codable, CaseIterable, Sendable {
         return wireless.map { $0 ? .wifi : .wired }
     }
     /// Whether a host address is on the local network: private and link-local IPv4 and IPv6,
-    /// `.local` names and single-label names. Tailscale's 100.64.0.0/10 is not.
-    public static func isLocal(_ host: String) -> Bool {
+    /// `.local` names and single-label names.
+    ///
+    /// 100.64.0.0/10 is shared address space (RFC 6598). Tailscale hands out its addresses from
+    /// it, but some home routers number their own networks from it too, so the address alone
+    /// can't tell. The route can: Tailscale's addresses are reached through its tunnel, and a home
+    /// network's through Wi-Fi or Ethernet. `tunneled` is whether the route toward the host is a
+    /// tunnel, or nil when the route is unknown, which keeps such an address remote.
+    public static func isLocal(_ host: String,tunneled: Bool? = nil) -> Bool {
         let name=host.trimmingCharacters(in:CharacterSet(charactersIn:"[]")).lowercased()
         let parts=name.split(separator:".").compactMap { UInt8($0) }
         if parts.count == 4 {
+            if parts[0] == 100 && (64...127).contains(parts[1]) { return tunneled == false }
             return parts[0] == 10 || parts[0] == 127 || (parts[0] == 172 && (16...31).contains(parts[1]))
                 || (parts[0] == 192 && parts[1] == 168) || (parts[0] == 169 && parts[1] == 254)
         }
