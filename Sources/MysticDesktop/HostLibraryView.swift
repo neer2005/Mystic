@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ImageIO
 import MysticCore
 import MysticKit
 import MysticStream
@@ -481,23 +482,29 @@ private struct HostSidebar: View {
 /// Cover art in a 2:3 frame. Art of that shape fills it; other shapes, such as square
 /// store art, are fitted over a blurred fill of themselves so every card has the same
 /// edges instead of gray bars. Overlays keep the frame's size fixed whatever the art.
+///
+/// The art arrives as encoded bytes, often a megabyte or more a cover. It is decoded once, off
+/// the main thread, to a thumbnail no larger than a card shows, and kept: decoding in `body`
+/// did it at full size, on the main thread, each time a card was drawn while scrolling.
 struct GameArtwork: View {
     let data: Data?
     let desktop: Bool
     static let aspect: CGFloat=2/3
-    private var image: NSImage? { data.flatMap(NSImage.init(data:)).flatMap { $0.size.height > 0 ? $0 : nil } }
+    @State private var loaded: (key: String,image: CGImage)?
     var body: some View {
-        let image=image
-        let fills=image.map { abs($0.size.width/$0.size.height/Self.aspect-1) < 0.04 } ?? false
+        let key=data.map(ArtworkThumbnails.key)
+        // A card scrolled back into view finds its thumbnail without waiting for the task.
+        let image=key.flatMap { key in loaded?.key == key ? loaded?.image : ArtworkThumbnails.shared.cached(key) }
+        let fills=image.map { abs(CGFloat($0.width)/CGFloat($0.height)/Self.aspect-1) < 0.04 } ?? false
         // Each layer is its own overlay so both are sized to the frame, not to each other.
         Rectangle().fill(.quaternary)
             .overlay {
-                if let image,!fills { Image(nsImage:image).resizable().scaledToFill().blur(radius:20).opacity(0.7) }
+                if let image,!fills { Image(decorative:image,scale:1).resizable().scaledToFill().blur(radius:20).opacity(0.7) }
             }
             .overlay {
                 if let image {
-                    if fills { Image(nsImage:image).resizable().scaledToFill() }
-                    else { Image(nsImage:image).resizable().scaledToFit() }
+                    if fills { Image(decorative:image,scale:1).resizable().scaledToFill() }
+                    else { Image(decorative:image,scale:1).resizable().scaledToFit() }
                 } else {
                     Image(systemName:desktop ? "desktopcomputer" : "gamecontroller")
                         .font(.largeTitle).foregroundStyle(.tint)
@@ -506,6 +513,36 @@ struct GameArtwork: View {
             .clipShape(RoundedRectangle(cornerRadius:8))
             .overlay { RoundedRectangle(cornerRadius:8).strokeBorder(.separator,lineWidth:0.5) }
             .accessibilityHidden(true)
+            .task(id:key) {
+                guard let key,let data else { loaded=nil;return }
+                if let image=await ArtworkThumbnails.shared.thumbnail(data,key:key) { loaded=(key,image) }
+            }
+    }
+}
+
+/// Decoded cover thumbnails, shared by every card. The cache gives memory back under pressure.
+@MainActor
+final class ArtworkThumbnails {
+    static let shared=ArtworkThumbnails()
+    /// The longest side in pixels: a grid card at its widest on a Retina display.
+    nonisolated static let maxPixels=640
+    private let cache=NSCache<NSString,CGImage>()
+    private init() { cache.countLimit=512 }
+    /// Names a cover by its size and a hash of its bytes, which is cheap for bytes of any length.
+    nonisolated static func key(_ data: Data) -> String { "\(data.count)-\(data.hashValue)" }
+    func cached(_ key: String) -> CGImage? { cache.object(forKey:key as NSString) }
+    func thumbnail(_ data: Data,key: String) async -> CGImage? {
+        if let image=cached(key) { return image }
+        guard let image=await Task.detached(priority:.userInitiated,operation:{ Self.decode(data) }).value else { return nil }
+        cache.setObject(image,forKey:key as NSString)
+        return image
+    }
+    nonisolated static func decode(_ data: Data) -> CGImage? {
+        guard let source=CGImageSourceCreateWithData(data as CFData,[kCGImageSourceShouldCache:false] as CFDictionary) else { return nil }
+        let options: [CFString:Any]=[kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceCreateThumbnailWithTransform:true,
+                                     kCGImageSourceShouldCacheImmediately:true,kCGImageSourceThumbnailMaxPixelSize:maxPixels]
+        guard let image=CGImageSourceCreateThumbnailAtIndex(source,0,options as CFDictionary),image.height > 0 else { return nil }
+        return image
     }
 }
 

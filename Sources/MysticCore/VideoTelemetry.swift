@@ -74,12 +74,26 @@ public struct VideoTelemetryAccumulator: Sendable {
     public mutating func rendererMetrics(dropped: UInt64?,corrupted: UInt64?,causes: RendererDropCauses? = nil) {
         presentation.renderer(dropped:dropped,corrupted:corrupted,causes:causes)
     }
-    public mutating func snapshot(nowMicros: UInt64) -> VideoTelemetrySnapshot {
-        var summaries: [VideoTimingStage: VideoTimingSummary]=[:]
-        for stage in VideoTimingStage.allCases {
-            guard let samples=stats[stage],let p50=samples.percentile(0.5),let p95=samples.percentile(0.95) else { continue }
-            summaries[stage]=VideoTimingSummary(count:samples.count,p50Micros:p50,p95Micros:p95)
+    /// The recorder's state at one moment, not yet summarized. Taking it is cheap, so it can be
+    /// done under the lock the decoder and presenter record through; `summarized()` does the
+    /// sorting, and belongs outside that lock.
+    public struct Capture: Sendable {
+        fileprivate let stats: [VideoTimingStage: LatencyStats]
+        fileprivate let submitted: UInt64,decoded: UInt64,enqueued: UInt64
+        fileprivate let decodedFPS: Double?,enqueuedFPS: Double?
+        fileprivate let presentation: PresentationMetrics
+        public func summarized() -> VideoTelemetrySnapshot {
+            var summaries: [VideoTimingStage: VideoTimingSummary]=[:]
+            for stage in VideoTimingStage.allCases {
+                guard let samples=stats[stage],let p50=samples.percentile(0.5),let p95=samples.percentile(0.95) else { continue }
+                summaries[stage]=VideoTimingSummary(count:samples.count,p50Micros:p50,p95Micros:p95)
+            }
+            return VideoTelemetrySnapshot(timings:summaries,submitted:submitted,decoded:decoded,enqueued:enqueued,
+                                          decodedFPS:decodedFPS,enqueuedFPS:enqueuedFPS,presentation:presentation)
         }
+    }
+    public mutating func snapshot(nowMicros: UInt64) -> VideoTelemetrySnapshot { capture(nowMicros:nowMicros).summarized() }
+    public mutating func capture(nowMicros: UInt64) -> Capture {
         var decodedFPS: Double?,enqueuedFPS: Double?
         if let previous,nowMicros > previous.time {
             let seconds=Double(nowMicros-previous.time)/1_000_000
@@ -88,8 +102,8 @@ public struct VideoTelemetryAccumulator: Sendable {
         }
         // Equal/regressed poll timestamps cannot poison the next rate interval.
         if previous == nil || nowMicros > previous!.time { previous=(nowMicros,decoded,enqueued) }
-        return VideoTelemetrySnapshot(timings:summaries,submitted:submitted,decoded:decoded,enqueued:enqueued,
-                                      decodedFPS:decodedFPS,enqueuedFPS:enqueuedFPS,presentation:presentation)
+        return Capture(stats:stats,submitted:submitted,decoded:decoded,enqueued:enqueued,
+                       decodedFPS:decodedFPS,enqueuedFPS:enqueuedFPS,presentation:presentation)
     }
 }
 

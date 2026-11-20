@@ -56,6 +56,12 @@ extension ConnectionModel {
         get { settings.value.quickResume ?? false }
         set { settings.update { $0.quickResume=newValue } }
     }
+    /// A stream's window opens in full screen, where macOS turns on Game Mode and can send the
+    /// frames straight to the display.
+    public var startFullScreen: Bool {
+        get { settings.value.startFullScreen ?? false }
+        set { settings.update { $0.startFullScreen=newValue } }
+    }
     /// Look for a newer stable release once per launch.
     public var checkForUpdates: Bool {
         get { settings.value.checkForUpdates ?? true }

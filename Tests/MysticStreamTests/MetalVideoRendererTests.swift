@@ -89,7 +89,7 @@ final class MetalVideoRendererTests: XCTestCase {
         XCTAssertNil(receiver.layer.edrMetadata)
         XCTAssertTrue(receiver.layer.wantsExtendedDynamicRangeContent)
         XCTAssertEqual(receiver.layer.pixelFormat,.bgr10a2Unorm)
-        receiver.flush()
+        await receiver.flush()
     }
     func testFullRangeUsesTheWholeScale() throws {
         let format=kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,bt709=kCVImageBufferYCbCrMatrix_ITU_R_709_2

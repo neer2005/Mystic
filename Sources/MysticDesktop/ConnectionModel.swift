@@ -327,8 +327,12 @@ public final class ConnectionModel {
         }
     }
 
-    /// The host ended its session at this device's request; never reconnect.
-    func hostEnded(_ message: String) { disconnect();status=message }
+    /// The host ended its session at this device's request; never reconnect the stream. A
+    /// stream that ended this way goes back to the PC's library, as leaving it does.
+    func hostEnded(_ message: String) {
+        guard hasSession else { disconnect();status=message;return }
+        endStreamToLibrary(notice:message)
+    }
     /// The stream cannot continue; the message explains why.
     func endStream(_ message: String) { endRecovery(message) }
 
@@ -464,7 +468,10 @@ public final class ConnectionModel {
         capabilities = await VideoCapabilities.probe()
         probing = false
     }
-    public func connect() {
+    public func connect() { connect(keepingLibrary:false) }
+    /// `keepingLibrary`: coming back from a stream, the games stay on screen while the PC is
+    /// asked again, and a game still running there is not resumed by itself.
+    private func connect(keepingLibrary: Bool) {
         guard !isBusy, !hasSession else { return }
         showingHome=false;homeSync.cancel()
         guard let port=UInt16(port),let target=HostEndpoint(address:address,port:port) else {
@@ -479,16 +486,17 @@ public final class ConnectionModel {
         // A link names the certificate the PC must have, which may replace a saved pin.
         let link=pendingPairingLink;pendingPairingLink=nil
         pairingError=nil
-        phase = .connecting; status = "Loading client identity from Keychain…"; errorMessage = nil
+        // Back from a stream that ended on an error, the error stays beside the library.
+        phase = .connecting; status = "Loading client identity from Keychain…"; errorMessage = keepingLibrary ? returnError : nil
         SessionLog.addSecrets([address]);sessionLog?.write("Connecting to \(address):\(port).")
-        networkKind=nil;quickResumePending=quickResume
+        networkKind=nil;quickResumePending=quickResume && !keepingLibrary
         cancelGameAction()
         rates.resetManual()
         graphics.reset()
         hostAudioControls.reset();sessionControls.reset()
         remoteCheck.reset()
-        library.clear()
-        host = nil; pairingPIN = nil; diagnostics = []
+        if !keepingLibrary { library.clear();diagnostics = [];returnNotice=nil;returnError=nil }
+        host = nil; pairingPIN = nil
         operation = Task { [weak self] in
             do {
                 let connection = try await Task.detached {
@@ -510,9 +518,18 @@ public final class ConnectionModel {
                     self.pairOneTime(info:info) { try await connection.pair(link:link) }
                 } else if info.paired { try await self.loadApps(connection, token: token) }
                 else {
+                    // The games kept on screen are no longer this Mac's to see.
+                    if keepingLibrary { self.library.clear();self.returnNotice=nil;self.returnError=nil }
                     self.rememberConnectedHost(info)
                     self.phase = .ready; self.status = "Pair with \(info.name) to view its apps." }
-            } catch { self?.fail(error.localizedDescription, token: token) }
+            } catch {
+                guard let self,self.generation == token else { return }
+                // A PC that no longer answers leaves no library to choose from.
+                // The stream's own error is the one to read; this one only says the PC is gone.
+                let ended=keepingLibrary ? self.returnError : nil
+                if keepingLibrary { self.library.clear();self.returnNotice=nil;self.returnError=nil }
+                self.fail(ended.map { "\($0)\n\nThe PC could not be reached afterwards: \(error.localizedDescription)" } ?? error.localizedDescription, token: token)
+            }
         }
     }
     /// Adds the PC a pairing link names and pairs with it at once. A link that does not parse is
@@ -628,7 +645,8 @@ public final class ConnectionModel {
         }
         library.replace(apps:list,library:native,notice:notice,keeping:previous)
         phase = .ready
-        status = library.apps.isEmpty ? "The host has no streamable apps configured." : "Connected to \(host?.name ?? address)."
+        status = library.apps.isEmpty ? "The host has no streamable apps configured." : (returnNotice ?? "Connected to \(host?.name ?? address).")
+        returnNotice=nil;returnError=nil
         // Quick resume: a PC chosen while it runs a game goes straight back into that game.
         if quickResumePending {
             quickResumePending=false
@@ -703,6 +721,7 @@ public final class ConnectionModel {
     private func startPreparedPlan(_ plan: StreamPlan,connection: any HostService,capabilities: VideoCapabilities) {
         recovery=StreamRecovery();recovering=false;hadVideo=false;connectedAt=nil
         self.plan=plan;streamingAppName=plan.app.name;reportedHeadroom=[:]
+        fullScreenStartPending=startFullScreen
         statistics=StreamStatistics();statisticsStart=nowMillis();canSaveStatistics=false
         launchStream(plan,connection:connection,capabilities:capabilities)
     }
@@ -718,13 +737,13 @@ public final class ConnectionModel {
     /// Nightjar does; a lost connection or an error ends the stream through `disconnect` and
     /// never quits.
     public func leave() {
-        guard phase == .streaming,let plan,let host,
-              let hostKey=hostProfileKey,quitOnLeave.value.quits(host:hostKey,game:gameKey(plan.app)) else {
-            disconnect();return
-        }
+        guard phase == .streaming,let plan,let host else { disconnect();return }
         let app=plan.app
+        guard let hostKey=hostProfileKey,quitOnLeave.value.quits(host:hostKey,game:gameKey(plan.app)) else {
+            endStreamToLibrary(notice:"Left the stream. \(app.name) keeps running on \(host.name).");return
+        }
         sessionLog?.write("Quitting \(app.name) on the host, as chosen for leaving its stream.")
-        disconnect()
+        disconnect(keepingLibrary:true)
         status="Quitting \(app.name) on \(host.name)…"
         let token=generation
         Task { [weak self] in
@@ -741,8 +760,39 @@ public final class ConnectionModel {
             while self.phase == .disconnecting,self.generation == token { try? await Task.sleep(for:.milliseconds(50)) }
             guard self.generation == token,self.phase == .idle else { return }
             self.status=message
+            // After the quit, so the library does not show the game as still running.
+            self.returnNotice=message;self.reopenLibrary()
         }
     }
+    /// A stream that ends goes back to the PC's library it was started from, not to an empty
+    /// window: the stream is stopped, and the PC is asked again for what it is running. The
+    /// games stay on screen meanwhile. One the player ended says so in the status (`notice`);
+    /// one that ended on an error keeps its `error` on screen, so the game can be started
+    /// again from where the error is read. A PC that no longer answers is disconnected.
+    private func endStreamToLibrary(notice: String?,error: String? = nil) {
+        disconnect(keepingLibrary:true)
+        returnNotice=notice;returnError=error;errorMessage=error;returnsToLibrary=true
+        // Nothing to stop: the disconnect is already over.
+        if phase == .idle { reopenLibrary() }
+    }
+    private func reopenLibrary() {
+        returnsToLibrary=false
+        guard phase == .idle,!connectedAddress.isEmpty else { library.clear();returnNotice=nil;returnError=nil;return }
+        address=connectedAddress;port=String(connectedPort)
+        connect(keepingLibrary:true)
+    }
+    /// A new stream's window is still to be sent to full screen (Start Streams in Full Screen).
+    @ObservationIgnored private var fullScreenStartPending=false
+    /// True once for each new stream that should open in full screen; a reconnect is not one.
+    public func takeFullScreenStart() -> Bool {
+        guard fullScreenStartPending else { return false }
+        fullScreenStartPending=false;return true
+    }
+    /// What the library's status says once it is back from a stream.
+    @ObservationIgnored private var returnNotice: String?
+    /// The error of the stream it is back from, kept on screen while the PC is asked again.
+    @ObservationIgnored private var returnError: String?
+    @ObservationIgnored private var returnsToLibrary=false
     public func play() {
         guard canPlay,let connection,let app=library.selected,let capabilities else { return }
         do { startPreparedPlan(try preparedPlan(app:app,capabilities:capabilities),connection:connection,capabilities:capabilities) }
@@ -893,7 +943,10 @@ public final class ConnectionModel {
         decoder?.simulateFrameLoss()
     }
     #endif
-    public func disconnect() {
+    public func disconnect() { disconnect(keepingLibrary:false) }
+    /// `keepingLibrary`: the games stay listed for `reopenLibrary`, which must follow.
+    private func disconnect(keepingLibrary: Bool) {
+        returnsToLibrary=false;returnNotice=nil;returnError=nil
         homeSync.cancel()
         clipboard?.stop();clipboard=nil;clipboardBusy=false;clipboardStatus="Clipboard sharing idle"
         networkWatch?.stop();networkWatch=nil;networkLost=false
@@ -914,7 +967,7 @@ public final class ConnectionModel {
         graphics.reset()
         hostAudioControls.reset();sessionControls.reset()
         remoteCheck.reset()
-        library.clear()
+        if !keepingLibrary { library.clear() }
         host = nil
         guard let session else {
             decoder?.cleanup(); decoder = nil; presenter = nil; audioPlayer?.cleanup(); audioPlayer = nil
@@ -926,6 +979,7 @@ public final class ConnectionModel {
                 guard let self, self.generation == token else { return }
                 self.session = nil; self.decoder = nil; self.presenter = nil; self.audioPlayer = nil
                 self.phase = .idle; self.status = "Disconnected. The app remains running on the host."
+                if self.returnsToLibrary { self.reopenLibrary() }
             }
         }
     }
@@ -935,7 +989,9 @@ public final class ConnectionModel {
             var toldOpus=false
             while !Task.isCancelled {
                 guard let self, let player, self.generation == token else { return }
-                let snapshot = telemetry.snapshot()
+                // Summarized off the main thread, which the stream's frames also pass through.
+                let snapshot = await Task.detached(priority:.userInitiated) { telemetry.snapshot() }.value
+                guard self.generation == token else { return }
                 self.processMediaSnapshot(snapshot)
                 await self.health.tick(snapshot)
                 guard self.generation == token else { return }
@@ -947,7 +1003,8 @@ public final class ConnectionModel {
                 await self.rates.refresh()
                 guard self.generation == token else { return }
                 let stats = player.statistics
-                self.audioOutputStatus=stats.outputStatus
+                // Only a change: an assignment tells the stream window to draw its toolbar again.
+                if self.audioOutputStatus != stats.outputStatus { self.audioOutputStatus=stats.outputStatus }
                 let route=stats.outputDevice.map { " · "+$0 } ?? ""
                 let rate=stats.outputSampleRate.map { String(format:" · %.1f kHz",$0/1000) } ?? ""
                 let layout=stats.outputLayout.map { " · "+$0 } ?? ""
@@ -1016,10 +1073,14 @@ public final class ConnectionModel {
             var cursorShapes=false
             while !Task.isCancelled {
                 guard let self,self.generation == token else { return }
-                let epoch=self.inputCapture?.feedbackEpoch
-                let values=await session.takeControllerFeedback()
-                guard self.generation == token,!Task.isCancelled else { return }
-                self.inputCapture?.applyControllerFeedback(values,epoch:epoch)
+                // Without a controller there is no feedback to fetch, and each fetch crosses to the
+                // controller and session queues and back.
+                let epoch=GCController.controllers().isEmpty ? nil : self.inputCapture?.feedbackEpoch
+                if epoch != nil {
+                    let values=await session.takeControllerFeedback()
+                    guard self.generation == token,!Task.isCancelled else { return }
+                    self.inputCapture?.applyControllerFeedback(values,epoch:epoch)
+                }
                 // As Nightjar: shapes only in desktop control, where the pointer is visible.
                 let wanted=self.hostCursorOffered && self.localCursor && self.inputCapture?.mode == .desktop
                 if wanted != cursorShapes {
@@ -1034,7 +1095,8 @@ public final class ConnectionModel {
                     guard self.generation == token,!Task.isCancelled else { return }
                     self.inputCapture?.applyHostCursor(shapes)
                 }
-                do { try await Task.sleep(for:.milliseconds(16)) } catch { return }
+                // Idle, the loop only watches for a controller or desktop control to begin.
+                do { try await Task.sleep(for:.milliseconds(epoch == nil && !cursorShapes ? 250 : 16)) } catch { return }
             }
         }
     }
@@ -1097,7 +1159,7 @@ public final class ConnectionModel {
             reportDisplay(token:token)
             reportColor(token:token)
             status = "Streaming \(plan?.app.name ?? library.selected?.name ?? "video")."
-        case .stageStarting(let stage): status = "Starting \(stage.name)…"
+        case .stageStarting(let stage): status = Self.progress(stage)
         case .stageComplete: break
         case .stageFailed(let stage, let code): record("\(stage.name) failed (\(code)).", token: token)
         case .terminated(let code):
@@ -1105,6 +1167,19 @@ public final class ConnectionModel {
         case .log(let message):
             // Only our wrapper's setup diagnostics are safe here. Protocol logs may contain launch keys.
             if message.hasPrefix("video decoder rejected ") || message.hasPrefix("audio renderer rejected ") { record(message, token: token) }
+        }
+    }
+    /// What the stream window says while a stream starts. The engine's own stage names
+    /// ("RTSP handshake") stay in the session log, where a failed stage is recorded.
+    static func progress(_ stage: Stage) -> String {
+        switch stage {
+        case .platformInit,.nameResolution: "Finding the PC…"
+        case .rtspHandshake: "Agreeing on the stream with the PC…"
+        case .audioStreamInit,.controlStreamInit,.videoStreamInit,.inputStreamInit: "Setting up the stream…"
+        case .controlStreamStart: "Connecting to the PC…"
+        case .videoStreamStart: "Starting video…"
+        case .audioStreamStart: "Starting sound…"
+        case .inputStreamStart: "Starting input…"
         }
     }
     private func streamFailed(_ message: String, token: UUID) {
@@ -1208,7 +1283,7 @@ public final class ConnectionModel {
         }
     }
     private func endRecovery(_ message: String) {
-        disconnect();errorMessage=message
+        endStreamToLibrary(notice:nil,error:message)
     }
     func processMediaSnapshot(_ snapshot: VideoTelemetrySnapshot) {
         videoTelemetry=snapshot

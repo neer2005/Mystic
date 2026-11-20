@@ -5,17 +5,32 @@ import MysticCore
 import MysticKit
 import QuartzCore
 
-@MainActor
-protocol PresentationReceiver: AnyObject {
+/// Where decoded pictures are paced and handed to the renderer: one queue that does nothing
+/// else, at user-interactive priority. On the main actor a picture waited behind whatever the
+/// main thread was doing (SwiftUI, the stream's statistics, a menu); here it waits for nothing.
+/// The main actor keeps what belongs to it, the layers' layout and the state the HUD reads, and
+/// hears from here only when a picture's size or tags change.
+@globalActor
+actor PresentationActor {
+    static let shared=PresentationActor()
+    private static let queue=DispatchSerialQueue(label:"Mystic.Presentation",qos:.userInteractive)
+    nonisolated var unownedExecutor: UnownedSerialExecutor { Self.queue.asUnownedSerialExecutor() }
+}
+
+@PresentationActor
+protocol PresentationReceiver: AnyObject, Sendable {
     func enqueue(_ sample: sending CMSampleBuffer) async throws -> AVSampleBufferVideoRenderer.Receiver.EnqueueResult
     func flush()
     func flush(removingDisplayedImage: Bool) async
 }
 
-@MainActor
+/// The system layer's receiver. Its calls run on the caller's actor, so here they stay off the main one.
+@PresentationActor
 private final class NativePresentationReceiver: PresentationReceiver {
-    private let receiver: AVSampleBufferVideoRenderer.Receiver
-    init(_ receiver: AVSampleBufferVideoRenderer.Receiver) { self.receiver=receiver }
+    /// Made on the main actor and handed over once, then used only here: the compiler cannot see
+    /// that through an initializer, so this says it.
+    private nonisolated(unsafe) let receiver: AVSampleBufferVideoRenderer.Receiver
+    nonisolated init(_ receiver: sending AVSampleBufferVideoRenderer.Receiver) { self.receiver=receiver }
     func enqueue(_ sample: sending CMSampleBuffer) async throws -> AVSampleBufferVideoRenderer.Receiver.EnqueueResult {
         try await receiver.enqueue(CMReadySampleBuffer(unsafeBuffer:sample))
     }
@@ -29,7 +44,37 @@ public struct PictureShown: Sendable {
     public let renderMicros: UInt64,drops: UInt64,dueMicros: UInt64,beginMicros: UInt64
 }
 
+/// What the presentation queue tells the main actor, in order.
+enum PresentationUpdate: Sendable {
+    /// A new generation: no picture yet.
+    case reset
+    case size(CGSize)
+    case tags(VideoSourceTags)
+}
+
+/// What the app sets on the main actor and the presentation queue calls.
+final class PresentationHooks: @unchecked Sendable {
+    private let lock=NSLock()
+    private var failure: (@Sendable (UInt64,String) -> Void)?
+    private var shown: (@Sendable (PictureShown) -> Void)?
+    private var change: (@Sendable (PresentationUpdate) -> Void)?
+    var decoderFailure: (@Sendable (UInt64,String) -> Void)? {
+        get { lock.withLock { failure } }
+        set { lock.withLock { failure=newValue } }
+    }
+    var shownReport: (@Sendable (PictureShown) -> Void)? {
+        get { lock.withLock { shown } }
+        set { lock.withLock { shown=newValue } }
+    }
+    var update: (@Sendable (PresentationUpdate) -> Void)? {
+        get { lock.withLock { change } }
+        set { lock.withLock { change=newValue } }
+    }
+}
+
 /// Attach `layer` to an AppKit view on the main actor. No window or host lifecycle is owned here.
+/// The main actor's half of presentation: the layers, their layout and the state the HUD reads.
+/// Pictures themselves go through `PresentationLoop`, off the main actor.
 @MainActor
 public final class DisplayLayerPresenter {
     public let layer: AVSampleBufferDisplayLayer
@@ -38,8 +83,6 @@ public final class DisplayLayerPresenter {
     /// What is drawing the stream, which is the display layer if Metal could not start.
     public var renderer: VideoRendererKind { metal == nil ? .displayLayer : .metal }
     private let metal: MetalPresentationReceiver?
-    /// Metal's timeline: the synchronizer's clock needs samples it will never get on this path.
-    private let metalClock=MetalTimeline()
     public let pacingMode: FramePacingMode
     public let videoOutput = VideoOutputState()
     public private(set) var videoSize: CGSize = .zero { didSet { if videoSize != oldValue { applyLayout() } } }
@@ -73,43 +116,54 @@ public final class DisplayLayerPresenter {
         return CGSize(width:frame.width*pixelsPerPoint,height:frame.height*pixelsPerPoint)
     }
     private let telemetry: VideoTelemetry?
-    private let synchronizer=AVSampleBufferRenderSynchronizer()
-    private let receiver: any PresentationReceiver
-    private let rendererClock: (@MainActor () -> CMTime)?
-    private nonisolated let mailbox: PresentationMailbox
-    private var displayedGeneration: UInt64?
-    private var pacer: PresentationPacer<DecodedVideoFrame>
+    private let loop: PresentationLoop
     private let pacing: PresentationPacing
-    private var anchored=false
-    private var waitTask: Task<Void,any Error>?
-    var isWaitingForPresentation: Bool { waitTask != nil }
-    private let onFailure: @Sendable (String) -> Void
-    var decoderFailure: (@Sendable (UInt64,String) -> Void)?
+    var decoderFailure: (@Sendable (UInt64,String) -> Void)? {
+        get { loop.hooks.decoderFailure }
+        set { loop.hooks.decoderFailure=newValue }
+    }
 
     public convenience init(telemetry: VideoTelemetry? = nil,mode: FramePacingMode = .lowLatency,vsync: Bool = true,renderer: VideoRendererKind = .displayLayer,
                             onFailure: @escaping @Sendable (String) -> Void = { _ in }) {
         self.init(telemetry:telemetry,mode:mode,vsync:vsync,renderer:renderer,receiverOverride:nil,onFailure:onFailure)
     }
     init(telemetry: VideoTelemetry?,mode: FramePacingMode,vsync: Bool = true,renderer: VideoRendererKind = .displayLayer,receiverOverride: (any PresentationReceiver)?,
-         rendererClock: (@MainActor () -> CMTime)? = nil,
+         rendererClock: (@MainActor @Sendable () -> CMTime)? = nil,
          onFailure: @escaping @Sendable (String) -> Void = { _ in }) {
-        self.telemetry=telemetry;self.onFailure=onFailure;pacingMode=mode;self.rendererClock=rendererClock
+        self.telemetry=telemetry;pacingMode=mode
         // No check yet that a Mac display refreshes on present, so VRR's modes are not offered.
         let pacing=PresentationPacing.choose(vrr:false,presentAtHostTimes:false,vsync:vsync,framePacing:mode,tearingSupported:false)
-        self.pacing=pacing;pacer=PresentationPacer(mode:pacing,framePacing:mode)
-        mailbox=PresentationMailbox(telemetry:telemetry,capacity:pacing.mailboxLimit)
+        self.pacing=pacing
         let layer=AVSampleBufferDisplayLayer();self.layer=layer
+        let synchronizer=AVSampleBufferRenderSynchronizer()
         let native=synchronizer.sampleBufferReceiver(adding:layer.sampleBufferRenderer)
-        let timeline=metalClock
+        // Metal's timeline: the synchronizer's clock needs samples it will never get on this path.
+        let timeline=MetalTimeline()
         let metal=renderer == .metal && receiverOverride == nil
             ? try? MetalPresentationReceiver(clock:{ timeline.now() },waitsForRefresh:pacing == .vsync) : nil
         self.metal=metal
-        receiver=receiverOverride ?? metal ?? NativePresentationReceiver(native)
+        let receiver: any PresentationReceiver
+        if let receiverOverride { receiver=receiverOverride }
+        else if let metal { receiver=metal }
+        else { receiver=NativePresentationReceiver(native) }
         synchronizer.delaysRateChangeUntilHasSufficientMediaData=false
         // `videoRect` already holds the shape; the layer exactly covers it.
         layer.videoGravity = .resize
         layer.preferredDynamicRange = .standard
         layer.toneMapMode = .automatic
+        loop=PresentationLoop(telemetry:telemetry,synchronizer:synchronizer,receiver:receiver,metal:metal,metalClock:timeline,
+                              rendererClock:rendererClock,pacing:pacing,pacingMode:mode,onFailure:onFailure)
+        // Through the main queue, so changes arrive in the order the pictures were presented.
+        loop.hooks.update={ [weak self] update in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.apply(update) } }
+        }
+    }
+    private func apply(_ update: PresentationUpdate) {
+        switch update {
+        case .reset: videoSize = .zero;videoOutput.reset();configureDynamicRange()
+        case .size(let size): videoSize=size
+        case .tags(let tags): videoOutput.update(tags);configureDynamicRange()
+        }
     }
 
     /// Told after every display update, so the stream can report the screen to the host.
@@ -117,7 +171,7 @@ public final class DisplayLayerPresenter {
     /// Called by the owning view when its actual destination or screen headroom changes.
     public func updateDisplay(name: String?,currentHeadroom: Double?,potentialHeadroom: Double?) {
         videoOutput.updateDisplay(name:name,currentHeadroom:currentHeadroom,potentialHeadroom:potentialHeadroom)
-        metal?.headroom=videoOutput.currentHeadroom ?? 1
+        metal?.setHeadroom(videoOutput.currentHeadroom ?? 1)
         configureDynamicRange()
         displayChanged?()
     }
@@ -126,7 +180,7 @@ public final class DisplayLayerPresenter {
     /// host isn't told.
     public func updateHeadroom(_ current: Double?) {
         videoOutput.updateCurrentHeadroom(current)
-        metal?.headroom=videoOutput.currentHeadroom ?? 1
+        metal?.setHeadroom(videoOutput.currentHeadroom ?? 1)
     }
     private func configureDynamicRange() {
         // Preserve the tagged YCbCr surface. Core Animation owns the sole output tone map.
@@ -134,23 +188,101 @@ public final class DisplayLayerPresenter {
         if layer.preferredDynamicRange != range { layer.preferredDynamicRange = range }
     }
 
-    /// At most one pending actor task, one image in flight, and one waiting image.
+    /// At most one pending drain, one image in flight, and one waiting image. Called by the
+    /// decoder on its own threads.
+    nonisolated func offer(_ frame: DecodedVideoFrame) { loop.offer(frame) }
+    nonisolated func reset(generation: UInt64) { loop.reset(generation:generation) }
+    /// For phase lock: each frame with V-Sync on, as (ready, now, last latch, period) in microseconds
+    /// and nanoseconds of the host clock. Only Metal reports when its frames are shown.
+    public func reportPhase(_ report: @escaping @Sendable (UInt64,UInt64,Int64,Int64) -> Void) {
+        if pacing == .vsync { metal?.setPhaseReport(report) }
+    }
+    /// For the timing CSV: each picture as it is shown, or on System as it is handed over. Called
+    /// on the presentation queue.
+    public var shownReport: (@Sendable (PictureShown) -> Void)? {
+        get { loop.hooks.shownReport }
+        set { loop.hooks.shownReport=newValue }
+    }
+    /// For the input latency test: on System a frame counts as shown when it is handed over.
+    public nonisolated var latencyProbe: LatencyProbe { loop.latencyProbe }
+    public var reportsShownFrames: Bool { metal != nil }
+    /// Clock sync: `offset` from the host's clock to the engine's, whose time is now `engineNow`.
+    public func setClockOffset(_ offset: Int64,engineNow: UInt64) { metal?.setClockOffset(offset,engineNow:engineNow) }
+    /// The screen's refresh rate, which phase lock reports to the host.
+    public func setRefresh(hertz: Double) { metal?.setRefresh(hertz:hertz) }
+    /// Renderer-reported drops are separate from Mystic's queue/policy drops; no scanout claim.
+    public func refreshRendererMetrics() async {
+        guard let generation=await loop.shownGeneration() else { return }
+        if let metal {
+            let causes=metal.dropCauses
+            telemetry?.rendererMetrics(generation:generation,dropped:causes.total,corrupted:nil,causes:causes)
+            telemetry?.presentationShown(generation:generation,cadence:metal.cadence)
+            return
+        }
+        let metrics: AVVideoPerformanceMetrics?=await withCheckedContinuation { continuation in
+            layer.sampleBufferRenderer.loadVideoPerformanceMetrics { continuation.resume(returning:$0) }
+        }
+        guard await loop.shownGeneration() == generation else { return }
+        telemetry?.rendererMetrics(generation:generation,
+            dropped:metrics.flatMap { $0.numberOfDroppedFrames >= 0 ? UInt64($0.numberOfDroppedFrames) : nil },
+            corrupted:metrics.flatMap { $0.numberOfCorruptedFrames >= 0 ? UInt64($0.numberOfCorruptedFrames) : nil })
+    }
+}
+
+/// Nightjar's stream loop: decoded pictures go to the pacer, and the due one to the screen.
+@PresentationActor
+final class PresentationLoop {
+    nonisolated let hooks=PresentationHooks()
+    nonisolated let latencyProbe=LatencyProbe()
+    private nonisolated let mailbox: PresentationMailbox
+    private let telemetry: VideoTelemetry?
+    private let synchronizer: AVSampleBufferRenderSynchronizer
+    private let receiver: any PresentationReceiver
+    private let metal: MetalPresentationReceiver?
+    private let metalClock: MetalTimeline
+    /// A test's clock, which lives on the main actor.
+    private let rendererClock: (@MainActor @Sendable () -> CMTime)?
+    private let pacing: PresentationPacing
+    private let pacingMode: FramePacingMode
+    private let onFailure: @Sendable (String) -> Void
+    private var pacer: PresentationPacer<DecodedVideoFrame>
+    private var displayedGeneration: UInt64?
+    private var anchored=false
+    private var waitTask: Task<Void,any Error>?
+    private var presenterDrops: UInt64=0
+    /// What the main actor was last told, so it is told only of a change.
+    private var shownSize: CGSize?
+    private var shownTags: VideoSourceTags?
+
+    nonisolated init(telemetry: VideoTelemetry?,synchronizer: AVSampleBufferRenderSynchronizer,receiver: any PresentationReceiver,
+                     metal: MetalPresentationReceiver?,metalClock: MetalTimeline,rendererClock: (@MainActor @Sendable () -> CMTime)?,
+                     pacing: PresentationPacing,pacingMode: FramePacingMode,onFailure: @escaping @Sendable (String) -> Void) {
+        self.telemetry=telemetry;self.synchronizer=synchronizer;self.receiver=receiver;self.metal=metal;self.metalClock=metalClock
+        self.rendererClock=rendererClock;self.pacing=pacing;self.pacingMode=pacingMode;self.onFailure=onFailure
+        pacer=PresentationPacer(mode:pacing,framePacing:pacingMode)
+        mailbox=PresentationMailbox(telemetry:telemetry,capacity:pacing.mailboxLimit)
+    }
+
     nonisolated func offer(_ frame: DecodedVideoFrame) { if mailbox.offer(frame) { scheduleDrain() } }
     nonisolated func reset(generation: UInt64) {
         let schedule=mailbox.reset(generation:generation)
-        if mailbox.reserveWake() {
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                let latest=self.mailbox.finishWake()
-                guard self.mailbox.isCurrent(latest),self.displayedGeneration != latest else { return }
-                self.waitTask?.cancel()
-                self.receiver.flush()
-            }
-        }
+        if mailbox.reserveWake() { Task { @PresentationActor in self.wake() } }
         if schedule { scheduleDrain() }
     }
-    private nonisolated func scheduleDrain() { Task { @MainActor [weak self] in await self?.drain() } }
-    /// Nightjar's stream loop: decoded pictures go to the pacer, and the due one to the screen.
+    private nonisolated func scheduleDrain() { Task { @PresentationActor in await self.drain() } }
+    /// A reset ends a wait or a suspended enqueue for the generation it replaced.
+    private func wake() {
+        let latest=mailbox.finishWake()
+        guard mailbox.isCurrent(latest),displayedGeneration != latest else { return }
+        waitTask?.cancel()
+        receiver.flush()
+    }
+    /// The generation on screen, while it is still the stream's.
+    func shownGeneration() -> UInt64? {
+        guard let generation=displayedGeneration,mailbox.isCurrent(generation) else { return nil }
+        return generation
+    }
+    private func tell(_ update: PresentationUpdate) { hooks.update?(update) }
     private func drain() async {
         defer { if mailbox.finish() { scheduleDrain() } }
         do {
@@ -161,8 +293,8 @@ public final class DisplayLayerPresenter {
                     await receiver.flush(removingDisplayedImage:true)
                     guard mailbox.isCurrent(work.generation) else { return }
                     if displayedGeneration != nil { telemetry?.presentationResynchronize(generation:work.generation) }
-                    displayedGeneration=work.generation;pacer=makePacer();anchored=false;videoSize = .zero
-                    videoOutput.reset();configureDynamicRange()
+                    displayedGeneration=work.generation;pacer=PresentationPacer(mode:pacing,framePacing:pacingMode);anchored=false
+                    shownSize=nil;shownTags=nil;tell(.reset)
                     synchronizer.setRate(0,time:.zero);metalClock.restart()
                 }
                 if let frame=work.frame {
@@ -195,25 +327,30 @@ public final class DisplayLayerPresenter {
             receiver.flush()
             let generation=mailbox.currentGeneration
             telemetry?.presentationDrop(generation:generation,reason:.enqueueFailure)
-            decoderFailure?(generation,String(describing:error));onFailure(String(describing:error))
+            hooks.decoderFailure?(generation,String(describing:error));onFailure(String(describing:error))
         }
     }
     private func present(_ due: PresentationPacer<DecodedVideoFrame>.Pending) async throws {
         let frame=due.picture
         if !anchored { synchronizer.setRate(1,time:.zero);metalClock.restart();anchored=true }
-        guard let rendererNow=Self.micros(rendererClock?() ?? (metal == nil ? synchronizer.currentTime() : metalClock.now())) else {
+        let clock: CMTime
+        if let rendererClock { clock=await rendererClock() }
+        else { clock=metal == nil ? synchronizer.currentTime() : metalClock.now() }
+        guard let rendererNow=Self.micros(clock) else {
             throw VideoDecoderError.invalidSample("invalid renderer clock")
         }
         let sample=try frame.sampleBuffer(presentationTime:CMTime(value:rendererNow,timescale:1_000_000))
         if let description=CMSampleBufferGetFormatDescription(sample) {
-            videoSize=CMVideoFormatDescriptionGetPresentationDimensions(description,usePixelAspectRatio:true,useCleanAperture:true)
+            let size=CMVideoFormatDescriptionGetPresentationDimensions(description,usePixelAspectRatio:true,useCleanAperture:true)
+            if size != shownSize { shownSize=size;tell(.size(size)) }
         }
         guard mailbox.isCurrent(frame.generation) else { return }
-        videoOutput.update(image:frame.pixelBuffer);configureDynamicRange()
+        let tags=VideoSourceTags(image:frame.pixelBuffer)
+        if tags != shownTags { shownTags=tags;tell(.tags(tags)) }
         let enqueueStarted=VideoTelemetry.nowMicros()
         metal?.nextFrameAge=Double(max(0,Int64(enqueueStarted)-due.readyMicros))/1_000_000
         metal?.nextFrameTiming=frame.timing
-        let report=shownReport,drops=presenterDrops,dueMicros=UInt64(max(0,due.presentMicros))
+        let report=hooks.shownReport,drops=presenterDrops,dueMicros=UInt64(max(0,due.presentMicros))
         let probe=latencyProbe.armed ? latencyProbe : nil
         if let timing=frame.timing,report != nil || probe != nil {
             metal?.nextFrameShown={ seconds in
@@ -227,7 +364,7 @@ public final class DisplayLayerPresenter {
         try checkEnqueue(result)
         if case .cancelledDueToFlush = result { return }
         if metal == nil,let timing=frame.timing {
-            shownReport?(PictureShown(timing:timing,renderMicros:VideoTelemetry.nowMicros(),drops:presenterDrops,dueMicros:UInt64(max(0,due.presentMicros)),beginMicros:enqueueStarted))
+            report?(PictureShown(timing:timing,renderMicros:VideoTelemetry.nowMicros(),drops:presenterDrops,dueMicros:UInt64(max(0,due.presentMicros)),beginMicros:enqueueStarted))
             probe?.frameRendered(timing,renderMicros:VideoTelemetry.nowMicros())
         }
         if due.late { telemetry?.presentationLate(generation:frame.generation) }
@@ -235,39 +372,6 @@ public final class DisplayLayerPresenter {
         if let timing=frame.timing {
             telemetry?.enqueue(generation:frame.generation,timing:timing,startMicros:enqueueStarted,endMicros:VideoTelemetry.nowMicros())
         }
-    }
-    private func makePacer() -> PresentationPacer<DecodedVideoFrame> { PresentationPacer(mode:pacing,framePacing:pacingMode) }
-    /// For phase lock: each frame with V-Sync on, as (ready, now, last latch, period) in microseconds
-    /// and nanoseconds of the host clock. Only Metal reports when its frames are shown.
-    public func reportPhase(_ report: @escaping @Sendable (UInt64,UInt64,Int64,Int64) -> Void) {
-        if pacing == .vsync { metal?.phaseReport=report }
-    }
-    /// For the timing CSV: each picture as it is shown, or on System as it is handed over.
-    public var shownReport: (@Sendable (PictureShown) -> Void)?
-    /// For the input latency test: on System a frame counts as shown when it is handed over.
-    public nonisolated let latencyProbe=LatencyProbe()
-    public var reportsShownFrames: Bool { metal != nil }
-    private var presenterDrops: UInt64=0
-    /// Clock sync: `offset` from the host's clock to the engine's, whose time is now `engineNow`.
-    public func setClockOffset(_ offset: Int64,engineNow: UInt64) { metal?.setClockOffset(offset,engineNow:engineNow) }
-    /// The screen's refresh rate, which phase lock reports to the host.
-    public func setRefresh(hertz: Double) { metal?.setRefresh(hertz:hertz) }
-    /// Renderer-reported drops are separate from Mystic's queue/policy drops; no scanout claim.
-    public func refreshRendererMetrics() async {
-        guard let generation=displayedGeneration,mailbox.isCurrent(generation) else { return }
-        if let metal {
-            let causes=metal.dropCauses
-            telemetry?.rendererMetrics(generation:generation,dropped:causes.total,corrupted:nil,causes:causes)
-            telemetry?.presentationShown(generation:generation,cadence:metal.cadence)
-            return
-        }
-        let metrics: AVVideoPerformanceMetrics?=await withCheckedContinuation { continuation in
-            layer.sampleBufferRenderer.loadVideoPerformanceMetrics { continuation.resume(returning:$0) }
-        }
-        guard mailbox.isCurrent(generation),displayedGeneration == generation else { return }
-        telemetry?.rendererMetrics(generation:generation,
-            dropped:metrics.flatMap { $0.numberOfDroppedFrames >= 0 ? UInt64($0.numberOfDroppedFrames) : nil },
-            corrupted:metrics.flatMap { $0.numberOfCorruptedFrames >= 0 ? UInt64($0.numberOfCorruptedFrames) : nil })
     }
     private static func micros(_ time: CMTime) -> Int64? {
         guard time.isNumeric else { return nil }

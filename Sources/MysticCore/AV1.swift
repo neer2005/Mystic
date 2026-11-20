@@ -9,11 +9,26 @@ public enum AV1 {
         public let bytes: Data
         public let payload: Data
     }
+    /// Where a unit lies in its access unit: all of it, and its payload alone.
+    public struct UnitRange: Sendable {
+        public let type: UInt8
+        public let bytes: Range<Int>
+        public let payload: Range<Int>
+    }
     public static func units(in data: Data) throws -> [OBU] {
-        guard data.count <= 32 * 1024 * 1024 else { throw ParseError.malformed }
-        let b = Array(data)
+        try data.withUnsafeBytes { raw in
+            try unitRanges(in: raw).map { OBU(type: $0.type, bytes: copy(raw, $0.bytes), payload: copy(raw, $0.payload)) }
+        }
+    }
+    private static func copy(_ raw: UnsafeRawBufferPointer, _ range: Range<Int>) -> Data {
+        Data(UnsafeRawBufferPointer(rebasing: raw[range]))
+    }
+    /// The units of an access unit, validated, without copying any of it: every frame of an AV1
+    /// stream is walked this way, and only the few bytes a caller then asks for are copied.
+    public static func unitRanges(in b: UnsafeRawBufferPointer) throws -> [UnitRange] {
+        guard b.count <= 32 * 1024 * 1024 else { throw ParseError.malformed }
         var i = 0
-        var out: [OBU] = []
+        var out: [UnitRange] = []
         while i < b.count {
             guard out.count < 4096 else { throw ParseError.malformed }
             let start = i, h = b[i]; i += 1
@@ -34,7 +49,7 @@ public enum AV1 {
             }
             guard ended, size <= UInt64(b.count - i) else { throw ParseError.malformed }
             let end = i + Int(size)
-            out.append(OBU(type: type, bytes: Data(b[start..<end]), payload: Data(b[i..<end])))
+            out.append(UnitRange(type: type, bytes: start..<end, payload: i..<end))
             i = end
         }
         return out
@@ -55,7 +70,12 @@ public enum AV1 {
     }
 
     public static func configuration(in sample: Data) throws -> Configuration? {
-        guard let sequence = try units(in: sample).first(where: { $0.type == 1 }) else { return nil }
+        try sample.withUnsafeBytes { try configuration(in: $0, units: unitRanges(in: $0)) }
+    }
+    /// The same, from units already found in borrowed bytes; only the sequence header is copied.
+    public static func configuration(in raw: UnsafeRawBufferPointer, units: [UnitRange]) throws -> Configuration? {
+        guard let range = units.first(where: { $0.type == 1 }) else { return nil }
+        let sequence = OBU(type: range.type, bytes: copy(raw, range.bytes), payload: copy(raw, range.payload))
         var r = Bits(sequence.payload)
         let profile = try r.read(3)
         guard profile <= 2 else { throw ParseError.malformed }

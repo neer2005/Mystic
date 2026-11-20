@@ -65,8 +65,9 @@ final class VideoOutputTests: XCTestCase {
         presenter.updateDisplay(name:"Test HDR display",currentHeadroom:1,potentialHeadroom:4)
         presenter.reset(generation:source.generation)
         presenter.offer(source)
+        // The picture's tags reach the main actor from the presentation queue.
         for _ in 0..<100 {
-            if presenter.layer.isReadyForDisplay { break }
+            if presenter.layer.isReadyForDisplay,presenter.videoOutput.transfer == "PQ" { break }
             try await Task.sleep(for:.milliseconds(10))
         }
         XCTAssertTrue(presenter.layer.isReadyForDisplay)

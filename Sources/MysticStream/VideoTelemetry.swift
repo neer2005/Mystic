@@ -59,7 +59,12 @@ public final class VideoTelemetry: @unchecked Sendable {
         lock.lock();defer { lock.unlock() };guard self.generation == generation else { return }
         accumulator.rendererMetrics(dropped:dropped,corrupted:corrupted,causes:causes)
     }
+    /// The percentiles are sorted after the lock is released: every decoded and presented frame
+    /// records through it, and must not wait behind a sort.
     public func snapshot() -> VideoTelemetrySnapshot {
-        lock.lock();defer { lock.unlock() };return accumulator.snapshot(nowMicros:Self.nowMicros())
+        lock.lock()
+        let capture=accumulator.capture(nowMicros:Self.nowMicros())
+        lock.unlock()
+        return capture.summarized()
     }
 }

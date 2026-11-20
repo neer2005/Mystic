@@ -81,6 +81,50 @@ struct AnnexBTests {
         #expect(avcc.count == 4 + 3 + 4 + 2)
     }
 
+    /// The scanner as it was before it used `memchr`: three bytes compared at every offset.
+    private func referenceRanges(_ bytes: [UInt8]) -> [Range<Int>] {
+        var ranges: [Range<Int>] = [], payloadStart: Int?, index = 0
+        while index + 2 < bytes.count {
+            guard bytes[index] == 0, bytes[index + 1] == 0, bytes[index + 2] == 1 else { index += 1; continue }
+            if let start = payloadStart {
+                var end = index
+                if end > start, bytes[end - 1] == 0 { end -= 1 }
+                if end > start { ranges.append(start..<end) }
+            }
+            payloadStart = index + 3
+            index += 3
+        }
+        if let start = payloadStart, start < bytes.count {
+            var end = bytes.count
+            while end > start, bytes[end - 1] == 0 { end -= 1 }
+            if end > start { ranges.append(start..<end) }
+        }
+        return ranges
+    }
+
+    @Test("the scanner finds the units a byte-by-byte scan finds")
+    func scannerMatchesByteByByte() {
+        // Few distinct values, so zeros and ones run together and start codes overlap and abut.
+        var generator = SystemRandomNumberGenerator()
+        for length in Array(0...40) + [257, 4096] {
+            for _ in 0..<200 {
+                let bytes = (0..<length).map { _ in UInt8.random(in: 0...2, using: &generator) }
+                #expect(AnnexB.nalUnitRanges(in: Data(bytes)) == referenceRanges(bytes), "\(bytes)")
+            }
+        }
+    }
+
+    @Test("writing AVCC in place makes the same sample as the conversion")
+    func avccInPlace() {
+        let data = annexB([[0x67, 0xAA, 0xBB], [0x68], [0x65, 0xCC, 0x00, 0x00]], fourByte: true)
+        data.withUnsafeBytes { raw in
+            let ranges = AnnexB.nalUnitRanges(in: raw)
+            var out = [UInt8](repeating: 0xFF, count: AnnexB.avccLength(ranges: ranges))
+            out.withUnsafeMutableBytes { AnnexB.writeAVCC(from: raw, ranges: ranges, to: $0) }
+            #expect(out == Array(AnnexB.avccSample(from: data)))
+        }
+    }
+
     @Test("AVCC conversion of an empty frame is empty, not malformed")
     func avccEmpty() {
         #expect(AnnexB.avccSample(from: Data()).isEmpty)

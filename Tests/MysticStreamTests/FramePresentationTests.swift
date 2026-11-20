@@ -14,7 +14,8 @@ final class FramePresentationTests: XCTestCase {
                 let presenter=DisplayLayerPresenter(telemetry:nil,mode:mode,receiverOverride:receiver,rendererClock:{ clock.now })
                 presenter.reset(generation:1)
                 presenter.offer(try frame(pts:9_000_000,generation:1,fps:fps))
-                try await wait { receiver.accepted.count == 1 }
+                // The size reaches the main actor from the presentation queue.
+                try await wait { receiver.accepted.count == 1 && presenter.videoSize.width == 64 }
                 let sample=try XCTUnwrap(receiver.accepted.first)
                 XCTAssertEqual(sample.ptsMicros,0,"Shown at the renderer's now, when the pacer says it is due")
                 XCTAssertEqual(CMTimeCompare(sample.duration,CMTime(value:1,timescale:Int32(fps))),0)
@@ -100,25 +101,35 @@ private final class PresentationClock {
     var time:Int64=0
     var now:CMTime { CMTime(value:time,timescale:1_000_000) }
 }
-@MainActor
-private final class TestPresentationReceiver: PresentationReceiver {
+/// Called on the presentation queue and read by the tests on the main actor.
+private final class TestPresentationReceiver: PresentationReceiver, @unchecked Sendable {
     struct Sample { let ptsMicros:Int64;let duration:CMTime;let width:Int }
-    var accepted:[Sample]=[]
-    var hold=false
-    private var pending:CheckedContinuation<AVSampleBufferVideoRenderer.Receiver.EnqueueResult,Never>?
-    private(set) var flushes=0,preservedFlushes=0
-    var waiting:Bool { pending != nil }
+    private let lock=NSLock()
+    // Guarded by the lock, not by the actor: the tests read them from the main actor.
+    private nonisolated(unsafe) var samples:[Sample]=[],holding=false,flushCount=0
+    private nonisolated(unsafe) var pending:CheckedContinuation<AVSampleBufferVideoRenderer.Receiver.EnqueueResult,Never>?
+    nonisolated var accepted:[Sample] { lock.withLock { samples } }
+    nonisolated var hold:Bool {
+        get { lock.withLock { holding } }
+        set { lock.withLock { holding=newValue } }
+    }
+    nonisolated var flushes:Int { lock.withLock { flushCount } }
+    nonisolated var waiting:Bool { lock.withLock { pending != nil } }
     func enqueue(_ sample:sending CMSampleBuffer) async throws -> AVSampleBufferVideoRenderer.Receiver.EnqueueResult {
         let record=Sample(ptsMicros:CMTimeConvertScale(CMSampleBufferGetPresentationTimeStamp(sample),timescale:1_000_000,method:.default).value,
                           duration:CMSampleBufferGetDuration(sample),width:CMSampleBufferGetImageBuffer(sample).map(CVPixelBufferGetWidth) ?? 0)
         let result:AVSampleBufferVideoRenderer.Receiver.EnqueueResult
-        if hold { result=await withCheckedContinuation { pending=$0 } } else { result = .enqueued }
-        if case .enqueued = result { accepted.append(record) }
+        if hold { result=await withCheckedContinuation { continuation in lock.withLock { pending=continuation } } } else { result = .enqueued }
+        if case .enqueued = result { lock.withLock { samples.append(record) } }
         return result
     }
-    func release() { hold=false;let continuation=pending;pending=nil;continuation?.resume(returning:.enqueued) }
-    func flush() { flushes+=1;let continuation=pending;pending=nil;continuation?.resume(returning:.cancelledDueToFlush) }
-    func flush(removingDisplayedImage:Bool) async { if !removingDisplayedImage { preservedFlushes+=1 };flush() }
+    private nonisolated func resume(_ result:AVSampleBufferVideoRenderer.Receiver.EnqueueResult) {
+        let continuation=lock.withLock { let waiting=pending;pending=nil;return waiting }
+        continuation?.resume(returning:result)
+    }
+    nonisolated func release() { hold=false;resume(.enqueued) }
+    func flush() { lock.withLock { flushCount+=1 };resume(.cancelledDueToFlush) }
+    func flush(removingDisplayedImage:Bool) async { flush() }
 }
 private final class PresentationFailures: @unchecked Sendable {
     private let lock=NSLock();private var messages:[String]=[]

@@ -2,7 +2,14 @@
 # A local runnable .app from the SwiftPM executable target. No Xcode project generator needed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-configuration="${1:-debug}"
+# Optimized unless asked otherwise: this is the app that gets played and measured, and an
+# unoptimized Swift build spends several times longer on every frame it parses and presents.
+# Pass `debug` for a build to step through; anything else is refused rather than guessed at.
+configuration="${1:-release}"
+case "$configuration" in
+    release|debug) ;;
+    *) printf 'usage: %s [release|debug]\n' "$0" >&2; exit 64 ;;
+esac
 # Keep the signing identity stable across rebuilds so Keychain approvals can persist.
 # The checkout's selection is local Git configuration, never a committed personal identity.
 signing_identity="${MYSTIC_SIGNING_IDENTITY:-$(git config --get mystic.signingIdentity || true)}"

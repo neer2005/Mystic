@@ -2,6 +2,28 @@ import Foundation
 import CoreVideo
 import Observation
 
+/// What a decoded picture's tags say of its source. Read where the picture is presented, off the
+/// main actor, and cheap to compare, so the main actor hears only of a change.
+struct VideoSourceTags: Equatable, Sendable {
+    var transfer: String
+    var colorPrimaries: String
+    var hasMasteringMetadata: Bool
+    var hasContentLightMetadata: Bool
+    init(image: CVPixelBuffer) {
+        let tag=CVBufferCopyAttachment(image,kCVImageBufferTransferFunctionKey,nil)
+        if let tag,CFEqual(tag,kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ) { transfer="PQ" }
+        else if let tag,CFEqual(tag,kCVImageBufferTransferFunction_ITU_R_2100_HLG) { transfer="HLG" }
+        else { transfer = tag == nil ? "Untagged" : "SDR" }
+        let primaries=CVBufferCopyAttachment(image,kCVImageBufferColorPrimariesKey,nil)
+        if let primaries,CFEqual(primaries,kCVImageBufferColorPrimaries_ITU_R_2020) { colorPrimaries="BT.2020" }
+        else if let primaries,CFEqual(primaries,kCVImageBufferColorPrimaries_ITU_R_709_2) { colorPrimaries="BT.709" }
+        else if let primaries,CFEqual(primaries,kCVImageBufferColorPrimaries_P3_D65) { colorPrimaries="P3 D65" }
+        else { colorPrimaries = primaries == nil ? "Unspecified" : "Other" }
+        hasMasteringMetadata=CVBufferCopyAttachment(image,kCVImageBufferMasteringDisplayColorVolumeKey,nil) != nil
+        hasContentLightMetadata=CVBufferCopyAttachment(image,kCVImageBufferContentLightLevelInfoKey,nil) != nil
+    }
+}
+
 /// Reports source tags and the destination screen separately; neither is a luminance measurement.
 @MainActor @Observable
 public final class VideoOutputState {
@@ -20,18 +42,10 @@ public final class VideoOutputState {
         guard isHDR else { return "SDR output" }
         return requestsEDR ? "HDR output requested" : "HDR mapped to SDR"
     }
-    func update(image: CVPixelBuffer) {
-        let tag=CVBufferCopyAttachment(image,kCVImageBufferTransferFunctionKey,nil)
-        if let tag,CFEqual(tag,kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ) { transfer="PQ" }
-        else if let tag,CFEqual(tag,kCVImageBufferTransferFunction_ITU_R_2100_HLG) { transfer="HLG" }
-        else { transfer = tag == nil ? "Untagged" : "SDR" }
-        let primaries=CVBufferCopyAttachment(image,kCVImageBufferColorPrimariesKey,nil)
-        if let primaries,CFEqual(primaries,kCVImageBufferColorPrimaries_ITU_R_2020) { colorPrimaries="BT.2020" }
-        else if let primaries,CFEqual(primaries,kCVImageBufferColorPrimaries_ITU_R_709_2) { colorPrimaries="BT.709" }
-        else if let primaries,CFEqual(primaries,kCVImageBufferColorPrimaries_P3_D65) { colorPrimaries="P3 D65" }
-        else { colorPrimaries = primaries == nil ? "Unspecified" : "Other" }
-        hasMasteringMetadata=CVBufferCopyAttachment(image,kCVImageBufferMasteringDisplayColorVolumeKey,nil) != nil
-        hasContentLightMetadata=CVBufferCopyAttachment(image,kCVImageBufferContentLightLevelInfoKey,nil) != nil
+    func update(image: CVPixelBuffer) { update(VideoSourceTags(image:image)) }
+    func update(_ tags: VideoSourceTags) {
+        transfer=tags.transfer;colorPrimaries=tags.colorPrimaries
+        hasMasteringMetadata=tags.hasMasteringMetadata;hasContentLightMetadata=tags.hasContentLightMetadata
     }
     func reset() {
         transfer="Waiting for video";colorPrimaries="Unspecified"

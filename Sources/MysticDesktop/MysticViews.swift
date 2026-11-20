@@ -25,6 +25,13 @@ public struct StreamingView: View {
     private func showHealth() { showingHealth=true;model.inputCapture?.release() }
     private var controlling: Bool { (model.inputCapture?.mode ?? .released) != .released }
     private func updateDock() { StreamDock.update(window:window,controlling:controlling) }
+    /// Start Streams in Full Screen: once for each stream, as soon as its window exists. The
+    /// model holds the request, not this view, which the notch-covering full screen remounts:
+    /// leaving full screen must not be undone by that.
+    private func startFullScreenIfChosen(_ window: NSWindow?) {
+        guard model.hasSession,let window,model.takeFullScreenStart() else { return }
+        if !window.isStreamFullScreen { window.toggleFullScreen(nil) }
+    }
     /// The HIG asks games to say when a controller comes or goes; mid-game, input that stops
     /// for no visible reason is the alternative. Only pads the stream sends count.
     private func controllerChanged(_ note: Notification) {
@@ -45,7 +52,9 @@ public struct StreamingView: View {
         }
         ToolbarItem(id:"sound") {
             Button(model.muted ? "Unmute Sound" : "Mute Sound",systemImage:model.muted ? "speaker.slash" : "speaker.wave.2") { model.muted.toggle() }
-                .help(model.audioStatus)
+                // The output's state, not `audioStatus`: its counts change every second, and reading
+                // them here would draw the whole toolbar again each time. Settings → Audio shows them.
+                .help(model.audioOutputStatus.label)
         }
         ToolbarItem(id:"microphone") {
             Button(model.microphoneMuted ? "Unmute Microphone" : "Mute Microphone",systemImage:model.microphoneMuted ? "mic.slash" : "mic") { model.microphoneMuted.toggle() }
@@ -96,15 +105,7 @@ public struct StreamingView: View {
             if let presenter = model.presenter {
                 VideoSurface(presenter: presenter,capture:model.inputCapture)
                     .overlay(alignment:.topLeading) {
-                        if model.showLatencyHUD {
-                            PerformanceOverlay(mode:model.overlayMode,stream:model.overlayStreamLine,
-                                               measures:OverlayMeasures(snapshot:model.videoTelemetry,network:model.health.measures),
-                                               hardware:model.hostHardware.reading) {
-                                LatencyHUD(snapshot:model.videoTelemetry,mode:presenter.pacingMode,output:presenter.videoOutput,bitrate:model.rates.status,network:model.health.measures)
-                            }
-                            .padding(12).allowsHitTesting(false)
-                            .transition(.opacity)
-                        }
+                        if model.showLatencyHUD { StreamOverlay(model:model,presenter:presenter).transition(.opacity) }
                     }
                     // Drawn over the picture, so macOS composites while it shows: three seconds,
                         // only when a pad comes or goes, the same trade as the performance overlay.
@@ -130,8 +131,10 @@ public struct StreamingView: View {
             else {
                 ZStack {
                     Color.black
-                    if model.isBusy { ProgressView(model.status).tint(.white).foregroundStyle(.white) }
-                    else if let error=model.errorMessage { streamEnded(error) }
+                    // An ended stream's error first: Mystic is busy going back to the PC's
+                    // library behind it, and Start Again appears once that is there.
+                    if let error=model.errorMessage,!model.hasSession { streamEnded(error) }
+                    else if model.isBusy { ProgressView(model.status).tint(.white).foregroundStyle(.white) }
                     else { Text("Not connected").foregroundStyle(.white) }
                 }
             }
@@ -151,7 +154,7 @@ public struct StreamingView: View {
         .toolbar {
             // Appears only while the output is lost, so the problem is visible without a menu.
             if model.canRetryAudio {
-                ToolbarItem { Button("Retry Audio",systemImage:"speaker.badge.exclamationmark") { model.retryAudioOutput() }.help(model.audioStatus) }
+                ToolbarItem { Button("Retry Audio",systemImage:"speaker.badge.exclamationmark") { model.retryAudioOutput() }.help(model.audioOutputStatus.label) }
             }
         }
         .windowToolbarFullScreenVisibility(.onHover)
@@ -159,7 +162,9 @@ public struct StreamingView: View {
             // The notch mode is opt-in and System-only, as macOS composites it (see `StreamVideoSettings.limited(to:)`).
             // Both settings are locked while a stream runs, so they match the stream in this window.
             if let window=$0 { NotchFullScreen.install(on:window) { [model] in model.videoOutput.coversNotch ? model.presenter?.videoSize ?? .zero : .zero } }
+            startFullScreenIfChosen($0)
         })
+        .onChange(of:model.hasSession,initial:true) { startFullScreenIfChosen(window) }
         .fullScreenCommandTarget()
         .onChange(of:controlling,initial:true) { updateDock() }
         .onReceive(StreamWindowEvents.windowChanges) { note in if let window,note.object as? NSWindow === window { updateDock() } }
@@ -200,6 +205,21 @@ public struct StreamingView: View {
             }.controlSize(.large)
         }
         .environment(\.colorScheme,.dark)
+    }
+}
+
+/// The performance overlay as its own view: its figures change every second, and read here
+/// they redraw only the overlay, not the stream window's toolbar and video surface with it.
+private struct StreamOverlay: View {
+    let model: ConnectionModel
+    let presenter: DisplayLayerPresenter
+    var body: some View {
+        PerformanceOverlay(mode:model.overlayMode,stream:model.overlayStreamLine,
+                           measures:OverlayMeasures(snapshot:model.videoTelemetry,network:model.health.measures),
+                           hardware:model.hostHardware.reading) {
+            LatencyHUD(snapshot:model.videoTelemetry,mode:presenter.pacingMode,output:presenter.videoOutput,bitrate:model.rates.status,network:model.health.measures)
+        }
+        .padding(12).allowsHitTesting(false)
     }
 }
 

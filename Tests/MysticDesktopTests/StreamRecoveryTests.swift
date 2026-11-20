@@ -148,6 +148,11 @@ final class StreamRecoveryTests: XCTestCase {
         XCTAssertEqual(library.phase,.ready);XCTAssertNil(library.quickResumeLaunch)
         library.disconnect()
     }
+    /// A stream that ended on an error: stopped, with its error on screen. The model then goes
+    /// back to the PC's library, so it does not rest at idle.
+    private func ended(_ model: ConnectionModel) -> Bool {
+        model.errorMessage != nil && !model.hasSession && model.phase != .disconnecting
+    }
     func testOnlyALeaveTheUserChoseQuitsTheGame() async throws {
         let host=RecoveryHost(),sessions=RecoverySessions()
         let model=try await running(host,sessions,RecoveryClock(),reconnect:false,configure:{ $0.quitsOnLeave=true })
@@ -292,7 +297,7 @@ final class StreamRecoveryTests: XCTestCase {
             let model=try await running(host,sessions,clock)
             if code != -100 { model.processMediaSnapshot(picture()) }
             sessions.all[0].emit(.terminated(code:code))
-            try await wait { model.phase == .idle }
+            try await wait { ended(model) }
             XCTAssertTrue(clock.delays.isEmpty)
             XCTAssertEqual(host.launches.count,1)
         }
@@ -303,7 +308,7 @@ final class StreamRecoveryTests: XCTestCase {
         model.waitForHostReason={ try await Task.sleep(for:.seconds(30)) }
         host.lastFailure="HDR is on, but the display is not in HDR"
         sessions.all[0].emit(.terminated(code:-104))
-        try await wait { model.phase == .idle }
+        try await wait { ended(model) }
         XCTAssertEqual(model.errorMessage?.hasSuffix("The PC reported: HDR is on, but the display is not in HDR"),true)
     }
     func testAPCThatDoesNotAnswerDoesNotHoldTheMessageBack() async throws {
@@ -312,7 +317,7 @@ final class StreamRecoveryTests: XCTestCase {
         host.holdInfo=true
         model.waitForHostReason={}
         sessions.all[0].emit(.terminated(code:-104))
-        try await wait { model.phase == .idle }
+        try await wait { ended(model) }
         XCTAssertEqual(model.errorMessage?.contains("The PC reported"),false)
     }
     func testRecoveryChainExhaustsBudgetEvenWhenNewAttemptHasNoPicture() async throws {
@@ -324,7 +329,7 @@ final class StreamRecoveryTests: XCTestCase {
             try await wait { sessions.all.count == attempt+1 && model.phase == .streaming }
         }
         sessions.all.last!.emit(.terminated(code:-100))
-        try await wait { model.phase == .idle }
+        try await wait { ended(model) }
         XCTAssertEqual(clock.delays,[1000,2000,4000,8000,12000])
         XCTAssertTrue(model.errorMessage?.contains("retry limit") == true)
     }
@@ -346,7 +351,7 @@ final class StreamRecoveryTests: XCTestCase {
             if scenario == 0 { host.changeApp(2) }
             if scenario == 1 { host.changeID("other-host") }
             model.processMediaSnapshot(picture());sessions.all[0].emit(.terminated(code:-100))
-            try await wait { model.phase == .idle }
+            try await wait { ended(model) }
             XCTAssertEqual(host.launches.count,1)
             XCTAssertNotNil(model.errorMessage)
             if scenario == 2 { XCTAssertTrue(clock.delays.isEmpty) }
@@ -384,7 +389,7 @@ final class StreamRecoveryTests: XCTestCase {
                 try await wait { sessions.all.count == 2 && model.phase == .streaming }
                 XCTAssertEqual(clock.delays,[1000,2000])
             } else {
-                try await wait { model.phase == .idle }
+                try await wait { ended(model) }
                 XCTAssertEqual(host.launches.count,1)
             }
             model.disconnect()
@@ -395,7 +400,7 @@ final class StreamRecoveryTests: XCTestCase {
         let model=try await running(host,sessions,clock)
         model.sleepForRecovery={ _ in clock.advance(60000) }
         model.processMediaSnapshot(picture());sessions.all[0].emit(.terminated(code:-100))
-        try await wait { model.phase == .idle }
+        try await wait { ended(model) }
         XCTAssertEqual(host.launches.count,1)
         XCTAssertTrue(model.errorMessage?.contains("expired") == true)
     }
@@ -409,7 +414,7 @@ final class StreamRecoveryTests: XCTestCase {
                 try await wait { sessions.all.count == 3 && model.phase == .streaming }
                 XCTAssertEqual(clock.delays,[1000,2000])
             } else {
-                try await wait { model.phase == .idle }
+                try await wait { ended(model) }
                 XCTAssertEqual(host.launches.count,2)
             }
             model.disconnect()

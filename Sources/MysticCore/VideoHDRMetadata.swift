@@ -12,12 +12,16 @@ public struct VideoHDRMetadata: Sendable, Equatable {
                          contentLightLevel: newer.contentLightLevel ?? contentLightLevel)
     }
     public static func extractNAL(from data: Data, codec: VideoCodec) throws -> VideoHDRMetadata {
+        try data.withUnsafeBytes { try extractNAL(from: $0, ranges: AnnexB.nalUnitRanges(in: $0), codec: codec) }
+    }
+    /// The same, from units already found in borrowed bytes. Only SEI units are copied: the
+    /// picture's own units, which are nearly all of a frame, are passed over by their type.
+    public static func extractNAL(from raw: UnsafeRawBufferPointer, ranges: [Range<Int>], codec: VideoCodec) throws -> VideoHDRMetadata {
         var result = VideoHDRMetadata()
-        for range in AnnexB.nalUnitRanges(in: data) {
-            let nal = Data(data[range])
-            guard let h = nal.first else { continue }
-            let type = codec.nalUnitType(h)
+        for range in ranges {
+            let type = codec.nalUnitType(raw[range.lowerBound])
             guard codec == .h264 ? type == 6 : (type == 39 || type == 40) else { continue }
+            let nal = Data(UnsafeRawBufferPointer(rebasing: raw[range]))
             let headerSize = codec == .h264 ? 1 : 2
             guard nal.count > headerSize else { throw AV1.ParseError.malformed }
             let bytes = Array(AnnexB.stripEmulationPrevention(Data(nal.dropFirst(headerSize))))
@@ -64,9 +68,13 @@ public struct VideoHDRMetadata: Sendable, Equatable {
         return out
     }
     public static func extractAV1(from data: Data) throws -> VideoHDRMetadata {
+        try data.withUnsafeBytes { try extractAV1(from: $0, units: AV1.unitRanges(in: $0)) }
+    }
+    /// The same, from units already found in borrowed bytes; only metadata units are copied.
+    public static func extractAV1(from raw: UnsafeRawBufferPointer, units: [AV1.UnitRange]) throws -> VideoHDRMetadata {
         var result = VideoHDRMetadata()
-        for unit in try AV1.units(in: data) where unit.type == 5 {
-            let bytes = Array(unit.payload)
+        for unit in units where unit.type == 5 {
+            let bytes = Array(UnsafeRawBufferPointer(rebasing: raw[unit.payload]))
             var type: UInt64 = 0, offset = 0
             for n in 0..<8 {
                 guard offset < bytes.count else { throw AV1.ParseError.malformed }

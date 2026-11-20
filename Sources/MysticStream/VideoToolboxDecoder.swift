@@ -105,7 +105,7 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
             guard !frame.data.isEmpty, frame.data.count <= 32 * 1024 * 1024 else { return fail("empty or oversized frame") }
             do {
                 // C memory belongs to the callback. Both sample storage and config own their bytes.
-                let next = try CompressedVideo.make(Data(frame.data), format: format, previous: compressed)
+                let next = try CompressedVideo.make(frame.data, format: format, previous: compressed)
                 let changed = next.configuration != compressed?.configuration
                 if changed && !frame.isKeyFrame { return fail("configuration changed outside keyframe") }
                 let rebuilding = changed || session == nil || recovery.needsKeyFrame
@@ -118,7 +118,7 @@ public final class VideoToolboxDecoder: VideoConsumer, @unchecked Sendable {
                     session = try hardwareSession(description: next.description, pixelFormat: format.pixelFormat(fullRange: fullRange))
                 }
                 guard recovery.accept(isKeyFrame: frame.isKeyFrame, hasConfiguration: true), let session else { return .needIDR }
-                compressed = CompressedVideo(description: next.description, configuration: next.configuration, payload: Data(), hdrMetadata: next.hdrMetadata)
+                compressed = next.withoutPayload
                 if origin == nil { origin = frame.presentationTimeMicros }
                 guard let relative = VideoTimestamp.relativeMicros(frame.presentationTimeMicros, origin: origin!) else {
                     invalidate(); log("PTS regressed or overflowed; resetting timestamp origin")
