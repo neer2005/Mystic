@@ -137,7 +137,47 @@ public struct PresentationMetrics: Sendable, Equatable {
     public mutating func hold(micros: Int64) { holdMicros=micros }
     public mutating func phase(leadMicros: Int32) { phaseLeadMicros=leadMicros }
     public mutating func shown(_ cadence: ShownCadence) { self.cadence=cadence }
-    public mutating func renderer(dropped: UInt64?,corrupted: UInt64?) {
-        rendererDroppedFrames=dropped;rendererCorruptedFrames=corrupted
+    /// Why the Metal renderer lost its frames; nil from the display layer, which gives only a total.
+    public private(set) var rendererDropCauses: RendererDropCauses?
+    public mutating func renderer(dropped: UInt64?,corrupted: UInt64?,causes: RendererDropCauses? = nil) {
+        rendererDroppedFrames=dropped;rendererCorruptedFrames=corrupted;rendererDropCauses=causes
+    }
+}
+
+/// Why the Metal renderer lost a frame. One total hid which way it went: frames that waited out a
+/// refresh for a drawable mean presents bunch up on the refresh grid, while frames presented and
+/// never shown were replaced on screen before the display took them, or their window was hidden.
+public enum RendererDropCause: Sendable, CaseIterable {
+    /// Skipped after waiting longer than the limit for a drawable, so the queue drains (V-Sync on).
+    case waited
+    /// `nextDrawable` gave nothing, which it does after about a second.
+    case noDrawable
+    /// Presented, but reported shown at time zero.
+    case notShown
+    /// Replaced in the slot by a newer frame before a drawable was free (V-Sync off).
+    case replaced
+    /// No command buffer to draw it with.
+    case failed
+
+    var label: String {
+        switch self {
+        case .waited: "waited"
+        case .noDrawable: "no drawable"
+        case .notShown: "not shown"
+        case .replaced: "replaced"
+        case .failed: "failed"
+        }
+    }
+}
+
+public struct RendererDropCauses: Sendable, Equatable {
+    public private(set) var counts: [RendererDropCause: UInt64]=[:]
+    public init() {}
+    public var total: UInt64 { counts.values.reduce(0,&+) }
+    public subscript(_ cause: RendererDropCause) -> UInt64 { counts[cause,default:0] }
+    public mutating func count(_ cause: RendererDropCause) { counts[cause,default:0] &+= 1 }
+    /// The causes that happened, in a fixed order: "waited 900, not shown 283".
+    public var summary: String {
+        RendererDropCause.allCases.compactMap { cause in self[cause] > 0 ? "\(cause.label) \(self[cause])" : nil }.joined(separator:", ")
     }
 }

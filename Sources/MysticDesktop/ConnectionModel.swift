@@ -982,7 +982,7 @@ public final class ConnectionModel {
     private func logPresentation(mode: FramePacingMode) {
         guard let snapshot=videoTelemetry else { return }
         let presentation=snapshot.presentation
-        var line="Presentation (\(mode.label)): submitted \(snapshot.submitted), decoded \(snapshot.decoded), enqueued \(snapshot.enqueued), queue peak \(presentation.peakQueueDepth), late \(presentation.lateFrames), drops \(presentation.droppedFrames), renderer drops \(presentation.rendererDroppedFrames.map(String.init) ?? "none reported"), timeline resets \(presentation.resynchronizations)"
+        var line="Presentation (\(mode.label)): submitted \(snapshot.submitted), decoded \(snapshot.decoded), enqueued \(snapshot.enqueued), queue peak \(presentation.peakQueueDepth), late \(presentation.lateFrames), drops \(presentation.droppedFrames), renderer drops \(presentation.rendererDroppedFrames.map(String.init) ?? "none reported")\(presentation.rendererDropCauses.map { $0.total > 0 ? " (\($0.summary))" : "" } ?? ""), timeline resets \(presentation.resynchronizations)"
         if let hold=presentation.holdMicros { line+=", held \(hold) us" }
         if let shown=presentation.cadence.summary {
             line+=", shown \(presentation.cadence.shown) every \(shown.p50)/\(shown.p95)/\(shown.p99) us, uneven \(Int((presentation.cadence.unevenShare ?? 0)*100))%"

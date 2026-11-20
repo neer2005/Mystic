@@ -290,6 +290,7 @@ private struct LatencyHUD: View {
                 Text("Presenter drops \(presentation.droppedFrames) · Superseded \(presentation.drops[.superseded,default:0]) · Late \(presentation.drops[.late,default:0])")
                 Text("Order/time \(presentation.drops[.outOfOrder,default:0] + presentation.drops[.invalidTimestamp,default:0]) · Reset discards \(presentation.drops[.reset,default:0]) · Enqueue errors \(presentation.drops[.enqueueFailure,default:0])")
                 Text("Timeline resets \(presentation.resynchronizations) · Renderer drops \(presentation.rendererDroppedFrames.map(String.init) ?? "—") · Corrupt \(presentation.rendererCorruptedFrames.map(String.init) ?? "—")")
+                if let causes=presentation.rendererDropCauses,causes.total > 0 { Text("Renderer drops: \(causes.summary)") }
             } else { Text("Waiting for video measurements…") }
             Text("Enqueue ends at renderer acceptance.\nNetwork transit and screen latency unavailable.")
                 .foregroundStyle(.secondary)

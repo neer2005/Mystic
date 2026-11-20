@@ -210,9 +210,15 @@ final class MetalPresentationReceiver: PresentationReceiver {
         drawer=try MetalFrameDrawer();self.clock=clock;self.waitsForRefresh=waitsForRefresh
         layer.device=drawer.device
         layer.framebufferOnly=true;layer.isOpaque=true
-        // V-Sync on two, as SDL's double buffering on Windows: a shorter queue. Without V-Sync a
-        // frame goes at once, and on two it could wait out a refresh for a drawable.
-        layer.maximumDrawableCount=waitsForRefresh ? 2 : 3
+        // Three drawables, chosen for even frames over delay. V-Sync had two, as SDL's double
+        // buffering on Windows, for a shorter queue. On macOS 27.2.1 two lost a fifth to a third of
+        // frames at 120 fps: frames reached the Mac about 4 ms after the refresh phase lock aimed
+        // for, so the next one waited out a refresh for a drawable and was skipped. With three, a
+        // late frame waits a refresh instead: on TestUFO at home, 0.6% lost and every gap 8.3 ms,
+        // but PC to screen about 32 ms against 22 ms, a refresh more. Back to two once phase lock
+        // lands frames before the refresh. The skip after `drawableWaitLimit` still keeps the queue
+        // from filling. Without V-Sync a frame goes at once, and on two it could wait out a refresh.
+        layer.maximumDrawableCount=3
         // Off presents at once, as Nightjar's immediate mode. iOS has no such switch: its layer
         // always waits for the refresh.
         #if os(macOS)
@@ -248,10 +254,10 @@ final class MetalPresentationReceiver: PresentationReceiver {
                 renderQueue.async {
                     defer { done.resume() }
                     let asked=CACurrentMediaTime()
-                    guard let drawable=target.layer.nextDrawable() else { slot.countMissed();return }
+                    guard let drawable=target.layer.nextDrawable() else { slot.countMissed(.noDrawable);return }
                     // Waiting means every drawable is queued, and left alone they stay queued: about
                     // 20 ms more delay and one frame in four lost. Skipping this one lets them drain.
-                    if CACurrentMediaTime()-asked > Self.drawableWaitLimit { slot.countMissed();return }
+                    if CACurrentMediaTime()-asked > Self.drawableWaitLimit { slot.countMissed(.waited);return }
                     if let phaseReport,let ready=frame.readySeconds,let latch=slot.lastShownSeconds,let period=slot.refreshNanos {
                         func micros(_ seconds: CFTimeInterval) -> Int64 { Int64(seconds*1_000_000) }
                         phaseReport(UInt64(micros(ready)),UInt64(micros(CACurrentMediaTime())),micros(latch),period)
@@ -280,13 +286,13 @@ final class MetalPresentationReceiver: PresentationReceiver {
     private nonisolated static let drawableWaitLimit: CFTimeInterval=0.004
     private nonisolated static func draw(_ frame: RenderFrame,on drawable: any CAMetalDrawable,_ drawer: MetalFrameDrawer,_ clock: @Sendable () -> CMTime,_ slot: MetalFrameSlot<RenderFrame>) {
         let picked=CACurrentMediaTime()
-        guard let commands=drawer.queue.makeCommandBuffer() else { slot.countMissed();return }
+        guard let commands=drawer.queue.makeCommandBuffer() else { slot.countMissed(.failed);return }
         do {
             try drawer.encode(frame.image,to:drawable.texture,commands:commands,toneMap:frame.toneMap)
             let times=FrameTimes()
             commands.addCompletedHandler { _ in times.set(CACurrentMediaTime()) }
             drawable.addPresentedHandler { [committed=CACurrentMediaTime()] in
-                if $0.presentedTime == 0 { slot.countMissed();return }
+                if $0.presentedTime == 0 { slot.countMissed(.notShown);return }
                 slot.recordShown(seconds:$0.presentedTime,ready:frame.readySeconds)
                 frame.shown?($0.presentedTime)
                 if let host=frame.timing?.hostMicros,let received=frame.timing?.receiveMicros { slot.recordFromPC(host:host,received:received,shownSeconds:$0.presentedTime) }
@@ -299,8 +305,8 @@ final class MetalPresentationReceiver: PresentationReceiver {
             commands.commit()
         } catch { slot.fail(error) }
     }
-    /// Frames replaced, timed out or never shown, like the display layer's own drop count.
-    var droppedFrames: UInt64 { slot.missed }
+    /// Frames replaced, timed out or never shown, like the display layer's own drop count, by cause.
+    var dropCauses: RendererDropCauses { slot.causes }
     var cadence: ShownCadence { slot.cadence }
     /// PQ goes without `edrMetadata`: with it macOS tone maps in the compositor and full screen is
     /// no longer direct to the display, so the shader tone maps instead (`HDRToneMap`). HLG keeps
@@ -365,13 +371,13 @@ final class MetalFrameSlot<Frame>: @unchecked Sendable {
     private var frames: [Frame]=[]
     private var draining=false
     private var failure: (any Error)?
-    private var missedCount: UInt64=0
+    private var missedCauses=RendererDropCauses()
     private var shown=ShownCadence()
     init(capacity: Int = 1) { self.capacity=max(1,capacity) }
     /// True when the caller must start draining.
     func offer(_ next: Frame) -> Bool {
         lock.lock();defer { lock.unlock() }
-        if frames.count >= capacity { frames.removeFirst();missedCount += 1 }
+        if frames.count >= capacity { frames.removeFirst();missedCauses.count(.replaced) }
         frames.append(next)
         if draining { return false };draining=true;return true
     }
@@ -382,10 +388,10 @@ final class MetalFrameSlot<Frame>: @unchecked Sendable {
         return true
     }
     func take() -> Frame? { lock.lock();defer { lock.unlock() };return frames.isEmpty ? nil : frames.removeFirst() }
-    func discardWaiting() { lock.lock();defer { lock.unlock() };if !frames.isEmpty { missedCount += 1;frames.removeFirst() } }
+    func discardWaiting() { lock.lock();defer { lock.unlock() };if !frames.isEmpty { missedCauses.count(.noDrawable);frames.removeFirst() } }
     /// A flush: the waiting frame is no longer wanted, which is not a miss.
     func clear() { lock.lock();defer { lock.unlock() };frames=[] }
-    func countMissed() { lock.lock();defer { lock.unlock() };missedCount += 1 }
+    func countMissed(_ cause: RendererDropCause) { lock.lock();defer { lock.unlock() };missedCauses.count(cause) }
     func recordShown(seconds: CFTimeInterval,ready: CFTimeInterval? = nil) {
         lock.lock();defer { lock.unlock() }
         lastShown=seconds
@@ -409,7 +415,8 @@ final class MetalFrameSlot<Frame>: @unchecked Sendable {
         shown.record(pcToReceivedMicros:Int64(received)-onEngine,pcToShownMicros:Int64(shownSeconds*1_000_000)-(onEngine+engineToMedia))
     }
     var cadence: ShownCadence { lock.lock();defer { lock.unlock() };return shown }
-    var missed: UInt64 { lock.lock();defer { lock.unlock() };return missedCount }
+    var missed: UInt64 { causes.total }
+    var causes: RendererDropCauses { lock.lock();defer { lock.unlock() };return missedCauses }
     func fail(_ error: any Error) { lock.lock();defer { lock.unlock() };failure=error }
     /// Reported once, at the next frame, through the presenter's usual failure path.
     func takeFailure() -> (any Error)? { lock.lock();defer { lock.unlock() };defer { failure=nil };return failure }
