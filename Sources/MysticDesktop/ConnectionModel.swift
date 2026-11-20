@@ -710,7 +710,7 @@ public final class ConnectionModel {
     private func findNetworkKind(token: UUID) async {
         let address=connectedAddress,report=await lookUpRoute(address,connectedPort)
         guard generation == token else { return }
-        networkKind=NetworkKind.of(metered:report.metered,vpn:report.vpn,localHost:NetworkKind.isLocal(address),wireless:report.route?.wireless)
+        networkKind=NetworkKind.of(metered:report.metered,vpn:report.vpn,localHost:NetworkKind.isLocal(address,tunneled:report.interface == nil ? nil : report.vpn),wireless:report.route?.wireless)
         let profile=activeNetworkProfile.map { " Network profile: \($0.name) (\($0.overrides.summary))." } ?? ""
         record("Network toward the host: \(networkKind?.label ?? "unknown").\(profile)",token:token)
     }
